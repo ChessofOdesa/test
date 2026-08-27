@@ -1,0 +1,50 @@
+{
+  "$schema": "https://raw.githubusercontent.com/figma-tokens/figma-tokens/main/schema.json",
+  "name": "Chess.od Figma Tokens",
+  "version": "1.0.0",
+  "tokens": {
+    "color": {
+      "background": { "value": "#1A1A1A" },
+      "background-alt": { "value": "#2B2B2B" },
+      "accent": { "value": "#7FA650" },
+      "dark-element": { "value": "#4A7C59" },
+      "text-primary": { "value": "#FFFFFF" },
+      "text-muted": { "value": "#CCCCCC" },
+      "cta": { "value": "#81B64C" },
+      "cta-hover": { "value": "#6FA040" },
+      "danger": { "value": "#C0392B" },
+      "card-bg": { "value": "#2D2D2D" },
+      "card-border": { "value": "#3D3D3D" },
+      "board-light": { "value": "#F0D9B5" },
+      "board-dark": { "value": "#B58863" }
+    },
+    "typography": {
+      "heading": {
+        "fontFamily": { "value": "Montserrat" },
+        "fontWeight": { "value": "700" },
+        "fontSize": { "value": "44" }
+      },
+      "body": {
+        "fontFamily": { "value": "Open Sans" },
+        "fontWeight": { "value": "400" },
+        "fontSize": { "value": "16" }
+      },
+      "button": {
+        "fontFamily": { "value": "Open Sans" },
+        "fontWeight": { "value": "600" },
+        "fontSize": { "value": "14" },
+        "letterSpacing": { "value": "1px" },
+        "textTransform": { "value": "uppercase" }
+      },
+      "mono": {
+        "fontFamily": { "value": "Roboto Mono" }
+      }
+    },
+    "radius": {
+      "default": { "value": "6" }
+    },
+    "shadow": {
+      "card": { "value": "0 6px 18px rgba(0,0,0,0.45)" }
+    }
+  }
+}

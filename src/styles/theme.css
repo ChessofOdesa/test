@@ -1,0 +1,50 @@
+@import url('https://fonts.googleapis.com/css2?family=Montserrat:wght@700;800&family=Roboto+Condensed:wght@700&family=Open+Sans:wght@400;600&family=Roboto+Mono&display=swap');
+
+:root {
+  /* Palette */
+  --bg-dark: #1A1A1A;
+  --bg-alt: #2B2B2B;
+  --accent: #7FA650;
+  --dark-element: #4A7C59;
+  --text-primary: #FFFFFF;
+  --text-muted: #CCCCCC;
+  --cta: #81B64C;
+  --cta-hover: #6FA040;
+  --danger: #C0392B;
+  --card-bg: #2D2D2D;
+  --card-border: #3D3D3D;
+  --board-light: #F0D9B5;
+  --board-dark: #B58863;
+
+  /* Tokens */
+  --border-radius: 6px;
+  --h1-size: 44px;
+  --btn-size: 14px;
+
+  /* Typography */
+  --font-heading: 'Montserrat', 'Roboto Condensed', sans-serif;
+  --font-body: 'Open Sans', 'Roboto', sans-serif;
+  --font-mono: 'Roboto Mono', monospace;
+}
+
+/* Utility helpers */
+.btn-cta {
+  background-color: var(--cta);
+  color: var(--text-primary);
+  border-radius: var(--border-radius);
+  padding: 0.6rem 1.25rem;
+  font-size: var(--btn-size);
+  text-transform: uppercase;
+  letter-spacing: 1px;
+  transition: background-color 0.18s ease;
+}
+.btn-cta:hover { background-color: var(--cta-hover); }
+.card {
+  background: var(--card-bg);
+  border: 1px solid var(--card-border);
+  border-radius: calc(var(--border-radius) + 2px);
+  box-shadow: 0 6px 18px rgba(0,0,0,0.45);
+}
+
+.board-square--light { background-color: var(--board-light); }
+.board-square--dark { background-color: var(--board-dark); }

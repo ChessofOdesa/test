@@ -1,0 +1,249 @@
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap');
+@import './styles/theme.css';
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  :root {
+    --background: 0 0% 10%; /* #1A1A1A */
+    --foreground: 0 0% 100%; /* #FFFFFF */
+    --font-display: "Montserrat", "Roboto Condensed", "Inter", sans-serif;
+    --font-ui-mono: "Roboto Mono", ui-monospace, SFMono-Regular, monospace;
+
+    --card: 0 0% 17%; /* #2D2D2D */
+    --card-foreground: 0 0% 100%;
+
+    --popover: 0 0% 14%;
+    --popover-foreground: 0 0% 100%;
+
+    --primary: 0 0% 100%;
+    --primary-foreground: 0 0% 10%;
+
+    --secondary: 0 0% 18%;
+    --secondary-foreground: 0 0% 80%;
+
+    --muted: 0 0% 18%;
+    --muted-foreground: 0 0% 65%;
+
+    --accent: 87 35% 48%; /* #7FA650 */
+    --accent-foreground: 0 0% 100%;
+
+    --destructive: 6 63% 46%; /* #C0392B */
+    --destructive-foreground: 0 0% 100%;
+
+    --border: 0 0% 24%;
+    --input: 0 0% 22%;
+    --ring: 87 35% 48%;
+
+    --radius: 0.375rem; /* 6px */
+
+    --chess-light: 37 66% 83%; /* #F0D9B5 */
+    --chess-dark: 27 36% 55%;  /* #B58863 */
+    --chess-highlight: 87 35% 48%;
+    --chess-move: 90 42% 50%;
+    --chess-check: 6 63% 46%;
+    --chess-correct: 138 25% 39%;
+
+    --green: 90 42% 50%;
+    --green-dark: 91 43% 44%;
+    --green-bg: 90 42% 50%;
+    --gold: 42 55% 54%;
+    --red: 6 63% 46%;
+    --blue: 210 60% 55%;
+
+    --gradient-primary: linear-gradient(135deg, hsl(90 42% 50%), hsl(87 35% 48%));
+    --gradient-dark: linear-gradient(180deg, hsl(0 0% 10%), hsl(0 0% 14%));
+    --gradient-card: linear-gradient(145deg, hsl(0 0% 17%), hsl(0 0% 14%));
+
+    --shadow-primary: 0 0 20px -5px hsl(90 42% 50% / 0.28);
+    --shadow-card: 0 8px 32px -8px hsl(0 0% 0% / 0.5);
+
+    --font-body: 'Open Sans', 'Roboto', -apple-system, 'Segoe UI', sans-serif;
+
+    --sidebar-background: 0 0% 12%;
+    --sidebar-foreground: 0 0% 100%;
+    --sidebar-primary: 0 0% 100%;
+    --sidebar-primary-foreground: 0 0% 10%;
+    --sidebar-accent: 0 0% 18%;
+    --sidebar-accent-foreground: 0 0% 95%;
+    --sidebar-border: 0 0% 22%;
+    --sidebar-ring: 87 35% 48%;
+  }
+}
+
+@layer base {
+  * {
+    @apply border-border;
+  }
+
+  body {
+    @apply bg-background text-foreground;
+    font-family: var(--font-body);
+  }
+
+  h1, h2, h3, h4 {
+    font-family: var(--font-body);
+    font-weight: 700;
+  }
+}
+
+@layer utilities {
+  .text-gradient-green {
+    background: linear-gradient(135deg, hsl(0 0% 100%), hsl(210 20% 80%));
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    background-clip: text;
+  }
+
+  .text-gradient-gold {
+    background: linear-gradient(135deg, hsl(0 0% 100%), hsl(210 20% 80%));
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    background-clip: text;
+  }
+
+  .bg-gradient-green {
+    background: linear-gradient(135deg, hsl(0 0% 100%), hsl(210 20% 85%));
+  }
+
+  .bg-gradient-gold {
+    background: linear-gradient(135deg, hsl(0 0% 100%), hsl(210 20% 85%));
+  }
+
+  .bg-gradient-card {
+    background: linear-gradient(145deg, hsl(220 12% 16%), hsl(220 12% 12%));
+  }
+
+  .shadow-green {
+    box-shadow: 0 0 20px -5px hsl(210 60% 55% / 0.3);
+  }
+
+  .shadow-gold {
+    box-shadow: 0 0 20px -5px hsl(210 60% 55% / 0.3);
+  }
+
+  .shadow-card {
+    box-shadow: 0 8px 32px -8px hsl(0 0% 0% / 0.5);
+  }
+
+  .font-display {
+    font-family: var(--font-display);
+  }
+
+  .font-ui-mono {
+    font-family: var(--font-ui-mono);
+  }
+
+  .lesson-surface {
+    background:
+      radial-gradient(circle at top left, rgba(129, 182, 76, 0.12), transparent 34%),
+      linear-gradient(180deg, rgba(38, 42, 39, 0.96), rgba(27, 30, 28, 0.96));
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    box-shadow: 0 24px 60px rgba(0, 0, 0, 0.28);
+  }
+
+  .lesson-surface-soft {
+    background: linear-gradient(180deg, rgba(31, 35, 33, 0.94), rgba(24, 27, 25, 0.94));
+    border: 1px solid rgba(255, 255, 255, 0.07);
+  }
+
+  .lesson-card-hover {
+    transition:
+      transform 0.2s ease,
+      border-color 0.2s ease,
+      box-shadow 0.2s ease,
+      background-color 0.2s ease;
+  }
+
+  .lesson-card-hover:hover {
+    transform: translateY(-4px);
+    border-color: rgba(129, 182, 76, 0.3);
+    box-shadow: 0 18px 44px rgba(129, 182, 76, 0.12);
+  }
+
+  .lesson-pill-active {
+    box-shadow: 0 0 0 1px rgba(129, 182, 76, 0.28), 0 10px 28px rgba(129, 182, 76, 0.14);
+  }
+
+  .lesson-pgn {
+    --c-lpv-bg: #1d211f;
+    --c-lpv-bg-controls: #202521;
+    --c-lpv-bg-movelist: #202521;
+    --c-lpv-bg-player: #202521;
+    --c-lpv-bg-variation: #171b18;
+    --c-lpv-bg-pane: #263126;
+    --c-lpv-border: rgba(255, 255, 255, 0.08);
+    --c-lpv-side-border: rgba(255, 255, 255, 0.06);
+    --c-lpv-font: #c9d0c5;
+    --c-lpv-font-shy: #94a08f;
+    --c-lpv-font-bg: #545c53;
+    --c-lpv-accent: #81b64c;
+    --c-lpv-current-move: #5d9948;
+    --c-lpv-move-hover: rgba(129, 182, 76, 0.3);
+    --c-lpv-accent-over: #ffffff;
+    --board-color: #81b64c;
+  }
+
+  .lesson-pgn .lpv {
+    border-radius: 18px;
+    border: 1px solid rgba(255, 255, 255, 0.06);
+    box-shadow: none;
+  }
+
+  .lesson-pgn .lpv__moves {
+    max-height: 240px;
+  }
+
+  .lesson-pgn .lpv__player__person,
+  .lesson-pgn .lpv__moves,
+  .lesson-pgn .lpv__pgn__text {
+    font-family: var(--font-body);
+  }
+
+  .border-gold {
+    border-color: hsl(210 60% 55% / 0.3);
+  }
+
+  .glow-green {
+    filter: drop-shadow(0 0 8px hsl(210 60% 55% / 0.4));
+  }
+
+  .glow-gold {
+    filter: drop-shadow(0 0 8px hsl(210 60% 55% / 0.4));
+  }
+
+  /* Chess.com style correct/wrong highlights */
+  @keyframes correct-pulse {
+    0% { box-shadow: inset 0 0 0 3px hsl(145 55% 45% / 0.8); }
+    50% { box-shadow: inset 0 0 20px 3px hsl(145 55% 45% / 0.5); }
+    100% { box-shadow: inset 0 0 0 3px hsl(145 55% 45% / 0.8); }
+  }
+
+  @keyframes wrong-pulse {
+    0% { box-shadow: inset 0 0 0 3px hsl(0 65% 48% / 0.8); }
+    50% { box-shadow: inset 0 0 20px 3px hsl(0 65% 48% / 0.5); }
+    100% { box-shadow: inset 0 0 0 3px hsl(0 65% 48% / 0.8); }
+  }
+
+  .highlight-correct {
+    animation: correct-pulse 0.6s ease-in-out 2;
+    background-color: hsl(145 55% 45% / 0.45) !important;
+  }
+
+  .highlight-wrong {
+    animation: wrong-pulse 0.4s ease-in-out 2;
+    background-color: hsl(0 65% 48% / 0.4) !important;
+  }
+
+  /* Online pulse */
+  @keyframes online-pulse {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0.3; }
+  }
+
+  .animate-online-pulse {
+    animation: online-pulse 2s ease-in-out infinite;
+  }
+}

@@ -1,0 +1,42 @@
+{
+  "$schema": "https://raw.githubusercontent.com/seek-oss/tokens/main/schemas/tokens.json",
+  "name": "Chess.od Theme",
+  "tokens": {
+    "color": {
+      "background": { "value": "#1A1A1A" },
+      "background-alt": { "value": "#2B2B2B" },
+      "accent": { "value": "#7FA650" },
+      "dark-element": { "value": "#4A7C59" },
+      "text-primary": { "value": "#FFFFFF" },
+      "text-muted": { "value": "#CCCCCC" },
+      "cta": { "value": "#81B64C" },
+      "cta-hover": { "value": "#6FA040" },
+      "danger": { "value": "#C0392B" },
+      "card-bg": { "value": "#2D2D2D" },
+      "card-border": { "value": "#3D3D3D" },
+      "board-light": { "value": "#F0D9B5" },
+      "board-dark": { "value": "#B58863" }
+    },
+    "typography": {
+      "font": {
+        "heading": { "value": "Montserrat, Roboto Condensed, sans-serif" },
+        "body": { "value": "Open Sans, Roboto, sans-serif" },
+        "mono": { "value": "Roboto Mono, monospace" }
+      },
+      "size": {
+        "h1": { "value": "44" },
+        "button": { "value": "14" }
+      },
+      "weight": {
+        "heading": { "value": "700" },
+        "body": { "value": "400" }
+      }
+    },
+    "radius": {
+      "default": { "value": "6" }
+    },
+    "shadow": {
+      "card": { "value": "0 6px 18px rgba(0,0,0,0.45)" }
+    }
+  }
+}

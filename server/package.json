@@ -1,0 +1,17 @@
+{
+  "name": "chess-of-odesa-server",
+  "version": "1.0.0",
+  "type": "module",
+  "main": "server.js",
+  "scripts": {
+    "start": "node --env-file=.env server.js",
+    "dev": "node --watch --env-file=.env server.js"
+  },
+  "dependencies": {
+    "chess.js": "^1.4.0",
+    "ws": "^8.16.0"
+  },
+  "engines": {
+    "node": ">=20.6.0"
+  }
+}
