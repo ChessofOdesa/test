@@ -131,7 +131,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
             marketing_opt_in: payload.marketingOptIn,
             avatar_url: payload.avatarUrl || null,
           },
-          emailRedirectTo: `${window.location.origin}/login`,
+          // Redirect to the origin root so email confirmation also works on
+          // static hosts before their SPA fallback routing is configured.
+          emailRedirectTo: window.location.origin,
         },
       });
 
