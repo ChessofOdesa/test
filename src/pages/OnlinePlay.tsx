@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { motion } from "framer-motion";
-import { useNavigate } from "react-router-dom";
+import { useNavigate, useSearchParams } from "react-router-dom";
 import {
   Clock,
   Globe,
@@ -27,8 +27,16 @@ type ColorChoice = "random" | "w" | "b";
 
 export default function OnlinePlay() {
   const navigate = useNavigate();
-  const [selectedTime, setSelectedTime] = useState(1);
-  const [colorChoice, setColorChoice] = useState<ColorChoice>("random");
+  const [searchParams] = useSearchParams();
+  const [selectedTime, setSelectedTime] = useState(() => {
+    const requested = searchParams.get("time");
+    const index = TIME_CONTROLS.findIndex((control) => control.time === requested);
+    return index >= 0 ? index : 1;
+  });
+  const [colorChoice, setColorChoice] = useState<ColorChoice>(() => {
+    const requested = searchParams.get("color");
+    return requested === "w" || requested === "b" || requested === "random" ? requested : "random";
+  });
   const {
     connected,
     game,

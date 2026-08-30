@@ -21,7 +21,7 @@ import {
   Volume2,
   VolumeX,
 } from "lucide-react";
-import { useNavigate } from "react-router-dom";
+import { useNavigate, useSearchParams } from "react-router-dom";
 import ChessBoard from "@/components/ChessBoard";
 import ChessTimer from "@/components/ChessTimer";
 import EvalBar from "@/components/EvalBar";
@@ -439,6 +439,7 @@ const BOTS: BotProfile[] = [
 export default function Play() {
   const { user } = useAuth();
   const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
   const isMobile = useIsMobile();
   const {
     theme,
@@ -455,8 +456,14 @@ export default function Play() {
   });
 
   const [selectedBotId, setSelectedBotId] = useState("andriy");
-  const [selectedSide, setSelectedSide] = useState<SideChoice>("w");
-  const [selectedTimeControl, setSelectedTimeControl] = useState<TimeControlId>("unlimited");
+  const [selectedSide, setSelectedSide] = useState<SideChoice>(() => {
+    const requested = searchParams.get("color");
+    return requested === "w" || requested === "b" || requested === "random" ? requested : "w";
+  });
+  const [selectedTimeControl, setSelectedTimeControl] = useState<TimeControlId>(() => {
+    const requested = searchParams.get("time") as TimeControlId | null;
+    return TIME_CONTROLS.some((control) => control.id === requested) ? requested! : "unlimited";
+  });
   const [flipBoard, setFlipBoard] = useState(false);
   const [highlightMoves, setHighlightMoves] = useState(true);
   const [soundEnabled, setSoundEnabled] = useState(true);

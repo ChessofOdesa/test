@@ -10,6 +10,7 @@ import { BoardSettingsProvider } from "@/contexts/BoardSettingsContext";
 import { AuthProvider, useAuth } from "@/hooks/useAuth";
 import { OnlineGameProvider } from "@/hooks/useOnlineGame";
 import Index from "./pages/Index";
+import PlayHub from "./pages/PlayHub";
 import Play from "./pages/Play";
 import OnlinePlay from "./pages/OnlinePlay";
 import PuzzlesPage from "./pages/Puzzles";
@@ -87,7 +88,8 @@ function AppShell() {
         <main className="flex-1 overflow-y-auto">
           <Routes>
             <Route path="/" element={<Index />} />
-            <Route path="/play" element={<Play />} />
+            <Route path="/play" element={<PlayHub />} />
+            <Route path="/play/computer" element={<Play />} />
             <Route path="/online" element={<RequireAccount><OnlinePlay /></RequireAccount>} />
             <Route path="/puzzles" element={<PuzzlesPage />} />
             <Route path="/learn" element={<Navigate to="/lessons" replace />} />

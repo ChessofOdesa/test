@@ -40,8 +40,11 @@ export function AppSidebar() {
   const { pathname } = useLocation();
   const { user } = useAuth();
 
-  const isActive = (path: string) =>
-    path === "/lessons" ? pathname === "/lessons" || pathname === "/learn" : pathname === path;
+  const isActive = (path: string) => {
+    if (path === "/lessons") return pathname === "/lessons" || pathname === "/learn";
+    if (path === "/play") return pathname === "/play" || pathname.startsWith("/play/");
+    return pathname === path;
+  };
   const userLabel =
     user?.user_metadata?.display_name ||
     user?.user_metadata?.username ||
