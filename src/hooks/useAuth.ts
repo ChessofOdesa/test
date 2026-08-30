@@ -1,4 +1,5 @@
 import {
+  createElement,
   createContext,
   useContext,
   useEffect,
@@ -193,7 +194,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     };
   }, [guestUser, loading, session]);
 
-  return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
+  return createElement(AuthContext.Provider, { value }, children);
 }
 
 export function useAuth() {
