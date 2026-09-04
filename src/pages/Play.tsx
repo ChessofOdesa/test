@@ -731,7 +731,6 @@ export default function Play() {
     setShowPostGameModal(false);
     setEngineStatus(actualColor === "b" ? `${selectedBot.name} ходить першим.` : "Ваш хід.");
     setQuoteForEvent("intro");
-    setOptionsOpen(false);
     setMobileBotsOpen(false);
     setMobileOptionsOpen(false);
     emitSound("gameStart");
