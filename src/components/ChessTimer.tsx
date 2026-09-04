@@ -101,36 +101,32 @@ export default function ChessTimer({
   const isLow = displayTimeMs < 30000;
   const isCritical = displayTimeMs < 10000;
 
+  const isLive = isActive && isRunning;
+  const surfaceClass = isLive
+    ? isCritical
+      ? "bg-[#c94b46] text-white shadow-[0_3px_0_#8d302d]"
+      : "bg-[#f1f1ef] text-[#262522] shadow-[0_3px_0_#b9b7b2]"
+    : "bg-[#3a3835] text-[#d7d4cf] shadow-[0_2px_0_#1e1d1b]";
+
   return (
     <div
-      className={`rounded-xl px-4 py-3 border transition-all ${
-        isActive && isRunning
-          ? isCritical
-            ? "bg-destructive/15 border-destructive/40 shadow-lg"
-            : isLow
-            ? "bg-primary/15 border-gold/40 shadow-gold"
-            : "bg-primary/10 border-gold/30"
-          : "bg-secondary border-border"
-      }`}
+      className={`min-w-[150px] rounded-lg px-3 py-2 transition-colors ${surfaceClass}`}
+      aria-label={`${playerName || (color === "w" ? "Білі" : "Чорні")}: ${formatTime(displayTimeMs)}`}
     >
-      <div className="flex items-center justify-between">
-        <div className="flex items-center gap-2">
-          <div className={`w-3 h-3 rounded-full ${color === "w" ? "bg-foreground" : "bg-muted-foreground"}`} />
-          <span className="text-xs font-body text-muted-foreground">
+      <div className="flex items-center justify-between gap-3">
+        <div className="flex min-w-0 items-center gap-2">
+          <span
+            className={`h-2.5 w-2.5 shrink-0 rounded-sm border ${
+              color === "w" ? "border-black/20 bg-white" : "border-white/20 bg-[#1d1c1a]"
+            }`}
+          />
+          <span className={`truncate text-xs font-semibold ${isLive ? "opacity-75" : "text-[#aaa7a2]"}`}>
             {playerName || (color === "w" ? "Білі" : "Чорні")}
           </span>
         </div>
         <div className="flex items-center gap-1.5">
-          <Clock size={14} className={isActive && isRunning ? "text-primary" : "text-muted-foreground"} />
-          <span
-            className={`text-lg font-mono font-bold tabular-nums ${
-              isCritical
-                ? "text-destructive animate-pulse"
-                : isLow
-                ? "text-primary"
-                : "text-foreground"
-            }`}
-          >
+          <Clock size={14} className={isLive ? "opacity-70" : "text-[#918e89]"} />
+          <span className={`font-mono text-xl font-black tabular-nums sm:text-2xl ${isLow && isLive ? "tracking-tight" : ""}`}>
             {formatTime(displayTimeMs)}
           </span>
         </div>
@@ -139,5 +135,4 @@ export default function ChessTimer({
   );
 }
 
-export { formatTime };
 export type { ChessTimerProps };

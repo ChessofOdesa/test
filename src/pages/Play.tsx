@@ -4,11 +4,9 @@ import {
   Bot,
   BrainCircuit,
   ChevronDown,
-  Clock3,
   Copy,
   Download,
   Flag,
-  FlipVertical,
   Lightbulb,
   Minus,
   PauseCircle,
@@ -24,7 +22,6 @@ import {
 import { useNavigate, useSearchParams } from "react-router-dom";
 import ChessBoard from "@/components/ChessBoard";
 import ChessTimer from "@/components/ChessTimer";
-import EvalBar from "@/components/EvalBar";
 import MoveList from "@/components/MoveList";
 import PgnViewer from "@/components/PgnViewer";
 import { Button } from "@/components/ui/button";
@@ -35,7 +32,6 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
-import { ScrollArea } from "@/components/ui/scroll-area";
 import {
   Select,
   SelectContent,
@@ -137,18 +133,18 @@ const TIME_CONTROLS: Array<{
   description: string;
   minutes: number | null;
 }> = [
-  { id: "unlimited", label: "Unlimited", description: "No clock", minutes: null },
-  { id: "1m", label: "1 min", description: "Bullet sprint", minutes: 1 },
-  { id: "3m", label: "3 min", description: "Fast blitz", minutes: 3 },
-  { id: "5m", label: "5 min", description: "Classic blitz", minutes: 5 },
-  { id: "10m", label: "10 min", description: "Rapid training", minutes: 10 },
-  { id: "30m", label: "30 min", description: "Deep practice", minutes: 30 },
+  { id: "unlimited", label: "Без годинника", description: "Спокійна тренувальна партія", minutes: null },
+  { id: "1m", label: "1 хвилина", description: "Bullet", minutes: 1 },
+  { id: "3m", label: "3 хвилини", description: "Швидкий бліц", minutes: 3 },
+  { id: "5m", label: "5 хвилин", description: "Класичний бліц", minutes: 5 },
+  { id: "10m", label: "10 хвилин", description: "Рапід", minutes: 10 },
+  { id: "30m", label: "30 хвилин", description: "Довга партія", minutes: 30 },
 ];
 
 const PLAYER_SIDE_OPTIONS: Array<{ value: SideChoice; label: string }> = [
-  { value: "w", label: "White" },
-  { value: "b", label: "Black" },
-  { value: "random", label: "Random" },
+  { value: "w", label: "Білі" },
+  { value: "b", label: "Чорні" },
+  { value: "random", label: "Випадково" },
 ];
 
 const SHARED_QUOTES: Record<Exclude<BotQuoteEvent, "intro">, string[]> = {
@@ -471,7 +467,6 @@ export default function Play() {
   const [highlightMoves, setHighlightMoves] = useState(true);
   const [soundEnabled, setSoundEnabled] = useState(true);
   const [showCoordinatesEnabled, setShowCoordinatesEnabled] = useState(savedCoordinates);
-  const [optionsOpen, setOptionsOpen] = useState(false);
   const [mobileBotsOpen, setMobileBotsOpen] = useState(false);
   const [mobileOptionsOpen, setMobileOptionsOpen] = useState(false);
   const [analysisToolsOpen, setAnalysisToolsOpen] = useState(false);
@@ -483,7 +478,7 @@ export default function Play() {
   const [isPaused, setIsPaused] = useState(false);
   const [isEngineThinking, setIsEngineThinking] = useState(false);
   const [playerColor, setPlayerColor] = useState<"w" | "b">("w");
-  const [engineStatus, setEngineStatus] = useState("Choose a bot, open Options if needed, and press Play.");
+  const [engineStatus, setEngineStatus] = useState("Готуємо партію…");
   const [botQuote, setBotQuote] = useState(BOTS[0].intro);
   const [engineMode, setEngineMode] = useState<EngineMode>("stockfish");
   const [engineDepth, setEngineDepth] = useState(0);
@@ -507,6 +502,7 @@ export default function Play() {
   const evaluationRequestRef = useRef(0);
   const quoteEventRef = useRef<BotQuoteEvent>("intro");
   const lastEngineResultRef = useRef<{ fen: string; result: AnalyzeResult } | null>(null);
+  const hasAutoStartedRef = useRef(false);
 
   const selectedBot = useMemo(
     () => BOTS.find((bot) => bot.id === selectedBotId) || BOTS[0],
@@ -578,7 +574,6 @@ export default function Play() {
   const capturedBlackPieces = useMemo(() => getCapturedPieces(game, "b"), [game]);
   const playerCaptures = playerColor === "w" ? capturedBlackPieces : capturedWhitePieces;
   const botCaptures = playerColor === "w" ? capturedWhitePieces : capturedBlackPieces;
-  const optionsSummary = `${sideLabel(selectedSide)} · ${timeControl.label}`;
 
   useEffect(() => {
     const previous = initialBoardPrefsRef.current;
@@ -602,20 +597,20 @@ export default function Play() {
       const height = window.innerHeight;
 
       if (width < 640) {
-        setBoardSize(Math.max(292, width - 32));
+        setBoardSize(Math.max(292, width - 24));
         return;
       }
 
       if (width < 1024) {
-        const widthBound = width - 88;
-        const heightBound = Math.max(340, height - 250);
-        setBoardSize(Math.max(340, Math.min(560, widthBound, heightBound)));
+        const widthBound = width - 48;
+        const heightBound = Math.max(340, height - 190);
+        setBoardSize(Math.max(340, Math.min(620, widthBound, heightBound)));
         return;
       }
 
-      const widthBound = Math.min(620, Math.floor(width * 0.44));
-      const heightBound = Math.min(620, Math.floor(height * 0.62));
-      setBoardSize(Math.max(420, Math.min(widthBound, heightBound)));
+      const widthBound = width - 590;
+      const heightBound = height - 170;
+      setBoardSize(Math.max(420, Math.min(680, widthBound, heightBound)));
     };
 
     syncBoardSize();
@@ -647,7 +642,7 @@ export default function Play() {
   );
 
   const activateFallbackEngine = useCallback((error?: unknown) => {
-    const fallbackMessage = "Stockfish is unavailable. Using reduced local bot strength instead.";
+    const fallbackMessage = "Stockfish недоступний. Тимчасово використовується локальний рушій.";
     const message =
       error instanceof Error && error.message.trim().length > 0
         ? error.message
@@ -734,7 +729,7 @@ export default function Play() {
     setEngineDepth(0);
     setEngineError(null);
     setShowPostGameModal(false);
-    setEngineStatus(actualColor === "b" ? `${selectedBot.name} makes the first move.` : "Your move.");
+    setEngineStatus(actualColor === "b" ? `${selectedBot.name} ходить першим.` : "Ваш хід.");
     setQuoteForEvent("intro");
     setOptionsOpen(false);
     setMobileBotsOpen(false);
@@ -742,10 +737,19 @@ export default function Play() {
     emitSound("gameStart");
   }, [emitSound, selectedBot.name, selectedSide, setQuoteForEvent]);
 
+  useEffect(() => {
+    if (hasAutoStartedRef.current) {
+      return;
+    }
+
+    hasAutoStartedRef.current = true;
+    startConfiguredGame();
+  }, [startConfiguredGame]);
+
   const exportPgn = useCallback(() => {
     const pgn = game.pgn();
     if (!pgn.trim()) {
-      toast.info("No PGN available yet.");
+      toast.info("Поки немає ходів для збереження.");
       return;
     }
 
@@ -761,45 +765,45 @@ export default function Play() {
   const copyFen = useCallback(async () => {
     try {
       await navigator.clipboard.writeText(game.fen());
-      toast.success("FEN copied.");
+      toast.success("FEN скопійовано.");
     } catch {
-      toast.error("Failed to copy FEN.");
+      toast.error("Не вдалося скопіювати FEN.");
     }
   }, [game]);
 
   const copyPgn = useCallback(async () => {
     const pgn = game.pgn();
     if (!pgn.trim()) {
-      toast.info("No PGN available yet.");
+      toast.info("Поки немає ходів для збереження.");
       return;
     }
 
     try {
       await navigator.clipboard.writeText(pgn);
-      toast.success("PGN copied.");
+      toast.success("PGN скопійовано.");
     } catch {
-      toast.error("Failed to copy PGN.");
+      toast.error("Не вдалося скопіювати PGN.");
     }
   }, [game]);
 
   const shareGame = useCallback(async () => {
     if (!game.pgn().trim()) {
-      toast.info("Finish or play a few moves first.");
+      toast.info("Спочатку зробіть кілька ходів.");
       return;
     }
 
     const url = `${window.location.origin}/analysis?pgn=${encodeURIComponent(game.pgn())}`;
     try {
       await navigator.clipboard.writeText(url);
-      toast.success("Share link copied.");
+      toast.success("Посилання на партію скопійовано.");
     } catch {
-      toast.error("Failed to copy the share link.");
+      toast.error("Не вдалося скопіювати посилання.");
     }
   }, [game]);
 
   const openAnalysis = useCallback(() => {
     if (!game.pgn().trim()) {
-      toast.info("Play at least one move to open analysis.");
+      toast.info("Зробіть хоча б один хід, щоб відкрити аналіз.");
       return;
     }
 
@@ -822,11 +826,11 @@ export default function Play() {
       if (overrideStatus) {
         setEngineStatus(overrideStatus);
       } else if (result === "1/2-1/2") {
-        setEngineStatus("Draw.");
+        setEngineStatus("Нічия.");
       } else {
         const playerWon =
           (result === "1-0" && playerColor === "w") || (result === "0-1" && playerColor === "b");
-        setEngineStatus(playerWon ? "You win." : "You lose.");
+        setEngineStatus(playerWon ? "Ви перемогли." : "Ви програли.");
       }
 
       if (result === "1/2-1/2") {
@@ -853,7 +857,7 @@ export default function Play() {
       return;
     }
     emitSound("timeout");
-    await finalizeGame(game, playerColor === "w" ? "0-1" : "1-0", `${selectedBot.name} wins on time.`);
+    await finalizeGame(game, playerColor === "w" ? "0-1" : "1-0", `${selectedBot.name} переміг за часом.`);
   }, [emitSound, finalizeGame, game, gameOver, playerColor, selectedBot.name]);
 
   const handleBotTimeout = useCallback(async () => {
@@ -861,7 +865,7 @@ export default function Play() {
       return;
     }
     emitSound("timeout");
-    await finalizeGame(game, playerColor === "w" ? "1-0" : "0-1", `${selectedBot.name} flagged.`);
+    await finalizeGame(game, playerColor === "w" ? "1-0" : "0-1", `У ${selectedBot.name} завершився час.`);
   }, [emitSound, finalizeGame, game, gameOver, playerColor, selectedBot.name]);
 
   const applyMoveResult = useCallback(
@@ -886,7 +890,7 @@ export default function Play() {
         return;
       }
 
-      setEngineStatus(actor === "player" ? `${selectedBot.name} is thinking...` : "Your move.");
+      setEngineStatus(actor === "player" ? `${selectedBot.name} думає…` : "Ваш хід.");
     },
     [finalizeGame, selectedBot.name, setQuoteForEvent, soundEnabled],
   );
@@ -953,14 +957,14 @@ export default function Play() {
     setSelectedMoveIndex(null);
     setHintArrow([]);
     setEngineError(null);
-    setEngineStatus(nextGame.turn() === playerColor ? "Your move." : `${selectedBot.name} is recalculating...`);
+    setEngineStatus(nextGame.turn() === playerColor ? "Ваш хід." : `${selectedBot.name} обирає відповідь…`);
   }, [game, playerColor, selectedBot.name]);
 
   const handleResign = useCallback(async () => {
-    if (!window.confirm("Resign this game?")) {
+    if (!window.confirm("Здатися в цій партії?")) {
       return;
     }
-    await finalizeGame(game, playerColor === "w" ? "0-1" : "1-0", `You resigned. ${selectedBot.name} wins.`);
+    await finalizeGame(game, playerColor === "w" ? "0-1" : "1-0", `Ви здалися. ${selectedBot.name} переміг.`);
   }, [finalizeGame, game, playerColor, selectedBot.name]);
 
   const handleOfferDraw = useCallback(async () => {
@@ -968,11 +972,11 @@ export default function Play() {
       return;
     }
     if (Math.abs(evalScore) > 120) {
-      toast.info(`${selectedBot.name} declines the draw in this position.`);
+      toast.info(`${selectedBot.name} відхиляє пропозицію нічиєї.`);
       return;
     }
 
-    await finalizeGame(game, "1/2-1/2", "Draw agreed.");
+    await finalizeGame(game, "1/2-1/2", "Суперники погодилися на нічию.");
   }, [evalScore, finalizeGame, game, gameOver, hasStartedMatch, selectedBot.name]);
 
   const handlePauseToggle = useCallback(() => {
@@ -983,10 +987,10 @@ export default function Play() {
     setIsPaused((value) => !value);
     setEngineStatus((current) =>
       !isPaused
-        ? "Game paused."
+        ? "Партію призупинено."
         : currentTurn === playerColor
-          ? "Your move."
-          : `${selectedBot.name} is preparing a reply.`,
+          ? "Ваш хід."
+          : `${selectedBot.name} готує відповідь.`,
     );
   }, [currentTurn, gameOver, hasStartedMatch, isPaused, playerColor, selectedBot.name]);
 
@@ -1215,98 +1219,229 @@ export default function Play() {
     trainingRating,
   ]);
 
-  const botsPanelContent = (
-    <div className="flex h-full min-h-0 flex-col gap-3">
-      <div className="rounded-[16px] border border-white/8 bg-[#201e1b] p-3 shadow-xl shadow-black/20">
-        <div className="mb-3 flex items-center justify-between">
-          <h2 className="flex items-center gap-2 text-base font-semibold text-white">
-            <Bot className="h-5 w-5 text-[#7fa650]" />
-            Play Bots
-          </h2>
-          <span className="text-xs font-medium text-[#9e968d]">{BOTS.length} bots</span>
-        </div>
+  const botPickerContent = (
+    <div className="space-y-2">
+      {BOTS.map((bot) => {
+        const isSelected = bot.id === selectedBot.id;
+        return (
+          <button
+            key={bot.id}
+            type="button"
+            disabled={hasStartedMatch && !gameOver}
+            onClick={() => setSelectedBotId(bot.id)}
+            className={`flex w-full items-center gap-3 rounded-lg border px-3 py-2.5 text-left transition ${
+              isSelected
+                ? "border-[#81b64c] bg-[#4b5f35]"
+                : "border-black/25 bg-[#3a3835] hover:bg-[#45423e]"
+            } disabled:cursor-not-allowed disabled:opacity-60`}
+          >
+            <BotAvatar bot={bot} size="sm" />
+            <span className="min-w-0 flex-1">
+              <span className="block truncate text-sm font-bold text-white">{bot.name}</span>
+              <span className="block truncate text-xs text-[#aaa7a2]">
+                {bot.rating} · {bot.style}
+              </span>
+            </span>
+            {bot.flag ? <span className="text-sm">{bot.flag}</span> : null}
+          </button>
+        );
+      })}
+    </div>
+  );
 
-        <div className="flex gap-3">
-          <BotAvatar bot={selectedBot} size="lg" />
-          <div className="min-w-0 flex-1 rounded-[14px] bg-white px-3 py-2 text-[12px] leading-5 text-[#2c2824] shadow-lg shadow-black/20">
-            {botQuote}
+  const gamePanelContent = (
+    <div className="flex min-h-[560px] flex-col overflow-hidden rounded-xl bg-[#312e2b] shadow-[0_16px_40px_rgba(0,0,0,0.32)] lg:h-[calc(100dvh-32px)] lg:min-h-0">
+      <div className="border-b border-black/25 bg-[#2b2926] p-4">
+        <div className="flex items-center gap-3">
+          <BotAvatar bot={selectedBot} size="md" />
+          <div className="min-w-0 flex-1">
+            <div className="flex items-center gap-2">
+              <h2 className="truncate text-base font-bold text-white">{selectedBot.name}</h2>
+              <span className="text-sm font-semibold text-[#bdb9b3]">{selectedBot.rating}</span>
+              {selectedBot.flag ? <span className="text-sm">{selectedBot.flag}</span> : null}
+            </div>
+            <p className="mt-0.5 truncate text-sm text-[#aaa7a2]">{selectedBot.description}</p>
           </div>
+          <span className="rounded-md bg-[#242321] px-2.5 py-1.5 text-xs font-bold text-[#c8c5bf]">
+            {timeControl.label}
+          </span>
         </div>
+        <div className="mt-3 rounded-lg bg-[#f1f1ef] px-3.5 py-3 text-sm leading-5 text-[#312e2b] shadow-sm">
+          {botQuote}
+        </div>
+      </div>
 
-        <div className="mt-3 rounded-[14px] bg-white/4 p-2.5">
-          <div className="flex items-center gap-3">
-            <BotAvatar bot={selectedBot} size="sm" />
-            <div className="min-w-0 flex-1">
-              <div className="flex flex-wrap items-center gap-2">
-                <p className="text-sm font-semibold text-white">{selectedBot.name}</p>
-                <span className="text-xs font-medium text-[#d1cbc4]">{selectedBot.rating}</span>
-                {selectedBot.flag ? (
-                  <span className="text-xs">{selectedBot.flag}</span>
-                ) : (
-                  <span className="rounded-full border border-cyan-400/40 bg-cyan-400/10 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-[0.18em] text-cyan-200">
-                    Engine
-                  </span>
+      <Tabs value={analysisTab} onValueChange={setAnalysisTab} className="flex min-h-0 flex-1 flex-col">
+        <TabsList className="grid h-auto w-full shrink-0 grid-cols-3 rounded-none border-b border-black/25 bg-[#262421] p-0">
+          <TabsTrigger
+            value="moves"
+            className="h-12 rounded-none border-b-2 border-transparent text-sm font-bold text-[#aaa7a2] data-[state=active]:border-[#81b64c] data-[state=active]:bg-[#312e2b] data-[state=active]:text-white"
+          >
+            Ходи
+          </TabsTrigger>
+          <TabsTrigger
+            value="engine"
+            className="h-12 rounded-none border-b-2 border-transparent text-sm font-bold text-[#aaa7a2] data-[state=active]:border-[#81b64c] data-[state=active]:bg-[#312e2b] data-[state=active]:text-white"
+          >
+            Аналіз
+          </TabsTrigger>
+          <TabsTrigger
+            value="settings"
+            className="h-12 rounded-none border-b-2 border-transparent text-sm font-bold text-[#aaa7a2] data-[state=active]:border-[#81b64c] data-[state=active]:bg-[#312e2b] data-[state=active]:text-white"
+          >
+            Опції
+          </TabsTrigger>
+        </TabsList>
+
+        <TabsContent value="moves" className="m-0 flex min-h-0 flex-1 flex-col p-4">
+          <div className={`mb-3 rounded-lg border px-3 py-2.5 text-sm font-semibold ${
+            gameOver
+              ? "border-[#81b64c]/35 bg-[#81b64c]/10 text-[#dff0cc]"
+              : currentTurn === playerColor && !isPaused
+                ? "border-[#81b64c]/35 bg-[#81b64c]/10 text-[#dff0cc]"
+                : "border-white/10 bg-[#262421] text-[#d0ccc6]"
+          }`}>
+            {isPaused ? "Партію призупинено." : engineStatus}
+          </div>
+
+          <div className="min-h-0 flex-1 overflow-hidden">
+            <MoveList
+              moves={reviewData.movesSan}
+              currentMoveIndex={selectedMoveIndex ?? latestMoveIndex ?? undefined}
+              onMoveClick={(index) => jumpToMove(index)}
+              heightClassName="h-[230px] lg:h-[calc(100dvh-510px)] lg:min-h-[150px]"
+            />
+          </div>
+
+          {reviewMode && (
+            <Button
+              type="button"
+              variant="outline"
+              onClick={() => jumpToMove(null)}
+              className="mt-3 border-white/10 bg-white/5 text-white hover:bg-white/10 hover:text-white"
+            >
+              Повернутися до поточної позиції
+            </Button>
+          )}
+
+          <div className="mt-3 grid grid-cols-2 gap-2">
+            <ActionButton
+              icon={<Undo2 className="h-4 w-4" />}
+              label="Повернути хід"
+              onClick={handleUndo}
+              disabled={reviewData.movesSan.length === 0 || isEngineThinking}
+            />
+            <ActionButton
+              icon={isPaused ? <PlayCircle className="h-4 w-4" /> : <PauseCircle className="h-4 w-4" />}
+              label={isPaused ? "Продовжити" : "Пауза"}
+              onClick={handlePauseToggle}
+              disabled={!hasStartedMatch || gameOver}
+            />
+            <ActionButton
+              icon={<Minus className="h-4 w-4" />}
+              label="Запропонувати нічию"
+              onClick={handleOfferDraw}
+              disabled={!hasStartedMatch || gameOver}
+            />
+            <ActionButton
+              icon={<Flag className="h-4 w-4" />}
+              label="Здатися"
+              onClick={handleResign}
+              disabled={!hasStartedMatch || gameOver}
+            />
+          </div>
+
+          <Button
+            type="button"
+            onClick={startConfiguredGame}
+            className="mt-3 h-12 w-full rounded-lg bg-[#81b64c] text-base font-extrabold text-white shadow-[0_3px_0_#5c8f2d] hover:bg-[#8fc45a]"
+          >
+            <RefreshCw className="mr-2 h-4 w-4" />
+            Нова партія
+          </Button>
+        </TabsContent>
+
+        <TabsContent value="engine" className="m-0 min-h-0 flex-1 overflow-y-auto p-4">
+          <div className="grid grid-cols-2 gap-2">
+            <StatCard label="Рушій" value={engineMode === "stockfish" ? "Stockfish" : "Локальний"} />
+            <StatCard label="Глибина" value={engineDepth > 0 ? String(engineDepth) : "—"} />
+            <StatCard label="Оцінка" value={formatEval(evalScore)} />
+            <StatCard label="Найкращий хід" value={bestMoveLabel || (isEngineThinking ? "Рахує…" : "—")} />
+          </div>
+
+          <div className="mt-3 rounded-lg border border-white/8 bg-[#262421] p-3">
+            <p className="text-xs font-bold uppercase tracking-wider text-[#99958f]">Основний варіант</p>
+            <p className="mt-2 text-sm leading-6 text-white">
+              {principalVariation.length > 0 ? principalVariation.join(" · ") : "Варіант з’явиться після першого ходу."}
+            </p>
+          </div>
+
+          {engineError && (
+            <div className="mt-3 rounded-lg border border-amber-500/25 bg-amber-500/10 px-3 py-2.5 text-sm text-amber-100">
+              {engineError}
+            </div>
+          )}
+
+          {reviewData.movesSan.length > 0 && (
+            <div className="mt-3 rounded-lg border border-white/8 bg-[#262421] p-3">
+              <div className="mb-2 flex items-center justify-between gap-3">
+                <span className="text-sm font-bold text-white">Перегляд позиції</span>
+                {selectedMoveIndex != null && (
+                  <button type="button" onClick={() => jumpToMove(null)} className="text-xs font-bold text-[#a8d66d] hover:text-[#b9e57e]">
+                    До партії
+                  </button>
                 )}
               </div>
-              <p className="mt-1 text-xs text-[#a39c94]">
-                Character: {selectedBot.character} · Style: {selectedBot.style}
-              </p>
-              <p className="mt-1 text-xs text-[#c8c1ba]">{selectedBot.description}</p>
+              <input
+                type="range"
+                min={1}
+                max={reviewData.movesSan.length}
+                value={selectedMoveIndex == null ? reviewData.movesSan.length : selectedMoveIndex + 1}
+                onChange={(event) => {
+                  const value = Number(event.target.value);
+                  jumpToMove(value >= reviewData.movesSan.length ? null : value - 1);
+                }}
+                className="w-full accent-[#81b64c]"
+              />
             </div>
-          </div>
-        </div>
-      </div>
+          )}
 
-      <div className="min-h-0 flex-1 overflow-hidden rounded-[16px] border border-white/8 bg-[#201e1b] p-3 shadow-xl shadow-black/20">
-        <ScrollArea className="h-full pr-2">
-          <div className="space-y-2">
-            {BOTS.map((bot) => {
-              const isSelected = bot.id === selectedBot.id;
-              return (
-                <button
-                  key={bot.id}
-                  type="button"
-                  onClick={() => setSelectedBotId(bot.id)}
-                  className={`w-full rounded-[14px] border px-3 py-2 text-left transition-all ${
-                    isSelected
-                      ? "border-[#7fa650] bg-[#34312d] shadow-lg shadow-black/20"
-                      : "border-white/6 bg-white/[0.03] hover:bg-white/[0.06]"
-                  }`}
-                >
-                  <div className="flex items-start gap-3">
-                    <BotAvatar bot={bot} size="sm" />
-                    <div className="min-w-0 flex-1">
-                      <div className="flex items-center gap-2">
-                        <p className="truncate text-sm font-semibold text-white">{bot.name}</p>
-                        <span className="text-xs text-[#d1cbc4]">{bot.rating}</span>
-                        {bot.flag ? <span className="text-xs">{bot.flag}</span> : null}
-                      </div>
-                      <p className="mt-1 line-clamp-1 text-xs text-[#b4ada5]">{bot.shortLine}</p>
-                      <p className="mt-1 line-clamp-1 text-[11px] text-[#8d857d]">{bot.description}</p>
-                    </div>
-                  </div>
-                </button>
-              );
-            })}
+          <div className="mt-3 grid gap-2 sm:grid-cols-2">
+            <Button variant="outline" onClick={revealHint} className="border-white/10 bg-white/5 text-white hover:bg-white/10 hover:text-white">
+              <Lightbulb className="mr-2 h-4 w-4" /> Підказка
+            </Button>
+            <Button variant="outline" onClick={openAnalysis} disabled={!game.pgn().trim()} className="border-white/10 bg-white/5 text-white hover:bg-white/10 hover:text-white">
+              <Sparkles className="mr-2 h-4 w-4" /> Повний аналіз
+            </Button>
+            <Button variant="outline" onClick={shareGame} disabled={!game.pgn().trim()} className="border-white/10 bg-white/5 text-white hover:bg-white/10 hover:text-white">
+              <Share2 className="mr-2 h-4 w-4" /> Поділитися
+            </Button>
+            <Button variant="outline" onClick={exportPgn} disabled={!game.pgn().trim()} className="border-white/10 bg-white/5 text-white hover:bg-white/10 hover:text-white">
+              <Download className="mr-2 h-4 w-4" /> Завантажити PGN
+            </Button>
           </div>
-        </ScrollArea>
-      </div>
+        </TabsContent>
 
-      <div className="shrink-0 space-y-3 rounded-[16px] border border-white/8 bg-[#201e1b] p-3 shadow-xl shadow-black/20">
-        <button
-          type="button"
-          onClick={() => setOptionsOpen((value) => !value)}
-          className="flex w-full items-center justify-between rounded-[12px] border border-white/10 bg-white/[0.04] px-3 py-2 text-left text-sm font-semibold text-white transition hover:bg-white/[0.08]"
-        >
-          <span>Options</span>
-          <div className="flex items-center gap-3 text-xs font-medium text-[#b8b0a8]">
-            <span>{optionsSummary}</span>
-            <ChevronDown className={`h-4 w-4 transition ${optionsOpen ? "rotate-180" : ""}`} />
+        <TabsContent value="settings" className="m-0 min-h-0 flex-1 overflow-y-auto p-4">
+          <div className="mb-4">
+            <label htmlFor="active-bot" className="mb-2 block text-sm font-bold text-[#d8d5cf]">Суперник</label>
+            <Select value={selectedBotId} onValueChange={setSelectedBotId} disabled={hasStartedMatch && !gameOver}>
+              <SelectTrigger id="active-bot" className="h-11 border-black/25 bg-[#3a3835] text-white focus:ring-[#81b64c]">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                {BOTS.map((bot) => (
+                  <SelectItem key={bot.id} value={bot.id}>{bot.name} · {bot.rating}</SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+            {hasStartedMatch && !gameOver && (
+              <p className="mt-2 text-xs leading-5 text-[#99958f]">Суперника можна змінити після завершення партії.</p>
+            )}
           </div>
-        </button>
 
-        {optionsOpen && (
           <OptionsCard
+            lockMatchOptions={hasStartedMatch && !gameOver}
             selectedSide={selectedSide}
             setSelectedSide={setSelectedSide}
             selectedTimeControl={selectedTimeControl}
@@ -1320,27 +1455,27 @@ export default function Play() {
             soundEnabled={soundEnabled}
             setSoundEnabled={setSoundEnabled}
           />
-        )}
 
-        <Button
-          onClick={startConfiguredGame}
-          className="h-12 w-full rounded-[12px] bg-[#7fa650] text-sm font-bold text-white hover:bg-[#90b862]"
-        >
-          Play
-        </Button>
-      </div>
+          <Button onClick={startConfiguredGame} className="mt-4 h-12 w-full bg-[#81b64c] font-extrabold text-white hover:bg-[#8fc45a]">
+            Застосувати й почати заново
+          </Button>
+          <Button variant="ghost" onClick={() => navigate("/play")} className="mt-2 h-11 w-full text-[#c9c5bf] hover:bg-white/5 hover:text-white">
+            Повернутися до вибору режиму
+          </Button>
+        </TabsContent>
+      </Tabs>
     </div>
   );
 
   return (
-    <div className="min-h-full bg-transparent text-white lg:h-[100dvh]">
+    <div className="min-h-full bg-[#242321] text-white lg:h-[100dvh]">
       <div className="flex min-h-full flex-col lg:h-full">
-        <div className="sticky top-0 z-20 flex items-center justify-between border-b border-white/6 bg-[#0b1119]/92 px-4 py-3 backdrop-blur md:hidden">
+        <div className="sticky top-0 z-20 flex items-center justify-between border-b border-black/25 bg-[#242321]/95 px-3 py-2.5 backdrop-blur md:hidden">
           <div className="flex items-center gap-2">
             <SidebarTrigger className="h-9 w-9 rounded-full border border-white/10 bg-white/5 text-white" />
             <div>
-              <p className="text-sm font-semibold text-white">Play vs Computer</p>
-              <p className="text-[11px] text-[#a59d95]">{selectedBot.name}</p>
+              <p className="text-sm font-bold text-white">Гра з ботом</p>
+              <p className="text-xs text-[#aaa7a2]">{selectedBot.name} · {selectedBot.rating}</p>
             </div>
           </div>
 
@@ -1350,21 +1485,21 @@ export default function Play() {
               onClick={() => setMobileBotsOpen(true)}
               className="rounded-full border border-white/10 bg-white/5 px-3 py-2 text-xs font-semibold text-white"
             >
-              Bots
+              Боти
             </button>
             <button
               type="button"
               onClick={() => setMobileOptionsOpen(true)}
               className="rounded-full border border-white/10 bg-white/5 px-3 py-2 text-xs font-semibold text-white"
             >
-              Options
+              Опції
             </button>
           </div>
         </div>
 
-        <div className="grid flex-1 gap-3 p-3 md:gap-4 md:p-4 lg:min-h-0 lg:grid-cols-[minmax(0,1fr)_320px] xl:grid-cols-[minmax(0,1fr)_332px] xl:gap-4">
-          <main className="space-y-3">
-            <div className="rounded-[18px] border border-white/8 bg-[#201e1b] p-3 shadow-2xl shadow-black/20">
+        <div className="mx-auto grid w-full max-w-[1160px] flex-1 gap-3 p-3 md:gap-4 md:p-4 lg:min-h-0 lg:grid-cols-[minmax(0,700px)_minmax(320px,370px)] lg:justify-center">
+          <main className="min-w-0 space-y-2.5 lg:sticky lg:top-4 lg:self-start">
+            <div className="rounded-lg bg-[#312e2b] px-2.5 py-2 shadow-xl shadow-black/20 sm:px-3">
               <div className="flex flex-col gap-2.5 sm:flex-row sm:items-center sm:justify-between">
                 <div className="flex min-w-0 items-center gap-3">
                   <BotAvatar bot={selectedBot} size="md" />
@@ -1380,15 +1515,14 @@ export default function Play() {
                         </span>
                       )}
                     </div>
-                    <p className="mt-1 text-xs text-[#c8c1ba]">
-                      Character: {selectedBot.character} · Style: {selectedBot.style}
+                    <p className="mt-1 text-xs text-[#aaa7a2]">
+                      {selectedBot.character} · {selectedBot.style}
                     </p>
-                    <p className="mt-1 text-xs text-[#9f988f]">{selectedBot.description}</p>
                   </div>
                 </div>
 
                 {timeControl.minutes ? (
-                  <div className="w-full sm:w-[240px]">
+                  <div className="w-full sm:w-[210px]">
                     <ChessTimer
                       key={`bot-clock-${gameNonce}-${selectedBot.id}-${selectedTimeControl}`}
                       initialTimeMs={clockMs}
@@ -1400,19 +1534,15 @@ export default function Play() {
                     />
                   </div>
                 ) : (
-                  <div className="rounded-full border border-white/10 bg-white/5 px-3 py-2 text-xs font-medium text-[#bdb6af]">
-                    {selectedBot.behaviorTier}
+                  <div className="rounded-md bg-[#242321] px-3 py-2 text-sm font-bold text-[#d2cec8]">
+                    Без годинника
                   </div>
                 )}
               </div>
             </div>
 
-            <div className="grid gap-3 lg:grid-cols-[28px_minmax(0,1fr)]">
-              <div className="hidden lg:block">
-                <EvalBar score={evalScore} height={boardSize} />
-              </div>
-
-              <div className="rounded-[18px] border border-white/8 bg-[#201e1b] p-2.5 shadow-2xl shadow-black/20">
+            <div>
+              <div className="overflow-hidden rounded-md bg-[#181715] shadow-[0_18px_48px_rgba(0,0,0,0.38)]">
                 <div className="flex justify-center">
                   <ChessBoard
                     initialFen={displayedFen}
@@ -1432,7 +1562,7 @@ export default function Play() {
               </div>
             </div>
 
-            <div className="rounded-[16px] border border-white/8 bg-[#201e1b] px-3 py-2.5 shadow-xl shadow-black/20">
+            <div className="rounded-lg bg-[#312e2b] px-2.5 py-2 shadow-xl shadow-black/20 sm:px-3">
               <div className="flex flex-col gap-2.5 sm:flex-row sm:items-center sm:justify-between">
                 <div className="flex items-center gap-3">
                   <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-white/10 text-sm font-bold text-white">
@@ -1440,12 +1570,12 @@ export default function Play() {
                   </div>
                   <div>
                     <p className="text-sm font-semibold text-white">{playerName}</p>
-                    <p className="text-xs text-[#9f988f]">Guest profile</p>
+                    <p className="text-xs text-[#aaa7a2]">{playerColor === "w" ? "Білі" : "Чорні"}</p>
                   </div>
                 </div>
 
                 {timeControl.minutes ? (
-                  <div className="w-full sm:w-[240px]">
+                  <div className="w-full sm:w-[210px]">
                     <ChessTimer
                       key={`player-clock-${gameNonce}-${selectedBot.id}-${selectedTimeControl}`}
                       initialTimeMs={clockMs}
@@ -1457,53 +1587,45 @@ export default function Play() {
                     />
                   </div>
                 ) : (
-                  <div className="rounded-full border border-white/10 bg-white/5 px-3 py-2 text-xs font-medium text-[#bdb6af]">
-                    {playerColor === "w" ? "Playing White" : "Playing Black"}
+                  <div className="rounded-md bg-[#f1f1ef] px-3 py-2 text-sm font-extrabold text-[#312e2b]">
+                    {playerColor === "w" ? "Ви граєте білими" : "Ви граєте чорними"}
                   </div>
                 )}
               </div>
             </div>
 
-            <div className="grid gap-2 sm:grid-cols-2 xl:grid-cols-5">
+            <div className="grid grid-cols-4 gap-2 lg:hidden">
               <ActionButton
                 icon={<Undo2 className="h-4 w-4" />}
-                label="Undo Move"
+                label="Назад"
                 onClick={handleUndo}
                 disabled={reviewData.movesSan.length === 0 || isEngineThinking}
               />
               <ActionButton
                 icon={<Flag className="h-4 w-4" />}
-                label="Resign"
+                label="Здатися"
                 onClick={handleResign}
                 disabled={!hasStartedMatch || gameOver}
               />
               <ActionButton
                 icon={<Minus className="h-4 w-4" />}
-                label="Offer Draw"
+                label="Нічия"
                 onClick={handleOfferDraw}
                 disabled={!hasStartedMatch || gameOver}
               />
               <ActionButton
-                icon={<RefreshCw className="h-4 w-4" />}
-                label="Restart Game"
-                onClick={startConfiguredGame}
-              />
-              <ActionButton
-                icon={<Sparkles className="h-4 w-4" />}
-                label="Analysis"
-                onClick={openAnalysis}
-                disabled={!game.pgn().trim()}
+                icon={isPaused ? <PlayCircle className="h-4 w-4" /> : <PauseCircle className="h-4 w-4" />}
+                label={isPaused ? "Далі" : "Пауза"}
+                onClick={handlePauseToggle}
+                disabled={!hasStartedMatch || gameOver}
               />
             </div>
 
-            {!hasStartedMatch && (
-              <div className="rounded-[16px] border border-dashed border-[#7fa650]/40 bg-[#7fa650]/10 px-3 py-2.5 text-sm text-[#e8f4da]">
-                Press <span className="font-semibold">Play</span> in the right panel to start a new
-                game against {selectedBot.name}.
-              </div>
-            )}
+            <div className="rounded-lg border border-white/8 bg-[#2b2926] px-3 py-2.5 text-sm text-[#d3d0ca] lg:hidden">
+              {engineStatus}
+            </div>
 
-            <div className="rounded-[18px] border border-white/8 bg-[#201e1b] p-3 shadow-xl shadow-black/20">
+            <div className="hidden">
               <button
                 type="button"
                 onClick={() => setAnalysisToolsOpen((value) => !value)}
@@ -1672,10 +1794,12 @@ export default function Play() {
                 </div>
               )}
             </div>
+
+            <div className="pt-1 lg:hidden">{gamePanelContent}</div>
           </main>
 
-          <aside className="hidden lg:sticky lg:top-3 lg:block lg:h-[calc(100dvh-24px)]">
-            {botsPanelContent}
+          <aside className="hidden lg:sticky lg:top-4 lg:block lg:h-[calc(100dvh-32px)]">
+            {gamePanelContent}
           </aside>
         </div>
       </div>
@@ -1683,25 +1807,26 @@ export default function Play() {
       <Sheet open={mobileBotsOpen} onOpenChange={setMobileBotsOpen}>
         <SheetContent side="right" className="w-[92vw] max-w-sm overflow-y-auto border-l-[#3a3733] bg-[#262421] p-4 text-white">
           <SheetHeader>
-            <SheetTitle>Play Bots</SheetTitle>
+            <SheetTitle>Оберіть бота</SheetTitle>
             <SheetDescription className="text-[#9f988f]">
-              Choose a bot and start a fresh game.
+              Під час активної партії суперника змінити не можна.
             </SheetDescription>
           </SheetHeader>
-          <div className="mt-4">{botsPanelContent}</div>
+          <div className="mt-4">{botPickerContent}</div>
         </SheetContent>
       </Sheet>
 
       <Sheet open={mobileOptionsOpen} onOpenChange={setMobileOptionsOpen}>
         <SheetContent side="bottom" className="h-[75vh] border-t-[#3a3733] bg-[#262421] p-4 text-white">
           <SheetHeader>
-            <SheetTitle>Options</SheetTitle>
+            <SheetTitle>Налаштування</SheetTitle>
             <SheetDescription className="text-[#9f988f]">
-              Side, time control, and board preferences.
+              Колір, час і вигляд шахівниці.
             </SheetDescription>
           </SheetHeader>
           <div className="mt-4">
             <OptionsCard
+              lockMatchOptions={hasStartedMatch && !gameOver}
               selectedSide={selectedSide}
               setSelectedSide={setSelectedSide}
               selectedTimeControl={selectedTimeControl}
@@ -1736,36 +1861,36 @@ export default function Play() {
                 onClick={startConfiguredGame}
                 className="h-12 rounded-[16px] bg-[#7fa650] px-6 text-base font-bold text-white hover:bg-[#90b862]"
               >
-                Play Again
+                Грати ще раз
               </Button>
               <Button
                 variant="outline"
                 className="h-12 rounded-[16px] border-white/10 bg-white/5 text-white hover:bg-white/10 hover:text-white"
                 onClick={openAnalysis}
               >
-                Analysis
+                Аналіз
               </Button>
               <Button
                 variant="outline"
                 className="h-12 rounded-[16px] border-white/10 bg-white/5 text-white hover:bg-white/10 hover:text-white"
                 onClick={shareGame}
               >
-                Share Game
+                Поділитися
               </Button>
             </div>
 
             <div className="mt-6 grid gap-4 xl:grid-cols-[1.1fr_0.9fr]">
               <div className="space-y-4">
                 <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
-                  <StatCard label="Moves" value={String(reviewData.movesSan.length)} />
-                  <StatCard label="Accuracy" value={`${playerAccuracy}%`} />
-                  <StatCard label="Bot" value={selectedBot.name} />
-                  <StatCard label="Clock" value={timeControl.label} />
+                  <StatCard label="Ходи" value={String(reviewData.movesSan.length)} />
+                  <StatCard label="Точність" value={`${playerAccuracy}%`} />
+                  <StatCard label="Бот" value={selectedBot.name} />
+                  <StatCard label="Час" value={timeControl.label} />
                 </div>
 
                 <div className="rounded-[18px] border border-white/8 bg-white/[0.03] p-3">
                   <div className="mb-3 flex items-center gap-2 text-sm font-semibold text-white">
-                    <BrainCircuit className="h-4 w-4 text-[#7fa650]" /> Evaluation Graph
+                    <BrainCircuit className="h-4 w-4 text-[#7fa650]" /> Графік оцінки
                   </div>
                   <div className="h-56">
                     <ResponsiveContainer width="100%" height="100%">
@@ -1789,9 +1914,9 @@ export default function Play() {
                   <div className="rounded-[18px] border border-white/8 bg-white/[0.03] p-3">
                     <div className="mb-3 flex items-center justify-between gap-3">
                       <div>
-                        <p className="text-sm font-semibold text-white">Game replay</p>
+                        <p className="text-sm font-semibold text-white">Перегляд партії</p>
                         <p className="text-xs text-[#9f988f]">
-                          Review the finished PGN and jump into the full analysis page if needed.
+                          Перегляньте ходи або відкрийте повний аналіз.
                         </p>
                       </div>
                       <Button
@@ -1800,7 +1925,7 @@ export default function Play() {
                         onClick={openAnalysis}
                         className="border-white/10 bg-white/5 text-white hover:bg-white/10 hover:text-white"
                       >
-                        Full Analysis
+                        Повний аналіз
                       </Button>
                     </div>
                     <PgnViewer pgn={game.pgn()} />
@@ -1810,15 +1935,15 @@ export default function Play() {
 
               <div className="space-y-4">
                 <div className="grid gap-3 sm:grid-cols-2">
-                  <StatCard label="Best Moves" value={String(playerBreakdown.best)} />
-                  <StatCard label="Inaccuracies" value={String(playerBreakdown.inaccuracy)} />
-                  <StatCard label="Mistakes" value={String(playerBreakdown.mistake)} />
-                  <StatCard label="Blunders" value={String(playerBreakdown.blunder)} />
+                  <StatCard label="Найкращі" value={String(playerBreakdown.best)} />
+                  <StatCard label="Неточності" value={String(playerBreakdown.inaccuracy)} />
+                  <StatCard label="Помилки" value={String(playerBreakdown.mistake)} />
+                  <StatCard label="Зівки" value={String(playerBreakdown.blunder)} />
                 </div>
 
                 <div className="rounded-[18px] border border-white/8 bg-white/[0.03] p-3">
                   <div className="mb-3 flex items-center gap-2 text-sm font-semibold text-white">
-                    <Trophy className="h-4 w-4 text-[#7fa650]" /> Critical Moments
+                    <Trophy className="h-4 w-4 text-[#7fa650]" /> Критичні моменти
                   </div>
                   {reviewInsights.length > 0 ? (
                     <div className="space-y-2">
@@ -1831,20 +1956,20 @@ export default function Play() {
                             <span className="text-sm font-semibold text-white">
                               {Math.floor(item.ply / 2) + 1}. {item.move}
                             </span>
-                            <span className="text-xs font-semibold text-amber-300">{item.label}</span>
+                            <span className="text-xs font-semibold text-amber-300">{reviewLabelUa(item.label)}</span>
                           </div>
                           <p className="mt-1 text-xs text-[#b8b0a8]">
-                            Swing: {Math.abs(item.swing / 100).toFixed(1)} eval
+                            Зміна оцінки: {Math.abs(item.swing / 100).toFixed(1)}
                           </p>
                           {item.suggestion && (
-                            <p className="mt-1 text-xs text-[#a9d36f]">Suggested: {item.suggestion}</p>
+                            <p className="mt-1 text-xs text-[#a9d36f]">Краще: {item.suggestion}</p>
                           )}
                         </div>
                       ))}
                     </div>
                   ) : (
                     <p className="text-sm text-[#9f988f]">
-                      The quick local review did not find major tactical collapses.
+                      Швидка перевірка не знайшла серйозних тактичних помилок.
                     </p>
                   )}
                 </div>
@@ -1855,21 +1980,21 @@ export default function Play() {
                     onClick={copyFen}
                     className="border-white/10 bg-white/5 text-white hover:bg-white/10 hover:text-white"
                   >
-                    <Copy className="mr-2 h-4 w-4" /> Copy FEN
+                    <Copy className="mr-2 h-4 w-4" /> Копіювати FEN
                   </Button>
                   <Button
                     variant="outline"
                     onClick={copyPgn}
                     className="border-white/10 bg-white/5 text-white hover:bg-white/10 hover:text-white"
                   >
-                    <Copy className="mr-2 h-4 w-4" /> Copy PGN
+                    <Copy className="mr-2 h-4 w-4" /> Копіювати PGN
                   </Button>
                   <Button
                     variant="outline"
                     onClick={exportPgn}
                     className="border-white/10 bg-white/5 text-white hover:bg-white/10 hover:text-white"
                   >
-                    <Download className="mr-2 h-4 w-4" /> Download PGN
+                    <Download className="mr-2 h-4 w-4" /> Завантажити PGN
                   </Button>
                 </div>
               </div>
@@ -1882,6 +2007,7 @@ export default function Play() {
 }
 
 function OptionsCard({
+  lockMatchOptions = false,
   selectedSide,
   setSelectedSide,
   selectedTimeControl,
@@ -1895,6 +2021,7 @@ function OptionsCard({
   soundEnabled,
   setSoundEnabled,
 }: {
+  lockMatchOptions?: boolean;
   selectedSide: SideChoice;
   setSelectedSide: (value: SideChoice) => void;
   selectedTimeControl: TimeControlId;
@@ -1909,19 +2036,20 @@ function OptionsCard({
   setSoundEnabled: (value: boolean) => void;
 }) {
   return (
-    <div className="space-y-4 rounded-[16px] border border-white/10 bg-black/10 p-3">
+    <div className="space-y-4 rounded-lg border border-black/25 bg-[#292725] p-3">
       <div>
-        <p className="mb-2 text-xs font-semibold uppercase tracking-[0.22em] text-[#a39c94]">Play as</p>
+        <p className="mb-2 text-xs font-bold uppercase tracking-wider text-[#99958f]">Грати за</p>
         <div className="grid grid-cols-3 gap-2">
           {PLAYER_SIDE_OPTIONS.map((option) => (
             <button
               key={option.value}
               type="button"
+              disabled={lockMatchOptions}
               onClick={() => setSelectedSide(option.value)}
-              className={`rounded-[14px] px-3 py-2 text-sm font-semibold transition ${
+              className={`rounded-lg px-2 py-2.5 text-sm font-bold transition disabled:cursor-not-allowed disabled:opacity-55 ${
                 selectedSide === option.value
-                  ? "bg-[#7fa650] text-white"
-                  : "bg-white/5 text-[#d1cbc4] hover:bg-white/10"
+                  ? "bg-[#81b64c] text-white"
+                  : "bg-[#3a3835] text-[#d1cdc7] hover:bg-[#45423e]"
               }`}
             >
               {option.label}
@@ -1931,10 +2059,10 @@ function OptionsCard({
       </div>
 
       <div>
-        <p className="mb-2 text-xs font-semibold uppercase tracking-[0.22em] text-[#a39c94]">Time Control</p>
-        <Select value={selectedTimeControl} onValueChange={(value) => setSelectedTimeControl(value as TimeControlId)}>
-          <SelectTrigger className="h-11 rounded-[14px] border-white/10 bg-white/5 text-white">
-            <SelectValue placeholder="Select time control" />
+        <p className="mb-2 text-xs font-bold uppercase tracking-wider text-[#99958f]">Контроль часу</p>
+        <Select disabled={lockMatchOptions} value={selectedTimeControl} onValueChange={(value) => setSelectedTimeControl(value as TimeControlId)}>
+          <SelectTrigger className="h-11 rounded-lg border-black/25 bg-[#3a3835] text-white focus:ring-[#81b64c] disabled:opacity-55">
+            <SelectValue placeholder="Оберіть контроль часу" />
           </SelectTrigger>
           <SelectContent>
             {TIME_CONTROLS.map((control) => (
@@ -1947,25 +2075,25 @@ function OptionsCard({
       </div>
 
       <div>
-        <p className="mb-2 text-xs font-semibold uppercase tracking-[0.22em] text-[#a39c94]">Board settings</p>
+        <p className="mb-2 text-xs font-bold uppercase tracking-wider text-[#99958f]">Шахівниця</p>
         <div className="space-y-3">
           <OptionToggle
-            label="Flip board"
+            label="Перевернути дошку"
             checked={flipBoard}
             onCheckedChange={setFlipBoard}
           />
           <OptionToggle
-            label="Show coordinates"
+            label="Показувати координати"
             checked={showCoordinatesEnabled}
             onCheckedChange={setShowCoordinatesEnabled}
           />
           <OptionToggle
-            label="Highlight moves"
+            label="Підсвічувати ходи"
             checked={highlightMoves}
             onCheckedChange={setHighlightMoves}
           />
           <OptionToggle
-            label="Sound"
+            label="Звук"
             checked={soundEnabled}
             onCheckedChange={setSoundEnabled}
             icon={soundEnabled ? <Volume2 className="h-4 w-4" /> : <VolumeX className="h-4 w-4" />}
@@ -2087,7 +2215,7 @@ function ActionButton({
       type="button"
       onClick={onClick}
       disabled={disabled}
-      className="flex min-h-11 items-center justify-center gap-2 rounded-[18px] border border-white/8 bg-[#201e1b] px-4 py-3 text-sm font-semibold text-white transition hover:border-[#7fa650]/40 hover:bg-[#2d2a26] focus:outline-none focus:ring-2 focus:ring-[#7fa650]/40 disabled:cursor-not-allowed disabled:opacity-40"
+      className="flex min-h-12 flex-col items-center justify-center gap-1 rounded-lg border border-black/25 bg-[#3a3835] px-2 py-2 text-center text-xs font-bold leading-4 text-[#e1ded8] transition hover:bg-[#45423e] focus:outline-none focus:ring-2 focus:ring-[#81b64c] disabled:cursor-not-allowed disabled:opacity-40"
     >
       {icon}
       {label}
@@ -2102,10 +2230,6 @@ function StatCard({ label, value }: { label: string; value: string }) {
       <p className="mt-2 text-sm font-semibold text-white">{value}</p>
     </div>
   );
-}
-
-function sideLabel(value: SideChoice) {
-  return value === "w" ? "White" : value === "b" ? "Black" : "Random";
 }
 
 function resolveBotAiLevel(bot: BotProfile, trainingRating: number): AILevel {
@@ -2346,13 +2470,19 @@ function getGameResult(game: Chess) {
 
 function formatResultLabel(playerColor: "w" | "b", result: string) {
   if (result === "1/2-1/2") {
-    return "Draw";
+    return "Нічия";
   }
 
   const playerWon =
     (result === "1-0" && playerColor === "w") || (result === "0-1" && playerColor === "b");
 
-  return playerWon ? "You Win" : "You Lose";
+  return playerWon ? "Ви перемогли" : "Ви програли";
+}
+
+function reviewLabelUa(label: ReviewInsight["label"]) {
+  if (label === "Blunder") return "Зівок";
+  if (label === "Mistake") return "Помилка";
+  return "Неточність";
 }
 
 function playMoveSound(move: Move, game: Chess, soundEnabled: boolean) {

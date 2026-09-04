@@ -4,9 +4,10 @@ interface MoveListProps {
   moves: string[];
   currentMoveIndex?: number;
   onMoveClick?: (index: number) => void;
+  heightClassName?: string;
 }
 
-export default function MoveList({ moves, currentMoveIndex, onMoveClick }: MoveListProps) {
+export default function MoveList({ moves, currentMoveIndex, onMoveClick, heightClassName = "h-64" }: MoveListProps) {
   const movePairs: { number: number; white: string; black?: string }[] = [];
 
   for (let index = 0; index < moves.length; index += 2) {
@@ -18,29 +19,28 @@ export default function MoveList({ moves, currentMoveIndex, onMoveClick }: MoveL
   }
 
   return (
-    <div className="rounded-xl border border-border bg-gradient-card shadow-card">
-      <div className="border-b border-border px-4 py-3">
-        <h3 className="text-sm font-semibold text-foreground">Move list</h3>
-      </div>
-
-      <ScrollArea className="h-64">
-        <div className="p-2">
+    <div className="overflow-hidden rounded-lg border border-black/25 bg-[#262421]">
+      <ScrollArea className={heightClassName}>
+        <div className="p-2.5">
           {movePairs.length === 0 ? (
-            <p className="p-2 text-xs text-muted-foreground">Make the first move to start the notation.</p>
+            <div className="grid min-h-36 place-items-center px-5 text-center">
+              <p className="text-sm leading-5 text-[#918e89]">Зробіть перший хід — тут з’явиться запис партії.</p>
+            </div>
           ) : (
-            <div className="space-y-0.5">
+            <div className="space-y-1">
               {movePairs.map((pair, pairIndex) => (
-                <div key={pair.number} className="flex items-center text-xs">
-                  <span className="mr-2 w-7 shrink-0 text-right text-muted-foreground">
+                <div key={pair.number} className="grid grid-cols-[32px_1fr_1fr] items-center gap-1 text-sm">
+                  <span className="pr-1 text-right text-xs font-semibold text-[#77736e]">
                     {pair.number}.
                   </span>
 
                   <button
+                    type="button"
                     onClick={() => onMoveClick?.(pairIndex * 2)}
-                    className={`min-w-[50px] rounded px-2 py-1 text-left transition-colors ${
+                    className={`min-w-0 rounded-md px-2.5 py-1.5 text-left font-semibold transition-colors ${
                       currentMoveIndex === pairIndex * 2
-                        ? "bg-primary/15 font-semibold text-primary"
-                        : "text-foreground hover:bg-secondary"
+                        ? "bg-[#81b64c] text-white"
+                        : "text-[#dedbd5] hover:bg-white/[0.07]"
                     }`}
                   >
                     {pair.white}
@@ -48,11 +48,12 @@ export default function MoveList({ moves, currentMoveIndex, onMoveClick }: MoveL
 
                   {pair.black && (
                     <button
+                      type="button"
                       onClick={() => onMoveClick?.(pairIndex * 2 + 1)}
-                      className={`min-w-[50px] rounded px-2 py-1 text-left transition-colors ${
+                      className={`min-w-0 rounded-md px-2.5 py-1.5 text-left font-semibold transition-colors ${
                         currentMoveIndex === pairIndex * 2 + 1
-                          ? "bg-primary/15 font-semibold text-primary"
-                          : "text-foreground hover:bg-secondary"
+                          ? "bg-[#81b64c] text-white"
+                          : "text-[#dedbd5] hover:bg-white/[0.07]"
                       }`}
                     >
                       {pair.black}
