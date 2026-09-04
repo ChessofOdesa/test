@@ -2,19 +2,20 @@ import { useMemo, useState } from "react";
 import { motion } from "framer-motion";
 import { useNavigate } from "react-router-dom";
 import {
-  ArrowRight,
   Bot,
-  BrainCircuit,
-  Check,
   ChevronRight,
   Clock3,
+  Gauge,
   Globe2,
   LockKeyhole,
+  Puzzle,
   ShieldCheck,
+  SlidersHorizontal,
   Sparkles,
   Swords,
   Trophy,
   UserRound,
+  Users,
   Zap,
   type LucideIcon,
 } from "lucide-react";
@@ -28,81 +29,18 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { SidebarTrigger } from "@/components/ui/sidebar";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { useAuth } from "@/hooks/useAuth";
 
-type GameModeId = "online" | "computer" | "tournaments" | "training";
+type PrimaryMode = "online" | "computer";
 type ColorChoice = "w" | "random" | "b";
 
-type GameMode = {
-  id: GameModeId;
-  title: string;
-  eyebrow: string;
-  description: string;
-  note: string;
-  icon: LucideIcon;
-  tags: string[];
-  accent: string;
-  iconStyle: string;
-  glow: string;
-};
-
-const GAME_MODES: GameMode[] = [
-  {
-    id: "online",
-    title: "Грати онлайн",
-    eyebrow: "Жива партія",
-    description: "Знайдіть суперника свого темпу та почніть партію через захищений сервер.",
-    note: "Потрібен акаунт",
-    icon: Globe2,
-    tags: ["Матчмейкінг", "1+0 — 15+10"],
-    accent: "border-[#8fbd5a]/55 bg-[#8fbd5a]/[0.09]",
-    iconStyle: "bg-[#8fbd5a] text-[#10180a]",
-    glow: "shadow-[0_22px_70px_rgba(143,189,90,0.13)]",
-  },
-  {
-    id: "computer",
-    title: "Проти комп’ютера",
-    eyebrow: "Тренувальна партія",
-    description: "Грайте у власному темпі, обирайте колір і налаштовуйте силу суперника.",
-    note: "Доступно без входу",
-    icon: Bot,
-    tags: ["Рівні складності", "Аналіз після гри"],
-    accent: "border-sky-400/50 bg-sky-400/[0.08]",
-    iconStyle: "bg-sky-400 text-[#07121b]",
-    glow: "shadow-[0_22px_70px_rgba(56,189,248,0.11)]",
-  },
-  {
-    id: "tournaments",
-    title: "Турніри",
-    eyebrow: "Змагальний режим",
-    description: "Приєднуйтеся до відкритих подій або створюйте власний турнір.",
-    note: "Потрібен акаунт",
-    icon: Trophy,
-    tags: ["Arena", "Swiss · Knockout"],
-    accent: "border-amber-300/50 bg-amber-300/[0.08]",
-    iconStyle: "bg-amber-300 text-[#211500]",
-    glow: "shadow-[0_22px_70px_rgba(252,211,77,0.1)]",
-  },
-  {
-    id: "training",
-    title: "Тактичне тренування",
-    eyebrow: "Розвиток майстерності",
-    description: "Розв’язуйте позиції, тренуйте розрахунок і повертайтеся до слабких тем.",
-    note: "Миттєвий старт",
-    icon: BrainCircuit,
-    tags: ["Тактика", "Поступова складність"],
-    accent: "border-violet-400/45 bg-violet-400/[0.08]",
-    iconStyle: "bg-violet-400 text-[#140b20]",
-    glow: "shadow-[0_22px_70px_rgba(167,139,250,0.1)]",
-  },
-];
-
 const ONLINE_TIME_CONTROLS = [
-  { value: "1+0", label: "1+0 · Bullet" },
-  { value: "3+0", label: "3+0 · Blitz" },
-  { value: "5+0", label: "5+0 · Blitz" },
-  { value: "10+0", label: "10+0 · Rapid" },
-  { value: "15+10", label: "15+10 · Rapid" },
+  { value: "1+0", time: "1 хв", category: "Bullet" },
+  { value: "3+0", time: "3 хв", category: "Blitz" },
+  { value: "5+0", time: "5 хв", category: "Blitz" },
+  { value: "10+0", time: "10 хв", category: "Rapid" },
+  { value: "15+10", time: "15 | 10", category: "Rapid" },
 ];
 
 const COMPUTER_TIME_CONTROLS = [
@@ -113,296 +51,331 @@ const COMPUTER_TIME_CONTROLS = [
   { value: "30m", label: "30 хвилин" },
 ];
 
-const COLOR_OPTIONS: Array<{ value: ColorChoice; label: string; detail: string }> = [
-  { value: "w", label: "Білі", detail: "Перший хід" },
-  { value: "random", label: "Випадково", detail: "Колір визначиться автоматично" },
-  { value: "b", label: "Чорні", detail: "Гра від захисту" },
+const BOT_OPTIONS = [
+  { id: "ivan", name: "Іван", rating: 600, level: "Початківець" },
+  { id: "maksym", name: "Максим", rating: 1000, level: "Аматор" },
+  { id: "dmytro", name: "Дмитро", rating: 1200, level: "Клубний" },
+  { id: "mariia", name: "Марія", rating: 1400, level: "Середній" },
+  { id: "viktor", name: "Віктор", rating: 2000, level: "Експерт" },
+  { id: "illia", name: "Ілля", rating: 2800, level: "Майстер" },
 ];
 
-const MODE_DETAILS: Record<
-  GameModeId,
-  { title: string; description: string; button: string; icon: LucideIcon }
-> = {
-  online: {
-    title: "Швидкий пошук суперника",
-    description: "Після запуску відкриється лобі, де сервер знайде гравця з таким самим контролем часу.",
-    button: "Перейти до онлайн-гри",
-    icon: Zap,
-  },
-  computer: {
-    title: "Персональне тренування",
-    description: "На наступному екрані можна обрати бота, змінити силу гри та відкрити аналіз партії.",
-    button: "Грати з комп’ютером",
-    icon: Bot,
-  },
-  tournaments: {
-    title: "Турнірний зал",
-    description: "Перегляньте активні й майбутні події, таблицю учасників або створіть власний турнір.",
-    button: "Відкрити турніри",
-    icon: Trophy,
-  },
-  training: {
-    title: "Тренування тактики",
-    description: "Відкрийте добірку шахових позицій і почніть розв’язання без додаткових налаштувань.",
-    button: "Почати тренування",
-    icon: BrainCircuit,
-  },
-};
+const COLOR_OPTIONS: Array<{ value: ColorChoice; label: string }> = [
+  { value: "w", label: "Білі" },
+  { value: "random", label: "Випадково" },
+  { value: "b", label: "Чорні" },
+];
+
+const QUICK_LINKS: Array<{
+  title: string;
+  description: string;
+  path: string;
+  icon: LucideIcon;
+}> = [
+  { title: "Турніри", description: "Arena, Swiss і Knockout", path: "/tournaments", icon: Trophy },
+  { title: "Знайти гравця", description: "Друзі та шахова спільнота", path: "/social", icon: Users },
+  { title: "Тактичні задачі", description: "Тренування перед партією", path: "/puzzles", icon: Puzzle },
+];
 
 export default function PlayHub() {
   const navigate = useNavigate();
   const { isAuthenticated, isGuest } = useAuth();
-  const [selectedMode, setSelectedMode] = useState<GameModeId>("online");
+  const [mode, setMode] = useState<PrimaryMode>("online");
   const [onlineTime, setOnlineTime] = useState("3+0");
   const [computerTime, setComputerTime] = useState("unlimited");
   const [color, setColor] = useState<ColorChoice>("random");
+  const [botId, setBotId] = useState("dmytro");
 
-  const mode = useMemo(
-    () => GAME_MODES.find((item) => item.id === selectedMode) ?? GAME_MODES[0],
-    [selectedMode],
-  );
-  const detail = MODE_DETAILS[selectedMode];
-  const requiresAccount = selectedMode === "online" || selectedMode === "tournaments";
   const accountReady = isAuthenticated && !isGuest;
+  const selectedOnlineTime = useMemo(
+    () => ONLINE_TIME_CONTROLS.find((control) => control.value === onlineTime) ?? ONLINE_TIME_CONTROLS[1],
+    [onlineTime],
+  );
+  const selectedBot = useMemo(
+    () => BOT_OPTIONS.find((bot) => bot.id === botId) ?? BOT_OPTIONS[2],
+    [botId],
+  );
 
-  const launchMode = () => {
-    if (selectedMode === "online") {
+  const startGame = () => {
+    if (mode === "online") {
       const query = new URLSearchParams({ time: onlineTime, color });
       navigate(`/online?${query.toString()}`);
       return;
     }
 
-    if (selectedMode === "computer") {
-      const query = new URLSearchParams({ time: computerTime, color });
-      navigate(`/play/computer?${query.toString()}`);
-      return;
-    }
-
-    navigate(selectedMode === "tournaments" ? "/tournaments" : "/puzzles");
+    const query = new URLSearchParams({ time: computerTime, color, bot: botId });
+    navigate(`/play/computer?${query.toString()}`);
   };
 
-  const actionLabel = requiresAccount && !accountReady ? "Увійти та продовжити" : detail.button;
-
   return (
-    <div className="relative min-h-full overflow-hidden px-4 py-5 text-white sm:px-6 sm:py-7 xl:px-8">
-      <div className="pointer-events-none absolute left-[28%] top-[-22rem] h-[38rem] w-[38rem] rounded-full bg-[#8fbd5a]/[0.07] blur-3xl" />
-      <div className="pointer-events-none absolute bottom-[-18rem] right-[-10rem] h-[34rem] w-[34rem] rounded-full bg-sky-400/[0.06] blur-3xl" />
-
-      <div className="relative mx-auto max-w-[1240px]">
-        <header className="flex flex-col gap-5 border-b border-white/[0.08] pb-6 sm:flex-row sm:items-end sm:justify-between">
-          <div className="flex items-start gap-3">
-            <SidebarTrigger className="mt-1 h-10 w-10 shrink-0 rounded-xl border border-white/10 bg-white/[0.05] text-white hover:bg-white/10 md:hidden" />
-            <div>
-              <div className="flex flex-wrap items-center gap-2 text-[11px] font-semibold uppercase tracking-[0.28em] text-[#9ca7b4]">
-                <span className="text-[#a9d977]">Ігровий центр</span>
-                <span className="h-1 w-1 rounded-full bg-white/30" />
-                <span>Chess of Odesa</span>
-              </div>
-              <h1 className="mt-3 max-w-3xl text-3xl font-semibold tracking-[-0.035em] text-white sm:text-4xl lg:text-[46px] lg:leading-[1.06]">
-                Оберіть свою наступну партію
-              </h1>
-              <p className="mt-3 max-w-2xl text-sm leading-6 text-[#aeb7c3] sm:text-base">
-                Онлайн-суперник, комп’ютер, турнір або тактичне тренування — усі режими зібрані в одному місці.
-              </p>
-            </div>
+    <div className="min-h-full bg-[#242321] px-3 py-4 text-[#f1f1ef] sm:px-5 sm:py-6 lg:px-8">
+      <div className="mx-auto max-w-[1030px]">
+        <div className="mb-4 flex items-center gap-3">
+          <SidebarTrigger className="h-10 w-10 rounded-lg border border-white/10 bg-[#302f2c] text-white hover:bg-[#3a3936] md:hidden" />
+          <div>
+            <h1 className="text-2xl font-bold tracking-tight sm:text-3xl">Грати</h1>
+            <p className="mt-1 text-sm text-[#aaa7a2]">Оберіть режим і починайте партію</p>
           </div>
+        </div>
 
-          <div className="flex shrink-0 items-center gap-3 rounded-2xl border border-white/[0.08] bg-white/[0.035] px-4 py-3">
-            <span className={`h-2.5 w-2.5 rounded-full ${accountReady ? "bg-emerald-400 shadow-[0_0_16px_rgba(52,211,153,0.75)]" : "bg-[#737d89]"}`} />
-            <div>
-              <p className="text-xs font-semibold text-white">{accountReady ? "Акаунт підключено" : "Гостьовий режим"}</p>
-              <p className="mt-0.5 text-[11px] text-[#8e99a6]">
-                {accountReady ? "Онлайн-режими доступні" : "Комп’ютер і задачі доступні зараз"}
-              </p>
-            </div>
-          </div>
-        </header>
-
-        <div className="mt-6 grid gap-5 xl:grid-cols-[minmax(0,1fr)_390px]">
-          <section aria-labelledby="game-modes-title">
-            <div className="mb-4 flex items-center justify-between gap-3">
-              <div>
-                <p className="text-[11px] font-semibold uppercase tracking-[0.24em] text-[#7f8a97]">Крок 1</p>
-                <h2 id="game-modes-title" className="mt-1 text-xl font-semibold text-white">Оберіть режим</h2>
-              </div>
-              <div className="hidden items-center gap-2 text-xs text-[#8d98a5] sm:flex">
-                <Swords className="h-4 w-4 text-[#8fbd5a]" />
-                4 способи почати гру
-              </div>
-            </div>
-
-            <div className="grid gap-3 md:grid-cols-2">
-              {GAME_MODES.map((item, index) => {
-                const active = item.id === selectedMode;
-                const Icon = item.icon;
-
-                return (
-                  <motion.button
-                    key={item.id}
-                    type="button"
-                    initial={{ opacity: 0, y: 12 }}
-                    animate={{ opacity: 1, y: 0 }}
-                    transition={{ delay: index * 0.045 }}
-                    onClick={() => setSelectedMode(item.id)}
-                    aria-pressed={active}
-                    className={`group relative min-h-[218px] overflow-hidden rounded-[24px] border p-5 text-left transition duration-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#8fbd5a] focus-visible:ring-offset-2 focus-visible:ring-offset-[#080d14] ${
-                      active
-                        ? `${item.accent} ${item.glow}`
-                        : "border-white/[0.08] bg-[#101720]/90 hover:-translate-y-0.5 hover:border-white/[0.16] hover:bg-[#131b25]"
-                    }`}
-                  >
-                    <div className={`absolute inset-x-0 top-0 h-[2px] transition ${active ? "bg-gradient-to-r from-transparent via-white/70 to-transparent" : "bg-transparent"}`} />
-                    <div className="flex items-start justify-between gap-4">
-                      <span className={`grid h-12 w-12 place-items-center rounded-2xl transition ${active ? item.iconStyle : "bg-white/[0.06] text-[#c7d0db] group-hover:bg-white/[0.1] group-hover:text-white"}`}>
-                        <Icon className="h-6 w-6" />
-                      </span>
-                      <span className={`grid h-8 w-8 place-items-center rounded-full border transition ${active ? "border-white/25 bg-white/15 text-white" : "border-white/[0.08] text-[#687381] group-hover:text-white"}`}>
-                        {active ? <Check className="h-4 w-4" /> : <ChevronRight className="h-4 w-4" />}
-                      </span>
-                    </div>
-
-                    <p className="mt-5 text-[10px] font-bold uppercase tracking-[0.24em] text-[#8995a3]">{item.eyebrow}</p>
-                    <h3 className="mt-1.5 text-xl font-semibold tracking-tight text-white">{item.title}</h3>
-                    <p className="mt-2 text-sm leading-5 text-[#9da8b5]">{item.description}</p>
-
-                    <div className="mt-4 flex flex-wrap items-center gap-2">
-                      {item.tags.map((tag) => (
-                        <span key={tag} className="rounded-full border border-white/[0.08] bg-black/15 px-2.5 py-1 text-[10px] font-semibold text-[#b9c2cc]">
-                          {tag}
-                        </span>
-                      ))}
-                      <span className="ml-auto text-[10px] font-medium text-[#7f8a97]">{item.note}</span>
-                    </div>
-                  </motion.button>
-                );
-              })}
-            </div>
-
-            <div className="mt-4 grid gap-3 sm:grid-cols-3">
-              <FeatureStrip icon={ShieldCheck} title="Чесна гра" detail="Ходи онлайн перевіряє сервер" />
-              <FeatureStrip icon={Clock3} title="Ваш темп" detail="Від Bullet до Rapid" />
-              <FeatureStrip icon={Sparkles} title="Після партії" detail="Перехід до аналізу ходів" />
-            </div>
-          </section>
-
-          <motion.aside
-            key={selectedMode}
-            initial={{ opacity: 0, x: 10 }}
-            animate={{ opacity: 1, x: 0 }}
-            className="h-fit rounded-[26px] border border-white/[0.1] bg-[#101720]/95 p-5 shadow-[0_26px_90px_rgba(0,0,0,0.28)] xl:sticky xl:top-6"
+        <div className="grid items-start gap-4 lg:grid-cols-[minmax(0,650px)_minmax(270px,1fr)]">
+          <motion.section
+            initial={{ opacity: 0, y: 8 }}
+            animate={{ opacity: 1, y: 0 }}
+            className="overflow-hidden rounded-xl bg-[#312e2b] shadow-[0_12px_32px_rgba(0,0,0,0.28)]"
           >
-            <div className="flex items-start gap-3 border-b border-white/[0.08] pb-5">
-              <span className={`grid h-11 w-11 shrink-0 place-items-center rounded-2xl ${mode.iconStyle}`}>
-                <detail.icon className="h-5 w-5" />
-              </span>
-              <div>
-                <p className="text-[10px] font-semibold uppercase tracking-[0.24em] text-[#7f8a97]">Крок 2 · Налаштування</p>
-                <h2 className="mt-1 text-lg font-semibold text-white">{detail.title}</h2>
-              </div>
-            </div>
-
-            <p className="mt-4 text-sm leading-6 text-[#9da8b5]">{detail.description}</p>
-
-            {(selectedMode === "online" || selectedMode === "computer") && (
-              <div className="mt-5 space-y-5">
-                <div>
-                  <label htmlFor="play-time-control" className="mb-2 block text-[11px] font-semibold uppercase tracking-[0.2em] text-[#8e99a6]">
-                    Контроль часу
-                  </label>
-                  <Select
-                    value={selectedMode === "online" ? onlineTime : computerTime}
-                    onValueChange={selectedMode === "online" ? setOnlineTime : setComputerTime}
+            <Tabs value={mode} onValueChange={(value) => setMode(value as PrimaryMode)}>
+              <div className="border-b border-black/25 bg-[#2b2926] p-3 sm:p-4">
+                <TabsList className="grid h-auto w-full grid-cols-2 gap-2 bg-transparent p-0">
+                  <TabsTrigger
+                    value="online"
+                    className="h-14 rounded-lg border border-white/[0.06] bg-[#3a3835] px-3 text-base font-bold text-[#c9c7c2] shadow-none transition hover:bg-[#403e3a] data-[state=active]:border-[#81b64c] data-[state=active]:bg-[#81b64c] data-[state=active]:text-white data-[state=active]:shadow-[0_3px_0_#5c8f2d] sm:h-16"
                   >
-                    <SelectTrigger id="play-time-control" className="h-12 rounded-xl border-white/[0.1] bg-white/[0.045] text-white focus:ring-[#8fbd5a]">
-                      <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {(selectedMode === "online" ? ONLINE_TIME_CONTROLS : COMPUTER_TIME_CONTROLS).map((control) => (
-                        <SelectItem key={control.value} value={control.value}>{control.label}</SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
+                    <Globe2 className="mr-2 h-5 w-5" />
+                    Грати онлайн
+                  </TabsTrigger>
+                  <TabsTrigger
+                    value="computer"
+                    className="h-14 rounded-lg border border-white/[0.06] bg-[#3a3835] px-3 text-base font-bold text-[#c9c7c2] shadow-none transition hover:bg-[#403e3a] data-[state=active]:border-[#81b64c] data-[state=active]:bg-[#81b64c] data-[state=active]:text-white data-[state=active]:shadow-[0_3px_0_#5c8f2d] sm:h-16"
+                  >
+                    <Bot className="mr-2 h-5 w-5" />
+                    Грати з ботом
+                  </TabsTrigger>
+                </TabsList>
+              </div>
+
+              <TabsContent value="online" className="m-0 p-4 sm:p-6">
+                <SectionTitle icon={Clock3} title="Контроль часу" description="Швидка гра" />
+
+                <RadioGroup value={onlineTime} onValueChange={setOnlineTime} className="mt-4 grid grid-cols-2 gap-2 sm:grid-cols-3">
+                  {ONLINE_TIME_CONTROLS.map((control) => (
+                    <label
+                      key={control.value}
+                      htmlFor={`online-time-${control.value}`}
+                      className={`relative cursor-pointer rounded-lg border px-3 py-3.5 text-center transition focus-within:ring-2 focus-within:ring-[#a3d160] ${
+                        onlineTime === control.value
+                          ? "border-[#81b64c] bg-[#4b5f35] shadow-[inset_0_0_0_1px_rgba(255,255,255,0.05)]"
+                          : "border-black/25 bg-[#3a3835] hover:bg-[#42403c]"
+                      }`}
+                    >
+                      <RadioGroupItem id={`online-time-${control.value}`} value={control.value} className="sr-only" />
+                      <span className="block text-lg font-bold text-white">{control.time}</span>
+                      <span className={`mt-0.5 block text-xs ${onlineTime === control.value ? "text-[#dbeacb]" : "text-[#aaa7a2]"}`}>{control.category}</span>
+                    </label>
+                  ))}
+                </RadioGroup>
+
+                <div className="mt-5 rounded-lg border border-black/25 bg-[#292725] p-4">
+                  <div className="flex items-center justify-between gap-3">
+                    <div className="flex items-center gap-3">
+                      <span className="grid h-10 w-10 place-items-center rounded-lg bg-[#3b3936] text-[#9dcb63]">
+                        <Zap className="h-5 w-5" />
+                      </span>
+                      <div>
+                        <p className="font-bold text-white">{selectedOnlineTime.time}</p>
+                        <p className="text-sm text-[#aaa7a2]">Стандарт · {selectedOnlineTime.category}</p>
+                      </div>
+                    </div>
+                    <span className="rounded-md bg-[#3a3835] px-2.5 py-1 text-xs font-semibold text-[#c4c1bc]">
+                      {color === "random" ? "Випадковий колір" : color === "w" ? "Білі" : "Чорні"}
+                    </span>
+                  </div>
                 </div>
 
-                <div>
-                  <p className="mb-2 text-[11px] font-semibold uppercase tracking-[0.2em] text-[#8e99a6]">Колір фігур</p>
-                  <RadioGroup value={color} onValueChange={(value) => setColor(value as ColorChoice)} className="grid gap-2">
-                    {COLOR_OPTIONS.map((option) => (
-                      <label
-                        key={option.value}
-                        htmlFor={`play-color-${option.value}`}
-                        className={`flex cursor-pointer items-center gap-3 rounded-xl border px-3.5 py-3 transition ${
-                          color === option.value
-                            ? "border-[#8fbd5a]/45 bg-[#8fbd5a]/10"
-                            : "border-white/[0.08] bg-white/[0.025] hover:bg-white/[0.05]"
-                        }`}
-                      >
-                        <RadioGroupItem id={`play-color-${option.value}`} value={option.value} className="border-white/35 text-[#8fbd5a]" />
-                        <span className="min-w-0 flex-1">
-                          <span className="block text-sm font-semibold text-white">{option.label}</span>
-                          <span className="mt-0.5 block text-[11px] text-[#808b98]">{option.detail}</span>
+                <ColorPicker value={color} onChange={setColor} />
+
+                {!accountReady && (
+                  <div className="mt-4 flex items-start gap-3 rounded-lg bg-[#262421] px-3.5 py-3 text-sm text-[#bdb9b3]">
+                    <LockKeyhole className="mt-0.5 h-4 w-4 shrink-0 text-[#e3b857]" />
+                    Для онлайн-партії потрібно увійти в акаунт.
+                  </div>
+                )}
+
+                <Button
+                  type="button"
+                  onClick={startGame}
+                  className="mt-5 h-14 w-full rounded-lg bg-[#81b64c] text-lg font-extrabold text-white shadow-[0_4px_0_#5c8f2d] hover:bg-[#8fc45a] active:translate-y-[2px] active:shadow-[0_2px_0_#5c8f2d]"
+                >
+                  <Swords className="mr-2 h-5 w-5" />
+                  {accountReady ? "Знайти суперника" : "Увійти й грати"}
+                </Button>
+              </TabsContent>
+
+              <TabsContent value="computer" className="m-0 p-4 sm:p-6">
+                <SectionTitle icon={Gauge} title="Оберіть суперника" description="Сила бота" />
+
+                <RadioGroup value={botId} onValueChange={setBotId} className="mt-4 grid grid-cols-2 gap-2 sm:grid-cols-3">
+                  {BOT_OPTIONS.map((bot) => (
+                    <label
+                      key={bot.id}
+                      htmlFor={`bot-${bot.id}`}
+                      className={`cursor-pointer rounded-lg border p-3 transition focus-within:ring-2 focus-within:ring-[#a3d160] ${
+                        botId === bot.id ? "border-[#81b64c] bg-[#4b5f35]" : "border-black/25 bg-[#3a3835] hover:bg-[#42403c]"
+                      }`}
+                    >
+                      <RadioGroupItem id={`bot-${bot.id}`} value={bot.id} className="sr-only" />
+                      <div className="flex items-center gap-2.5">
+                        <span className={`grid h-10 w-10 shrink-0 place-items-center rounded-full text-sm font-extrabold ${botId === bot.id ? "bg-[#81b64c] text-white" : "bg-[#252321] text-[#d3d0ca]"}`}>
+                          {bot.name[0]}
                         </span>
-                        {option.value === "w" ? (
-                          <span className="h-5 w-5 rounded-full border border-white/60 bg-[#f2f2e8]" aria-hidden="true" />
-                        ) : option.value === "b" ? (
-                          <span className="h-5 w-5 rounded-full border border-white/20 bg-[#171b20]" aria-hidden="true" />
-                        ) : (
-                          <span className="grid h-5 w-5 place-items-center rounded-full border border-white/20 bg-white/[0.06] text-[9px] text-[#aeb7c3]" aria-hidden="true">½</span>
-                        )}
-                      </label>
-                    ))}
-                  </RadioGroup>
+                        <span className="min-w-0">
+                          <span className="block truncate text-sm font-bold text-white">{bot.name}</span>
+                          <span className={`block text-xs ${botId === bot.id ? "text-[#dbeacb]" : "text-[#aaa7a2]"}`}>{bot.rating}</span>
+                        </span>
+                      </div>
+                      <span className={`mt-2 block text-xs ${botId === bot.id ? "text-[#e4f2d5]" : "text-[#918e89]"}`}>{bot.level}</span>
+                    </label>
+                  ))}
+                </RadioGroup>
+
+                <div className="mt-5 grid gap-4 sm:grid-cols-[1fr_auto] sm:items-end">
+                  <div>
+                    <label htmlFor="bot-time" className="mb-2 block text-sm font-bold text-[#d8d5cf]">Час на партію</label>
+                    <Select value={computerTime} onValueChange={setComputerTime}>
+                      <SelectTrigger id="bot-time" className="h-12 rounded-lg border-black/25 bg-[#3a3835] text-white focus:ring-[#81b64c]">
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {COMPUTER_TIME_CONTROLS.map((control) => (
+                          <SelectItem key={control.value} value={control.value}>{control.label}</SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                  <div className="rounded-lg bg-[#292725] px-4 py-3 sm:min-w-[150px]">
+                    <p className="text-xs text-[#99958f]">Обрано</p>
+                    <p className="mt-0.5 font-bold text-white">{selectedBot.name} · {selectedBot.rating}</p>
+                  </div>
+                </div>
+
+                <ColorPicker value={color} onChange={setColor} />
+
+                <Button
+                  type="button"
+                  onClick={startGame}
+                  className="mt-5 h-14 w-full rounded-lg bg-[#81b64c] text-lg font-extrabold text-white shadow-[0_4px_0_#5c8f2d] hover:bg-[#8fc45a] active:translate-y-[2px] active:shadow-[0_2px_0_#5c8f2d]"
+                >
+                  <Bot className="mr-2 h-5 w-5" />
+                  Грати
+                </Button>
+              </TabsContent>
+            </Tabs>
+          </motion.section>
+
+          <aside className="space-y-4">
+            <section className="rounded-xl bg-[#312e2b] p-4 shadow-[0_12px_32px_rgba(0,0,0,0.22)]">
+              <div className="mb-3 flex items-center gap-2">
+                <SlidersHorizontal className="h-5 w-5 text-[#9acb61]" />
+                <h2 className="text-lg font-bold">Інші режими</h2>
+              </div>
+
+              <div className="space-y-2">
+                {QUICK_LINKS.map((item) => {
+                  const Icon = item.icon;
+                  return (
+                    <button
+                      key={item.path}
+                      type="button"
+                      onClick={() => navigate(item.path)}
+                      className="group flex w-full items-center gap-3 rounded-lg border border-black/20 bg-[#3a3835] px-3 py-3 text-left transition hover:bg-[#44413d] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#81b64c]"
+                    >
+                      <span className="grid h-10 w-10 shrink-0 place-items-center rounded-lg bg-[#282623] text-[#a6cf76]">
+                        <Icon className="h-5 w-5" />
+                      </span>
+                      <span className="min-w-0 flex-1">
+                        <span className="block text-sm font-bold text-white">{item.title}</span>
+                        <span className="mt-0.5 block text-xs text-[#aaa7a2]">{item.description}</span>
+                      </span>
+                      <ChevronRight className="h-5 w-5 text-[#77736e] transition group-hover:translate-x-0.5 group-hover:text-white" />
+                    </button>
+                  );
+                })}
+              </div>
+            </section>
+
+            <section className="rounded-xl bg-[#312e2b] p-4 shadow-[0_12px_32px_rgba(0,0,0,0.22)]">
+              <div className="flex items-center gap-3">
+                <span className="grid h-11 w-11 shrink-0 place-items-center rounded-full bg-[#403d39] text-[#9ecb6d]">
+                  {accountReady ? <ShieldCheck className="h-5 w-5" /> : <UserRound className="h-5 w-5" />}
+                </span>
+                <div>
+                  <p className="font-bold text-white">{accountReady ? "Профіль підключено" : "Гостьовий режим"}</p>
+                  <p className="mt-0.5 text-xs leading-5 text-[#aaa7a2]">
+                    {accountReady ? "Онлайн-гра та турніри доступні." : "З ботами можна грати без входу."}
+                  </p>
                 </div>
               </div>
-            )}
+            </section>
 
-            {requiresAccount && !accountReady && (
-              <div className="mt-5 flex items-start gap-3 rounded-xl border border-amber-300/20 bg-amber-300/[0.06] px-3.5 py-3">
-                <LockKeyhole className="mt-0.5 h-4 w-4 shrink-0 text-amber-200" />
-                <p className="text-xs leading-5 text-[#c9c2ad]">
-                  Після натискання ви перейдете до входу. Потім режим стане доступним для вашого акаунта.
-                </p>
-              </div>
-            )}
-
-            <Button
-              type="button"
-              onClick={launchMode}
-              className="mt-6 h-13 w-full rounded-xl bg-[#8fbd5a] text-sm font-bold text-[#0d1608] shadow-[0_14px_34px_rgba(143,189,90,0.2)] hover:bg-[#a2cf6f]"
-            >
-              {actionLabel}
-              <ArrowRight className="ml-2 h-4 w-4" />
-            </Button>
-
-            <div className="mt-4 flex items-center justify-center gap-2 text-[11px] text-[#737f8c]">
-              {requiresAccount ? <UserRound className="h-3.5 w-3.5" /> : <Zap className="h-3.5 w-3.5" />}
-              {requiresAccount ? "Прогрес прив’язується до профілю" : "Режим відкриється одразу"}
+            <div className="flex items-center justify-center gap-2 px-2 text-xs text-[#8e8a84]">
+              <Sparkles className="h-4 w-4" />
+              Після партії відкрийте аналіз ходів
             </div>
-          </motion.aside>
+          </aside>
         </div>
       </div>
     </div>
   );
 }
 
-function FeatureStrip({
+function SectionTitle({
   icon: Icon,
   title,
-  detail,
+  description,
 }: {
   icon: LucideIcon;
   title: string;
-  detail: string;
+  description: string;
 }) {
   return (
-    <div className="flex items-center gap-3 rounded-2xl border border-white/[0.07] bg-white/[0.025] px-3.5 py-3">
-      <span className="grid h-9 w-9 shrink-0 place-items-center rounded-xl bg-white/[0.05] text-[#9fcf6c]">
-        <Icon className="h-4 w-4" />
+    <div className="flex items-center gap-3">
+      <span className="grid h-10 w-10 place-items-center rounded-lg bg-[#262421] text-[#9fcd69]">
+        <Icon className="h-5 w-5" />
       </span>
-      <div className="min-w-0">
-        <p className="text-xs font-semibold text-white">{title}</p>
-        <p className="mt-0.5 truncate text-[10px] text-[#7f8a97]">{detail}</p>
+      <div>
+        <h2 className="text-lg font-bold text-white">{title}</h2>
+        <p className="text-sm text-[#aaa7a2]">{description}</p>
       </div>
+    </div>
+  );
+}
+
+function ColorPicker({
+  value,
+  onChange,
+}: {
+  value: ColorChoice;
+  onChange: (value: ColorChoice) => void;
+}) {
+  return (
+    <div className="mt-5">
+      <p className="mb-2 text-sm font-bold text-[#d8d5cf]">Грати за</p>
+      <RadioGroup value={value} onValueChange={(next) => onChange(next as ColorChoice)} className="grid grid-cols-3 gap-2">
+        {COLOR_OPTIONS.map((option) => (
+          <label
+            key={option.value}
+            htmlFor={`color-${option.value}`}
+            className={`flex cursor-pointer items-center justify-center gap-2 rounded-lg border px-2 py-3 text-sm font-bold transition focus-within:ring-2 focus-within:ring-[#a3d160] ${
+              value === option.value
+                ? "border-[#81b64c] bg-[#4b5f35] text-white"
+                : "border-black/25 bg-[#3a3835] text-[#c6c3bd] hover:bg-[#42403c]"
+            }`}
+          >
+            <RadioGroupItem id={`color-${option.value}`} value={option.value} className="sr-only" />
+            <span
+              aria-hidden="true"
+              className={`h-4 w-4 rounded-full border ${
+                option.value === "w"
+                  ? "border-white/80 bg-[#f3f0df]"
+                  : option.value === "b"
+                    ? "border-white/20 bg-[#191816]"
+                    : "border-[#d2cfc9] bg-[linear-gradient(90deg,#f3f0df_50%,#191816_50%)]"
+              }`}
+            />
+            {option.label}
+          </label>
+        ))}
+      </RadioGroup>
     </div>
   );
 }

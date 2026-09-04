@@ -455,7 +455,10 @@ export default function Play() {
     showCoordinates: savedCoordinates,
   });
 
-  const [selectedBotId, setSelectedBotId] = useState("andriy");
+  const [selectedBotId, setSelectedBotId] = useState(() => {
+    const requested = searchParams.get("bot");
+    return BOTS.some((bot) => bot.id === requested) ? requested! : "andriy";
+  });
   const [selectedSide, setSelectedSide] = useState<SideChoice>(() => {
     const requested = searchParams.get("color");
     return requested === "w" || requested === "b" || requested === "random" ? requested : "w";
