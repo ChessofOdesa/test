@@ -1,7 +1,12 @@
 import { randomUUID } from "node:crypto";
+import { createServer } from "node:http";
 import { WebSocket, WebSocketServer } from "ws";
 import { Chess } from "chess.js";
 import { createSupabasePersistence } from "./supabase-persistence.js";
+import {
+  LichessEvaluationError,
+  createLichessEvaluationService,
+} from "./lichess-evaluation.js";
 
 /**
  * Chess of Odesa online-game server.
@@ -23,6 +28,8 @@ const RECONNECT_GRACE_MS = 30_000;
 const FINISHED_GAME_TTL_MS = 5 * 60_000;
 const PLAYER_TTL_MS = 15 * 60_000;
 const ACTIVE_GAME_SYNC_MS = 5_000;
+const EVALUATION_RATE_WINDOW_MS = 60_000;
+const EVALUATION_RATE_LIMIT = 24;
 
 const DEFAULT_DEV_ORIGINS = ["http://localhost:8080", "http://127.0.0.1:8080"];
 const allowedOrigins = new Set(
@@ -83,6 +90,8 @@ const persistence = createSupabasePersistence({
   url: SUPABASE_URL,
   secretKey: SUPABASE_ADMIN_KEY,
 });
+const evaluationService = createLichessEvaluationService({ persistence });
+const evaluationRateLimits = new Map();
 
 if (!persistence.enabled) {
   console.warn(
@@ -910,6 +919,122 @@ function isOriginAllowed(origin) {
   return allowedOrigins.has(origin);
 }
 
+function sendHttpJson(response, statusCode, payload, extraHeaders = {}) {
+  response.writeHead(statusCode, {
+    "Content-Type": "application/json; charset=utf-8",
+    "X-Content-Type-Options": "nosniff",
+    ...extraHeaders,
+  });
+  response.end(JSON.stringify(payload));
+}
+
+function corsHeaders(origin) {
+  return origin && isOriginAllowed(origin)
+    ? {
+        "Access-Control-Allow-Origin": origin,
+        "Access-Control-Allow-Methods": "GET, OPTIONS",
+        "Access-Control-Allow-Headers": "Content-Type",
+        Vary: "Origin",
+      }
+    : {};
+}
+
+function evaluationClientKey(request) {
+  const forwarded = request.headers["x-forwarded-for"];
+  if (typeof forwarded === "string" && forwarded) {
+    return forwarded.split(",")[0].trim().slice(0, 80);
+  }
+  return request.socket.remoteAddress || "unknown";
+}
+
+function consumeEvaluationRateLimit(request) {
+  const key = evaluationClientKey(request);
+  const now = Date.now();
+  const current = evaluationRateLimits.get(key);
+
+  if (!current || now - current.startedAt >= EVALUATION_RATE_WINDOW_MS) {
+    evaluationRateLimits.set(key, { startedAt: now, count: 1 });
+    return true;
+  }
+
+  if (current.count >= EVALUATION_RATE_LIMIT) return false;
+  current.count += 1;
+  return true;
+}
+
+async function handleHttpRequest(request, response) {
+  const requestUrl = new URL(request.url || "/", "http://localhost");
+  const origin = typeof request.headers.origin === "string" ? request.headers.origin : "";
+
+  if (request.method === "GET" && (requestUrl.pathname === "/" || requestUrl.pathname === "/health")) {
+    sendHttpJson(response, 200, {
+      ok: true,
+      service: "chess-of-odesa-server",
+      evaluationCache: persistence.enabled ? "supabase" : "memory",
+    });
+    return;
+  }
+
+  if (requestUrl.pathname !== "/api/evaluation") {
+    sendHttpJson(response, 404, { error: "Not found." });
+    return;
+  }
+
+  if (!isOriginAllowed(origin)) {
+    sendHttpJson(response, 403, { error: "Origin is not allowed." });
+    return;
+  }
+
+  const headers = corsHeaders(origin);
+  if (request.method === "OPTIONS") {
+    response.writeHead(204, headers);
+    response.end();
+    return;
+  }
+
+  if (request.method !== "GET") {
+    sendHttpJson(response, 405, { error: "Method not allowed." }, {
+      ...headers,
+      Allow: "GET, OPTIONS",
+    });
+    return;
+  }
+
+  if (!consumeEvaluationRateLimit(request)) {
+    sendHttpJson(response, 429, { error: "Too many evaluation requests. Try again in one minute." }, {
+      ...headers,
+      "Retry-After": "60",
+    });
+    return;
+  }
+
+  try {
+    const evaluation = await evaluationService.getEvaluation(
+      requestUrl.searchParams.get("fen") || "",
+      requestUrl.searchParams.get("multiPv") || "1",
+    );
+
+    if (!evaluation) {
+      sendHttpJson(response, 404, { error: "No cloud evaluation is available for this position." }, headers);
+      return;
+    }
+
+    sendHttpJson(response, 200, evaluation, {
+      ...headers,
+      "Cache-Control": "public, max-age=300, stale-while-revalidate=86400",
+    });
+  } catch (error) {
+    const statusCode = error instanceof LichessEvaluationError ? error.statusCode : 503;
+    const publicMessage = statusCode === 400
+      ? "Invalid chess position."
+      : "Cloud evaluation is temporarily unavailable.";
+    if (statusCode !== 400) {
+      console.warn(`[lichess-evaluation] ${error instanceof Error ? error.message : "Unknown error."}`);
+    }
+    sendHttpJson(response, statusCode, { error: publicMessage }, headers);
+  }
+}
+
 function scheduleDisconnectForfeit(player) {
   if (player.disconnectTimer) {
     clearTimeout(player.disconnectTimer);
@@ -1030,7 +1155,17 @@ async function restoreActiveGameForPlayer(player) {
   }
 }
 
-const wss = new WebSocketServer({ port: PORT, maxPayload: MAX_MESSAGE_BYTES });
+const httpServer = createServer((request, response) => {
+  void handleHttpRequest(request, response).catch((error) => {
+    console.warn(`[http] ${error instanceof Error ? error.message : "Unknown request error."}`);
+    if (!response.headersSent) {
+      sendHttpJson(response, 500, { error: "Internal server error." });
+    } else if (!response.writableEnded) {
+      response.end();
+    }
+  });
+});
+const wss = new WebSocketServer({ server: httpServer, maxPayload: MAX_MESSAGE_BYTES });
 
 wss.on("connection", (socket, request) => {
   if (!isOriginAllowed(request.headers.origin)) {
@@ -1179,4 +1314,6 @@ setInterval(() => {
   }
 }, 2_000).unref();
 
-console.log(`Chess of Odesa online server listening on port ${PORT}.`);
+httpServer.listen(PORT, () => {
+  console.log(`Chess of Odesa online server listening on port ${PORT}.`);
+});

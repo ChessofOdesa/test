@@ -26,6 +26,10 @@ and then:
 
 `supabase/migrations/20260904000000_online_game_persistence_and_ratings.sql`
 
+and finally:
+
+`supabase/migrations/20260905000000_lichess_evaluation_cache.sql`
+
 It moves country and date of birth to a private table, hardens profile writes,
 and prevents browsers from inventing online results, puzzle progress, activity
 events, and notifications.
@@ -43,6 +47,20 @@ For a fresh database, follow the exact migration order in
    `SUPABASE_SECRET_KEY` on the online server.
 6. Keep `SUPABASE_SECRET_KEY` only on Render. Never put it in Vercel, a
    `VITE_*` variable, browser code, or committed `.env` files.
+
+## Lichess evaluation database
+
+The Analysis page uses the public Lichess cloud-evaluation database for the
+current position and up to three principal variations. Requests go through the
+Render server, are rate limited, serialized and cached in the server-only
+`position_evaluations` table. If a position is missing or Lichess is temporarily
+unavailable, the page automatically falls back to the configured native
+Stockfish bridge, browser Stockfish and then the lightweight local fallback.
+
+The full compressed Lichess evaluation dump is not committed or loaded in the
+browser. It is larger than a normal application deployment and is intended for
+bulk data pipelines. `VITE_EVAL_API_URL` is optional: when omitted, the web app
+derives `/api/evaluation` from `VITE_ONLINE_WS_URL`.
 
 ## Current online-game scope
 

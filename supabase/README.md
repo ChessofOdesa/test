@@ -12,6 +12,7 @@ each file, paste the complete file, and run the migrations in this exact order:
 7. `20260423000000_add_profile_auth_fields.sql`
 8. `20260826000000_secure_profiles_and_game_access.sql`
 9. `20260904000000_online_game_persistence_and_ratings.sql`
+10. `20260905000000_lichess_evaluation_cache.sql`
 
 Run every file separately and wait for a successful result before continuing.
 Do not rerun files that already completed successfully. The final migration
@@ -23,3 +24,7 @@ in the repository version. Always copy the current file from the `main` branch.
 
 After migration 9 succeeds, add `SUPABASE_SECRET_KEY` only to the Render online
 server. Never add this key to Vercel, a `VITE_*` variable, client code, or Git.
+
+Migration 10 creates a private server-only cache for Lichess position
+evaluations. It is safe to run after migration 9 and does not require any new
+environment variable. Browser users cannot read or change this table directly.

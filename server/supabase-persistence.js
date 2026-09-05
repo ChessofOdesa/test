@@ -31,6 +31,17 @@ const ACTIVE_GAME_SELECT = [
   "moves_count",
 ].join(",");
 
+const POSITION_EVALUATION_SELECT = [
+  "fen_hash",
+  "fen",
+  "depth",
+  "knodes",
+  "pvs",
+  "requested_multipv",
+  "source",
+  "fetched_at",
+].join(",");
+
 function normalizeBaseUrl(value) {
   return typeof value === "string" ? value.trim().replace(/\/+$/, "") : "";
 }
@@ -175,6 +186,29 @@ export function createSupabasePersistence({
     return result && typeof result === "object" ? result : null;
   }
 
+  async function findPositionEvaluation(fenHash) {
+    if (!enabled || typeof fenHash !== "string" || !fenHash) return null;
+
+    const query = new URLSearchParams({
+      select: POSITION_EVALUATION_SELECT,
+      fen_hash: `eq.${fenHash}`,
+      limit: "1",
+    });
+    const rows = await request(`position_evaluations?${query.toString()}`);
+    return Array.isArray(rows) && rows.length > 0 ? rows[0] : null;
+  }
+
+  async function savePositionEvaluation(record) {
+    if (!enabled) return false;
+
+    await request("position_evaluations?on_conflict=fen_hash", {
+      method: "POST",
+      prefer: "resolution=merge-duplicates,return=minimal",
+      body: record,
+    });
+    return true;
+  }
+
   function warn(operation, error) {
     const message = error instanceof Error ? error.message : "Unknown persistence error.";
     logger.warn(`[persistence:${operation}] ${message}`);
@@ -188,6 +222,8 @@ export function createSupabasePersistence({
     updateGame,
     findActiveGame,
     finalizeGame,
+    findPositionEvaluation,
+    savePositionEvaluation,
     warn,
   };
 }

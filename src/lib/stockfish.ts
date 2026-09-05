@@ -1,6 +1,6 @@
 import { Chess, type Square } from "chess.js";
 
-export type EngineBackend = "native" | "worker";
+export type EngineBackend = "native" | "worker" | "cloud";
 
 export type EngineLine = {
   multipv: number;
@@ -34,6 +34,19 @@ export type AnalyzeOptions = {
   hash?: number;
   sessionId?: string;
   timeoutMs?: number;
+  preferCloud?: boolean;
+};
+
+type CloudEvaluationPv = {
+  moves?: unknown;
+  cp?: unknown;
+  mate?: unknown;
+};
+
+type CloudEvaluationResponse = {
+  depth?: unknown;
+  knodes?: unknown;
+  pvs?: unknown;
 };
 
 type EngineHealth = "unknown" | "healthy" | "unavailable";
@@ -69,6 +82,9 @@ type NativeAnalyzePayload = {
 };
 
 const NATIVE_ENGINE_FALLBACK_URL = "http://127.0.0.1:8765";
+const CLOUD_EVALUATION_PATH = "/api/evaluation";
+const CLOUD_EVALUATION_TIMEOUT_MS = 8_000;
+const UCI_MOVE_PATTERN = /^[a-h][1-8][a-h][1-8][qrbn]?$/;
 
 let nativeEngineHealth: EngineHealth = "unknown";
 let nativeEngineFailureReason: string | null = null;
@@ -100,6 +116,32 @@ function getNativeEngineUrl() {
   }
 
   return null;
+}
+
+function getCloudEvaluationUrl() {
+  const explicitUrl = import.meta.env.VITE_EVAL_API_URL?.trim();
+  if (explicitUrl) {
+    return explicitUrl;
+  }
+
+  const websocketUrl = import.meta.env.VITE_ONLINE_WS_URL?.trim();
+  if (!websocketUrl) {
+    return null;
+  }
+
+  try {
+    const url = new URL(websocketUrl);
+    if (url.protocol !== "ws:" && url.protocol !== "wss:") {
+      return null;
+    }
+    url.protocol = url.protocol === "wss:" ? "https:" : "http:";
+    url.pathname = CLOUD_EVALUATION_PATH;
+    url.search = "";
+    url.hash = "";
+    return url.toString();
+  } catch {
+    return null;
+  }
 }
 
 function getStockfishWorkerUrl() {
@@ -174,6 +216,106 @@ function normalizeAnalyzeResult(
     timeMs: result.timeMs ?? null,
     lines,
   };
+}
+
+function finiteInteger(value: unknown) {
+  return typeof value === "number" && Number.isFinite(value)
+    ? Math.round(value)
+    : null;
+}
+
+function normalizeCloudPv(value: CloudEvaluationPv, index: number): EngineLine | null {
+  if (typeof value.moves !== "string") {
+    return null;
+  }
+
+  const pv = value.moves
+    .trim()
+    .split(/\s+/)
+    .filter((move) => UCI_MOVE_PATTERN.test(move))
+    .slice(0, 32);
+  if (pv.length === 0) {
+    return null;
+  }
+
+  const scoreMate = finiteInteger(value.mate);
+  const scoreCp = scoreMate == null ? finiteInteger(value.cp) : null;
+  if (scoreCp == null && scoreMate == null) {
+    return null;
+  }
+
+  return {
+    multipv: index + 1,
+    scoreCp,
+    scoreMate,
+    pv,
+  };
+}
+
+async function analyzeWithCloudEvaluation(
+  fen: string,
+  requestedMultiPv: number,
+  timeoutMs: number,
+  onOutput?: (line: string) => void,
+): Promise<AnalyzeResult | null> {
+  const endpoint = getCloudEvaluationUrl();
+  if (!endpoint) {
+    return null;
+  }
+
+  const multiPv = Math.max(1, Math.min(5, Math.round(requestedMultiPv || 1)));
+  const url = new URL(endpoint);
+  url.searchParams.set("fen", fen);
+  url.searchParams.set("multiPv", String(multiPv));
+
+  const controller = new AbortController();
+  const timer = window.setTimeout(
+    () => controller.abort(),
+    Math.min(Math.max(timeoutMs, 2_500), CLOUD_EVALUATION_TIMEOUT_MS),
+  );
+
+  try {
+    const response = await fetch(url, {
+      headers: { Accept: "application/json" },
+      signal: controller.signal,
+    });
+    if (response.status === 404) {
+      return null;
+    }
+    if (!response.ok) {
+      throw new Error(`Cloud evaluation returned ${response.status}.`);
+    }
+
+    const payload = (await response.json()) as CloudEvaluationResponse;
+    const lines = (Array.isArray(payload.pvs) ? payload.pvs : [])
+      .map((pv, index) => normalizeCloudPv(pv as CloudEvaluationPv, index))
+      .filter((line): line is EngineLine => line !== null);
+    const primary = lines[0];
+    if (!primary) {
+      throw new Error("Cloud evaluation returned no usable variations.");
+    }
+
+    const depth = finiteInteger(payload.depth);
+    const knodes = finiteInteger(payload.knodes);
+    const nodes = knodes == null ? null : knodes * 1_000;
+    const normalizedLines = lines.map((line) => ({ ...line, depth, nodes, timeMs: null }));
+    onOutput?.("info string Lichess cloud evaluation loaded");
+
+    return {
+      backend: "cloud",
+      bestmove: primary.pv[0] ?? null,
+      raw: ["info string Lichess cloud evaluation loaded"],
+      scoreCp: primary.scoreCp,
+      scoreMate: primary.scoreMate,
+      pv: primary.pv,
+      depth,
+      nodes,
+      timeMs: null,
+      lines: normalizedLines,
+    };
+  } finally {
+    window.clearTimeout(timer);
+  }
 }
 
 function evaluateMaterialCp(chess: Chess) {
@@ -711,6 +853,9 @@ const stockfishManager = new StockfishManager();
 
 export function getStockfishStatus() {
   return {
+    cloud: {
+      url: getCloudEvaluationUrl(),
+    },
     native: {
       health: nativeEngineHealth,
       reason: nativeEngineFailureReason,
@@ -735,6 +880,22 @@ export async function analyzeFenWithStockfish(
   const requestTimeoutMs = options.timeoutMs ?? timeoutMs;
   const browserSafeDepth = Math.min(depth, options.multiPv && options.multiPv > 1 ? 7 : 8);
   const browserSafeTimeoutMs = Math.max(requestTimeoutMs, 18_000);
+
+  if (options.preferCloud) {
+    try {
+      const cloudResult = await analyzeWithCloudEvaluation(
+        fen,
+        options.multiPv ?? 1,
+        requestTimeoutMs,
+        onOutput,
+      );
+      if (cloudResult) {
+        return cloudResult;
+      }
+    } catch (error) {
+      console.warn("Lichess cloud evaluation failed, falling back to Stockfish.", error);
+    }
+  }
 
   if (nativeUrl && nativeEngineHealth !== "unavailable") {
     try {

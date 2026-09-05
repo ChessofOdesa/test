@@ -1383,11 +1383,11 @@ export default function Analysis() {
     fen: string,
     depth = 12,
     onOutput?: (line: string) => void,
-    options: { multiPv?: number; sessionId?: string; timeoutMs?: number } = {},
+    options: { multiPv?: number; sessionId?: string; timeoutMs?: number; preferCloud?: boolean } = {},
   ) => {
     const multiPv = options.multiPv ?? 1;
     const timeoutMs = options.timeoutMs ?? 16_000;
-    const key = `${depth}:${multiPv}:${fen}`;
+    const key = `${options.preferCloud ? "cloud" : "local"}:${depth}:${multiPv}:${fen}`;
     const cached = engineCacheRef.current.get(key);
     if (cached) {
       return cached;
@@ -1397,6 +1397,7 @@ export default function Analysis() {
       multiPv,
       sessionId: options.sessionId ?? "analysis",
       timeoutMs,
+      preferCloud: options.preferCloud,
     });
     const lines = result.lines ?? [];
     const summary: EngineSummary = {
@@ -1429,7 +1430,10 @@ export default function Analysis() {
     let cancelled = false;
     setAnalysisStatus("Analyzing current position...");
 
-    getEngineForFen(currentFen, engineDepth)
+    getEngineForFen(currentFen, engineDepth, undefined, {
+      multiPv: 3,
+      preferCloud: true,
+    })
       .then((summary) => {
         if (cancelled) {
           return;
@@ -1779,12 +1783,13 @@ export default function Analysis() {
       const summary = await getEngineForFen(workingFen, engineDepth, handleEngineLine, {
         multiPv: 3,
         sessionId: `analysis-manual-${runId}`,
+        preferCloud: true,
       });
       ensureActiveRun();
       setCurrentEngine(summary);
       setAnalysisProgress(workingMoves.length > 0 ? 18 : 76);
 
-      let workingSnapshot = toSnapshot(workingRecord);
+      const workingSnapshot = toSnapshot(workingRecord);
 
       if (workingMoves.length > 0) {
         for (let index = 0; index < workingMoves.length; index += 1) {
@@ -2462,7 +2467,11 @@ export default function Analysis() {
   const whitePlayerMeta = record.headers.WhiteElo || "Study board";
   const blackPlayerMeta =
     record.headers.BlackElo ||
-    (currentEngine?.backend === "native" ? "Native Stockfish" : "Browser Stockfish");
+    (currentEngine?.backend === "cloud"
+      ? "Lichess Cloud"
+      : currentEngine?.backend === "native"
+        ? "Native Stockfish"
+        : "Browser Stockfish");
   const materialBalance =
     material.diff > 0 ? `White +${material.diff}` : material.diff < 0 ? `Black +${Math.abs(material.diff)}` : "Equal";
   const openingSummary = openingMatch?.line?.comment || openingMatch?.opening.description || "Load a game to detect the opening plan.";
@@ -2537,9 +2546,11 @@ export default function Analysis() {
     analysisIsRunning
       ? "Analyzing"
       : currentEngine
-        ? currentEngine.backend === "native"
-          ? "Native engine"
-          : "Browser engine"
+        ? currentEngine.backend === "cloud"
+          ? "Lichess Cloud"
+          : currentEngine.backend === "native"
+            ? "Native engine"
+            : "Browser engine"
         : analysisPhase === "error"
           ? "Engine error"
           : analysisEnabled
@@ -2744,7 +2755,7 @@ export default function Analysis() {
         title: index === 0 ? "Main engine line" : "Candidate line",
         text: `Selected line ${row.score}: ${row.text}`,
         detail: "The board keeps the current position while the coach explains this candidate continuation.",
-        tone: index === 0 ? "system" : "neutral",
+        tone: index === 0 ? ("system" as const) : ("neutral" as const),
         moveLabel: currentMoveLabel,
       },
       ...current,

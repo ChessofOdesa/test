@@ -31,3 +31,15 @@ Apply `supabase/migrations/20260904000000_online_game_persistence_and_ratings.sq
 before enabling the server secret. The server then stores active positions
 and clocks, restores interrupted games, archives completed games, and updates
 the correct Bullet, Blitz or Rapid rating in one atomic database operation.
+
+Also apply `supabase/migrations/20260905000000_lichess_evaluation_cache.sql`.
+The HTTP endpoint `GET /api/evaluation?fen=...&multiPv=3` then reads from the
+server-only Supabase cache before requesting the public Lichess cloud database.
+It accepts at most five variations, validates every FEN, serializes upstream
+requests, observes a one-minute cooldown after a Lichess rate limit, and limits
+each client address to 24 calls per minute. The existing `ALLOWED_ORIGINS`
+setting protects browser access to this endpoint as well as WebSocket access.
+
+No additional secret is required for Lichess. If the Supabase server key is not
+configured, evaluation still works with the in-memory cache, but cached results
+will disappear when Render restarts.
