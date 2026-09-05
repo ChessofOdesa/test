@@ -479,7 +479,7 @@ export default function Play() {
   const [isEngineThinking, setIsEngineThinking] = useState(false);
   const [playerColor, setPlayerColor] = useState<"w" | "b">("w");
   const [engineStatus, setEngineStatus] = useState("Готуємо партію…");
-  const [botQuote, setBotQuote] = useState(BOTS[0].intro);
+  const [, setBotQuote] = useState(BOTS[0].intro);
   const [engineMode, setEngineMode] = useState<EngineMode>("stockfish");
   const [engineDepth, setEngineDepth] = useState(0);
   const [evalScore, setEvalScore] = useState(0);
@@ -602,15 +602,15 @@ export default function Play() {
       }
 
       if (width < 1024) {
-        const widthBound = width - 48;
+        const widthBound = width - (width >= 768 ? 240 : 48);
         const heightBound = Math.max(340, height - 190);
         setBoardSize(Math.max(340, Math.min(620, widthBound, heightBound)));
         return;
       }
 
-      const widthBound = width - 590;
+      const widthBound = width - 560;
       const heightBound = height - 170;
-      setBoardSize(Math.max(420, Math.min(680, widthBound, heightBound)));
+      setBoardSize(Math.max(380, Math.min(680, widthBound, heightBound)));
     };
 
     syncBoardSize();
@@ -1250,26 +1250,6 @@ export default function Play() {
 
   const gamePanelContent = (
     <div className="flex min-h-[560px] flex-col overflow-hidden rounded-xl bg-[#312e2b] shadow-[0_16px_40px_rgba(0,0,0,0.32)] lg:h-[calc(100dvh-32px)] lg:min-h-0">
-      <div className="border-b border-black/25 bg-[#2b2926] p-4">
-        <div className="flex items-center gap-3">
-          <BotAvatar bot={selectedBot} size="md" />
-          <div className="min-w-0 flex-1">
-            <div className="flex items-center gap-2">
-              <h2 className="truncate text-base font-bold text-white">{selectedBot.name}</h2>
-              <span className="text-sm font-semibold text-[#bdb9b3]">{selectedBot.rating}</span>
-              {selectedBot.flag ? <span className="text-sm">{selectedBot.flag}</span> : null}
-            </div>
-            <p className="mt-0.5 truncate text-sm text-[#aaa7a2]">{selectedBot.description}</p>
-          </div>
-          <span className="rounded-md bg-[#242321] px-2.5 py-1.5 text-xs font-bold text-[#c8c5bf]">
-            {timeControl.label}
-          </span>
-        </div>
-        <div className="mt-3 rounded-lg bg-[#f1f1ef] px-3.5 py-3 text-sm leading-5 text-[#312e2b] shadow-sm">
-          {botQuote}
-        </div>
-      </div>
-
       <Tabs value={analysisTab} onValueChange={setAnalysisTab} className="flex min-h-0 flex-1 flex-col">
         <TabsList className="grid h-auto w-full shrink-0 grid-cols-3 rounded-none border-b border-black/25 bg-[#262421] p-0">
           <TabsTrigger
@@ -1308,7 +1288,9 @@ export default function Play() {
               moves={reviewData.movesSan}
               currentMoveIndex={selectedMoveIndex ?? latestMoveIndex ?? undefined}
               onMoveClick={(index) => jumpToMove(index)}
-              heightClassName="h-[230px] lg:h-[calc(100dvh-510px)] lg:min-h-[150px]"
+              heightClassName={`h-[230px] lg:min-h-[150px] ${
+                gameOver ? "lg:h-[calc(100dvh-410px)]" : "lg:h-[calc(100dvh-350px)]"
+              }`}
             />
           </div>
 
@@ -1350,14 +1332,16 @@ export default function Play() {
             />
           </div>
 
-          <Button
-            type="button"
-            onClick={startConfiguredGame}
-            className="mt-3 h-12 w-full rounded-lg bg-[#81b64c] text-base font-extrabold text-white shadow-[0_3px_0_#5c8f2d] hover:bg-[#8fc45a]"
-          >
-            <RefreshCw className="mr-2 h-4 w-4" />
-            Нова партія
-          </Button>
+          {gameOver && (
+            <Button
+              type="button"
+              onClick={startConfiguredGame}
+              className="mt-3 h-12 w-full rounded-lg bg-[#81b64c] text-base font-extrabold text-white shadow-[0_3px_0_#5c8f2d] hover:bg-[#8fc45a]"
+            >
+              <RefreshCw className="mr-2 h-4 w-4" />
+              Нова партія
+            </Button>
+          )}
         </TabsContent>
 
         <TabsContent value="engine" className="m-0 min-h-0 flex-1 overflow-y-auto p-4">
@@ -1496,8 +1480,11 @@ export default function Play() {
           </div>
         </div>
 
-        <div className="mx-auto grid w-full max-w-[1160px] flex-1 gap-3 p-3 md:gap-4 md:p-4 lg:min-h-0 lg:grid-cols-[minmax(0,700px)_minmax(320px,370px)] lg:justify-center">
-          <main className="min-w-0 space-y-2.5 lg:sticky lg:top-4 lg:self-start">
+        <div className="grid w-full flex-1 gap-3 p-3 md:gap-4 md:p-4 lg:min-h-0 lg:grid-cols-[max-content_minmax(320px,370px)] lg:justify-start">
+          <main
+            className="min-w-0 max-w-full space-y-2.5 lg:sticky lg:top-4 lg:self-start"
+            style={{ width: boardSize }}
+          >
             <div className="rounded-lg bg-[#312e2b] px-2.5 py-2 shadow-xl shadow-black/20 sm:px-3">
               <div className="flex flex-col gap-2.5 sm:flex-row sm:items-center sm:justify-between">
                 <div className="flex min-w-0 items-center gap-3">

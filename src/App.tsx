@@ -157,8 +157,8 @@ const App = () => (
               <SidebarProvider
                 style={
                   {
-                    "--sidebar-width": "14.5rem",
-                    "--sidebar-width-icon": "4.25rem",
+                    "--sidebar-width": "12rem",
+                    "--sidebar-width-icon": "3.75rem",
                   } as CSSProperties
                 }
               >
