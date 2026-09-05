@@ -1,5 +1,8 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import analyzeFenWithStockfish from "@/lib/stockfish";
+import analyzeFenWithStockfish, {
+  normalizeSideToMoveResultForWhite,
+  type AnalyzeResult,
+} from "@/lib/stockfish";
 
 const START_FEN = "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1";
 
@@ -44,5 +47,30 @@ describe("Lichess cloud evaluation", () => {
     );
     expect(requestedUrl.searchParams.get("fen")).toBe(START_FEN);
     expect(requestedUrl.searchParams.get("multiPv")).toBe("2");
+  });
+
+  it("normalizes a Black-to-move Stockfish score to White's perspective", () => {
+    const blackToMoveFen = "rnbqkbnr/pppp1ppp/8/4p3/4P3/8/PPPP1PPP/RNBQKBNR b KQkq - 0 1";
+    const rawResult: AnalyzeResult = {
+      backend: "worker",
+      bestmove: "g8f6",
+      raw: ["info depth 18 score cp 34 pv g8f6"],
+      scoreCp: 34,
+      scoreMate: null,
+      pv: ["g8f6"],
+      lines: [{
+        multipv: 1,
+        scoreCp: 34,
+        scoreMate: null,
+        pv: ["g8f6"],
+      }],
+    };
+
+    const normalized = normalizeSideToMoveResultForWhite(blackToMoveFen, rawResult);
+
+    expect(normalized.scoreCp).toBe(-34);
+    expect(normalized.lines?.[0].scoreCp).toBe(-34);
+    expect(normalized.raw[0]).toContain("score cp -34");
+    expect(normalized.bestmove).toBe("g8f6");
   });
 });

@@ -1307,14 +1307,17 @@ export default function Analysis() {
           : null;
   const currentBestMove =
     currentNode?.bestMoveSan || currentEngine?.bestMoveSan || null;
-  const currentPv =
-    currentNode?.alternatives?.length
-      ? currentNode.alternatives
-      : currentEngine?.lineSan.length
-        ? currentEngine.lineSan
-        : currentEngine?.pvSan.length
-          ? currentEngine.pvSan
-        : [];
+  const currentPv = useMemo(
+    () =>
+      currentNode?.alternatives?.length
+        ? currentNode.alternatives
+        : currentEngine?.lineSan.length
+          ? currentEngine.lineSan
+          : currentEngine?.pvSan.length
+            ? currentEngine.pvSan
+            : [],
+    [currentEngine?.lineSan, currentEngine?.pvSan, currentNode?.alternatives],
+  );
   const mainlinePairs = useMemo(() => buildMovePairs(record.mainline), [record.mainline]);
   const currentArrows = useMemo<AnalysisArrow[]>(() => {
     if (currentNode?.arrows?.length) {
@@ -2372,7 +2375,15 @@ export default function Analysis() {
         return false;
       }
     },
-    [commitRecordChange, currentFen, currentNode?.ply, emitSound, variationMode],
+    [
+      commitRecordChange,
+      currentFen,
+      currentNode?.ply,
+      emitSound,
+      record.currentPath,
+      record.mainline.length,
+      variationMode,
+    ],
   );
 
   const handleBoardMove = useCallback(

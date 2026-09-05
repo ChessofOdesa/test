@@ -218,6 +218,51 @@ function normalizeAnalyzeResult(
   };
 }
 
+function invertEngineScore(value: number | null) {
+  if (value == null || value === 0) {
+    return value;
+  }
+
+  return -value;
+}
+
+function normalizeUciInfoLineForWhite(fen: string, line: string) {
+  if (fen.trim().split(/\s+/)[1] !== "b") {
+    return line;
+  }
+
+  return line.replace(/\bscore (cp|mate) (-?\d+)/g, (_match, kind: string, rawValue: string) => {
+    const value = Number.parseInt(rawValue, 10);
+    return `score ${kind} ${value === 0 ? 0 : -value}`;
+  });
+}
+
+/**
+ * UCI engines report scores from the side-to-move perspective. The rest of
+ * Chess of Odesa stores evaluations from White's perspective, so Black-to-move
+ * results must be inverted before move-loss comparisons or an evaluation bar.
+ */
+export function normalizeSideToMoveResultForWhite(
+  fen: string,
+  result: AnalyzeResult,
+): AnalyzeResult {
+  if (fen.trim().split(/\s+/)[1] !== "b") {
+    return result;
+  }
+
+  return {
+    ...result,
+    raw: result.raw.map((line) => normalizeUciInfoLineForWhite(fen, line)),
+    scoreCp: invertEngineScore(result.scoreCp),
+    scoreMate: invertEngineScore(result.scoreMate),
+    lines: result.lines?.map((line) => ({
+      ...line,
+      scoreCp: invertEngineScore(line.scoreCp),
+      scoreMate: invertEngineScore(line.scoreMate),
+    })),
+  };
+}
+
 function finiteInteger(value: unknown) {
   return typeof value === "number" && Number.isFinite(value)
     ? Math.round(value)
@@ -880,6 +925,9 @@ export async function analyzeFenWithStockfish(
   const requestTimeoutMs = options.timeoutMs ?? timeoutMs;
   const browserSafeDepth = Math.min(depth, options.multiPv && options.multiPv > 1 ? 7 : 8);
   const browserSafeTimeoutMs = Math.max(requestTimeoutMs, 18_000);
+  const whitePerspectiveOutput = onOutput
+    ? (line: string) => onOutput(normalizeUciInfoLineForWhite(fen, line))
+    : undefined;
 
   if (options.preferCloud) {
     try {
@@ -899,7 +947,7 @@ export async function analyzeFenWithStockfish(
 
   if (nativeUrl && nativeEngineHealth !== "unavailable") {
     try {
-      return await analyzeWithNativeEngine(
+      const result = await analyzeWithNativeEngine(
         {
           fen,
           depth,
@@ -912,15 +960,22 @@ export async function analyzeFenWithStockfish(
           hash: options.hash,
           sessionId: options.sessionId,
         },
-        onOutput,
+        whitePerspectiveOutput,
       );
+      return normalizeSideToMoveResultForWhite(fen, result);
     } catch (error) {
       console.warn("Native Stockfish bridge failed, falling back to worker engine.", error);
     }
   }
 
   try {
-    return await stockfishManager.enqueue(fen, browserSafeDepth, onOutput, browserSafeTimeoutMs);
+    const result = await stockfishManager.enqueue(
+      fen,
+      browserSafeDepth,
+      whitePerspectiveOutput,
+      browserSafeTimeoutMs,
+    );
+    return normalizeSideToMoveResultForWhite(fen, result);
   } catch (error) {
     console.warn("Browser Stockfish failed, using local fallback analysis.", error);
     return createLocalFallbackResult(fen);

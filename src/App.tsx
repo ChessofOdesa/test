@@ -4,7 +4,7 @@ import { BrowserRouter, Navigate, Route, Routes, useLocation } from "react-route
 import { Toaster as Sonner } from "@/components/ui/sonner";
 import { Toaster } from "@/components/ui/toaster";
 import { TooltipProvider } from "@/components/ui/tooltip";
-import { SidebarProvider } from "@/components/ui/sidebar";
+import { SidebarProvider, SidebarTrigger } from "@/components/ui/sidebar";
 import { AppSidebar } from "@/components/AppSidebar";
 import { BoardSettingsProvider } from "@/contexts/BoardSettingsContext";
 import { AuthProvider, useAuth } from "@/hooks/useAuth";
@@ -43,6 +43,7 @@ function AppShell() {
       <div className="relative flex min-h-screen w-full overflow-hidden bg-[#080d14] text-white">
         <SiteBackground />
         <AppSidebar />
+        <MobileSidebarTrigger />
         <main className="relative z-10 flex-1 overflow-hidden">
           <Routes>
             <Route path="/analysis" element={<Analysis />} />
@@ -57,6 +58,7 @@ function AppShell() {
       <div className="relative flex min-h-screen w-full overflow-hidden bg-[#080d14] text-white">
         <SiteBackground />
         <AppSidebar />
+        <MobileSidebarTrigger />
         <main className="relative z-10 flex-1 overflow-hidden">
           <Routes>
             <Route path="/learn" element={<Navigate to="/lessons" replace />} />
@@ -84,6 +86,7 @@ function AppShell() {
     <div className="relative flex min-h-screen w-full overflow-hidden bg-[#080d14] text-white">
       <SiteBackground />
       <AppSidebar />
+      <MobileSidebarTrigger />
       <div className="relative z-10 flex min-w-0 flex-1 flex-col">
         <main className="flex-1 overflow-y-auto">
           <Routes>
@@ -132,6 +135,16 @@ function SiteBackground() {
   );
 }
 
+function MobileSidebarTrigger() {
+  return (
+    <SidebarTrigger
+      aria-label="Відкрити навігацію"
+      title="Меню"
+      className="fixed left-3 top-3 z-40 size-11 rounded-xl border border-white/10 bg-[#0d141c]/95 text-white shadow-[0_14px_34px_rgba(0,0,0,0.38)] backdrop-blur-xl hover:bg-[#18222d] hover:text-white md:hidden"
+    />
+  );
+}
+
 const App = () => (
   <QueryClientProvider client={queryClient}>
     <AuthProvider>
@@ -144,8 +157,8 @@ const App = () => (
               <SidebarProvider
                 style={
                   {
-                    "--sidebar-width": "11.25rem",
-                    "--sidebar-width-icon": "3rem",
+                    "--sidebar-width": "14.5rem",
+                    "--sidebar-width-icon": "4.25rem",
                   } as CSSProperties
                 }
               >
