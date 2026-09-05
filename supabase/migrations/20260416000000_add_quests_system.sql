@@ -10,7 +10,6 @@ AS $$
 DECLARE
   v_quest RECORD;
   v_user_quest RECORD;
-  v_reward_xp INTEGER;
 BEGIN
   -- Get quest details
   SELECT * INTO v_quest FROM quests WHERE id = p_quest_id;
@@ -52,6 +51,8 @@ DECLARE
   v_user_quest RECORD;
   v_progress JSONB;
   v_completed BOOLEAN;
+  req_key TEXT;
+  req_value TEXT;
 BEGIN
   -- Loop through quests that have this action in requirements
   FOR v_quest IN SELECT * FROM quests WHERE requirements ? p_action_type LOOP
@@ -63,13 +64,20 @@ BEGIN
     END IF;
 
     -- Update progress
-    v_progress := v_user_quest.progress;
-    v_progress := jsonb_set(v_progress, array[p_action_type], to_jsonb((v_progress->>p_action_type)::int + p_amount));
+    v_progress := COALESCE(v_user_quest.progress, '{}'::jsonb);
+    v_progress := jsonb_set(
+      v_progress,
+      ARRAY[p_action_type],
+      to_jsonb(COALESCE((v_progress ->> p_action_type)::integer, 0) + p_amount),
+      true
+    );
 
     -- Check if completed
     v_completed := true;
-    FOR req_key, req_value IN SELECT * FROM jsonb_object_keys(v_quest.requirements) k CROSS JOIN jsonb_object_values(v_quest.requirements) v LOOP
-      IF (v_progress->>req_key)::int < req_value::int THEN
+    FOR req_key, req_value IN
+      SELECT key, value FROM jsonb_each_text(v_quest.requirements)
+    LOOP
+      IF COALESCE((v_progress ->> req_key)::integer, 0) < req_value::integer THEN
         v_completed := false;
         EXIT;
       END IF;

@@ -32,6 +32,9 @@ events, and notifications.
 
 ## Production checklist
 
+For a fresh database, follow the exact migration order in
+[`supabase/README.md`](supabase/README.md).
+
 1. Add the real HTTPS site URL to Supabase Auth Redirect URLs.
 2. Deploy the web app over HTTPS.
 3. Deploy the `server` folder separately behind a reverse proxy with `wss://`.
