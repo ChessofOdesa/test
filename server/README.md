@@ -8,7 +8,8 @@ browser as truth.
 
 1. Install Node.js 20.6 or newer.
 2. In this `server` folder, run `npm install`.
-3. Copy `.env.example` to `.env` and fill in the Supabase URL and anon key.
+3. Copy `.env.example` to `.env` and fill in the Supabase URL, anon key and
+   server-only service-role key.
 4. Run `npm start`.
 5. In the web-app `.env`, set `VITE_ONLINE_WS_URL=ws://localhost:3001`.
 
@@ -21,8 +22,11 @@ in with two different accounts in separate browser profiles.
   proxy.
 - Set `NODE_ENV=production`.
 - Set `ALLOWED_ORIGINS` to the exact comma-separated HTTPS site origins.
-- Never place a Supabase service-role key in the browser or this `.env` file.
+- Set `SUPABASE_SERVICE_ROLE_KEY` only in the Render server environment.
+- Never add the service-role key to Vercel, GitHub, a `VITE_` variable, or any
+  browser code.
 
-The server intentionally keeps active games only in memory for this first
-release-safety pass. Add a trusted persistence worker/service-role database
-writer before rating online games or offering permanent game archives.
+Apply `supabase/migrations/20260904000000_online_game_persistence_and_ratings.sql`
+before enabling the service-role key. The server then stores active positions
+and clocks, restores interrupted games, archives completed games, and updates
+the correct Bullet, Blitz or Rapid rating in one atomic database operation.

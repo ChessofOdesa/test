@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { WebSocket, WebSocketServer } from "ws";
 import { Chess } from "chess.js";
+import { createSupabasePersistence } from "./supabase-persistence.js";
 
 /**
  * Chess of Odesa online-game server.
@@ -13,12 +14,14 @@ import { Chess } from "chess.js";
 const PORT = readPort(process.env.PORT, 3001);
 const SUPABASE_URL = (process.env.SUPABASE_URL || "").replace(/\/+$/, "");
 const SUPABASE_ANON_KEY = process.env.SUPABASE_ANON_KEY || "";
+const SUPABASE_SERVICE_ROLE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY || "";
 const NODE_ENV = process.env.NODE_ENV || "development";
 const MAX_MESSAGE_BYTES = 8 * 1024;
 const AUTH_TIMEOUT_MS = 10_000;
 const RECONNECT_GRACE_MS = 30_000;
 const FINISHED_GAME_TTL_MS = 5 * 60_000;
 const PLAYER_TTL_MS = 15 * 60_000;
+const ACTIVE_GAME_SYNC_MS = 5_000;
 
 const DEFAULT_DEV_ORIGINS = ["http://localhost:8080", "http://127.0.0.1:8080"];
 const allowedOrigins = new Set(
@@ -47,6 +50,7 @@ const MSG = {
   MOVE_MADE: "move_made",
   GAME_UPDATE: "game_update",
   GAME_OVER: "game_over",
+  GAME_SAVED: "game_saved",
   CHAT: "chat",
   CHAT_MSG: "chat_msg",
   ERROR: "error",
@@ -74,13 +78,27 @@ if (NODE_ENV === "production" && !process.env.ALLOWED_ORIGINS) {
 const games = new Map();
 const players = new Map();
 const waitingPlayers = new Map();
+const persistence = createSupabasePersistence({
+  url: SUPABASE_URL,
+  serviceRoleKey: SUPABASE_SERVICE_ROLE_KEY,
+});
+
+if (!persistence.enabled) {
+  console.warn(
+    "SUPABASE_SERVICE_ROLE_KEY is not set. Online games remain playable, but persistence and ratings are disabled.",
+  );
+}
 
 class Player {
-  constructor({ id, socket, name }) {
+  constructor({ id, socket, name, ratings }) {
     this.id = id;
     this.socket = socket;
     this.name = name;
-    this.rating = 1200;
+    this.ratings = {
+      bullet: normalizeRating(ratings?.bullet),
+      blitz: normalizeRating(ratings?.blitz),
+      rapid: normalizeRating(ratings?.rapid),
+    };
     this.gameId = null;
     this.queueEntry = null;
     this.disconnectTimer = null;
@@ -97,29 +115,56 @@ class Player {
       this.socket.send(JSON.stringify(payload));
     }
   }
+
+  ratingFor(timeControl) {
+    return this.ratings[ratingCategoryFor(timeControl)];
+  }
 }
 
 class Game {
-  constructor({ id, whitePlayer, blackPlayer, timeControl }) {
+  constructor({ id, whitePlayer, blackPlayer, timeControl, restoredState = null }) {
     const settings = TIME_CONTROLS.get(timeControl);
 
     this.id = id;
     this.whitePlayer = whitePlayer;
     this.blackPlayer = blackPlayer;
     this.timeControl = timeControl;
-    this.chess = new Chess();
-    this.status = "playing";
-    this.result = "*";
+    this.chess = restoreChess(restoredState);
+    this.status = restoredState?.status === "finished" ? "finished" : "playing";
+    this.result = typeof restoredState?.result === "string" ? restoredState.result : "*";
     this.winner = null;
-    this.reason = null;
-    this.whiteTime = settings.initialMs;
-    this.blackTime = settings.initialMs;
+    this.reason = typeof restoredState?.termination === "string" ? restoredState.termination : null;
+    this.whiteTime = normalizeClock(restoredState?.white_time_ms, settings.initialMs);
+    this.blackTime = normalizeClock(restoredState?.black_time_ms, settings.initialMs);
     this.increment = settings.incrementMs;
     this.lastClockUpdateAt = Date.now();
     this.drawOfferFrom = null;
     this.rematchOfferFrom = null;
-    this.createdAt = new Date().toISOString();
+    this.createdAt = restoredState?.created_at || new Date().toISOString();
     this.finishedAt = null;
+    this.rated = restoredState ? restoredState.rated !== false : persistence.enabled;
+    this.saved = Boolean(restoredState);
+    this.persistenceStatus = restoredState
+      ? "saved"
+      : persistence.enabled
+        ? "pending"
+        : "disabled";
+    this.whiteRatingBefore = normalizeRating(
+      restoredState?.white_rating_before ?? whitePlayer.ratingFor(timeControl),
+    );
+    this.blackRatingBefore = normalizeRating(
+      restoredState?.black_rating_before ?? blackPlayer.ratingFor(timeControl),
+    );
+    this.whiteRatingChange = Number.isInteger(restoredState?.white_rating_change)
+      ? restoredState.white_rating_change
+      : null;
+    this.blackRatingChange = Number.isInteger(restoredState?.black_rating_change)
+      ? restoredState.black_rating_change
+      : null;
+    this.persistenceReady = restoredState ? Promise.resolve(true) : Promise.resolve(false);
+    this.persistenceQueue = Promise.resolve();
+    this.lastPersistedAt = Date.now();
+    this.finalizationPromise = null;
   }
 
   get currentTurn() {
@@ -167,6 +212,46 @@ function readPort(value, fallback) {
   return Number.isInteger(parsed) && parsed > 0 && parsed <= 65535 ? parsed : fallback;
 }
 
+function normalizeRating(value) {
+  return Number.isInteger(value) && value >= 100 ? value : 1500;
+}
+
+function normalizeClock(value, fallback) {
+  return Number.isFinite(value) && value >= 0 ? Math.round(value) : fallback;
+}
+
+function ratingCategoryFor(timeControl) {
+  if (timeControl === "1+0") return "bullet";
+  if (timeControl === "3+0" || timeControl === "5+0") return "blitz";
+  return "rapid";
+}
+
+function restoreChess(state) {
+  if (!state) return new Chess();
+
+  if (typeof state.pgn === "string" && state.pgn.trim()) {
+    try {
+      const chess = new Chess();
+      chess.loadPgn(state.pgn);
+      return chess;
+    } catch {
+      // Fall through to the persisted FEN.
+    }
+  }
+
+  if (typeof state.fen === "string" && state.fen.trim()) {
+    try {
+      const chess = new Chess();
+      chess.load(state.fen);
+      return chess;
+    } catch {
+      // A corrupt row must not crash the WebSocket process.
+    }
+  }
+
+  return new Chess();
+}
+
 function sanitizeName(value, fallback = "Гравець") {
   if (typeof value !== "string") return fallback;
   const normalized = value.replace(/[\r\n\t]/g, " ").trim().slice(0, 30);
@@ -188,11 +273,24 @@ function broadcastGame(game, payload) {
   game.blackPlayer.send(payload);
 }
 
+function broadcastGameState(game) {
+  sendGameState(game, game.whitePlayer);
+  sendGameState(game, game.blackPlayer);
+}
+
 function gameSnapshot(game, player) {
   return {
     id: game.id,
-    white: { id: game.whitePlayer.id, name: game.whitePlayer.name },
-    black: { id: game.blackPlayer.id, name: game.blackPlayer.name },
+    white: {
+      id: game.whitePlayer.id,
+      name: game.whitePlayer.name,
+      rating: game.whiteRatingBefore + (game.whiteRatingChange || 0),
+    },
+    black: {
+      id: game.blackPlayer.id,
+      name: game.blackPlayer.name,
+      rating: game.blackRatingBefore + (game.blackRatingChange || 0),
+    },
     timeControl: game.timeControl,
     fen: game.chess.fen(),
     pgn: game.chess.pgn(),
@@ -202,6 +300,13 @@ function gameSnapshot(game, player) {
     status: game.status,
     result: game.result,
     reason: game.reason,
+    rated: game.rated,
+    saved: game.saved,
+    persistenceStatus: game.persistenceStatus,
+    whiteRatingBefore: game.whiteRatingBefore,
+    blackRatingBefore: game.blackRatingBefore,
+    whiteRatingChange: game.whiteRatingChange,
+    blackRatingChange: game.blackRatingChange,
     yourColor: player ? game.getPlayerColor(player.id) : null,
   };
 }
@@ -224,6 +329,135 @@ function gameUpdatePayload(game) {
   };
 }
 
+function activeGameRecord(game) {
+  return {
+    id: game.id,
+    white_player_id: game.whitePlayer.id,
+    black_player_id: game.blackPlayer.id,
+    fen: game.chess.fen(),
+    pgn: game.chess.pgn(),
+    status: game.status,
+    result: game.result,
+    time_control: game.timeControl,
+    white_time_ms: Math.round(game.whiteTime),
+    black_time_ms: Math.round(game.blackTime),
+    last_move_at: new Date().toISOString(),
+    created_at: game.createdAt,
+    updated_at: new Date().toISOString(),
+    rated: game.rated,
+    white_rating_before: game.whiteRatingBefore,
+    black_rating_before: game.blackRatingBefore,
+    white_rating_change: game.whiteRatingChange,
+    black_rating_change: game.blackRatingChange,
+    moves_count: game.chess.history().length,
+  };
+}
+
+function initializeGamePersistence(game) {
+  if (!persistence.enabled) {
+    game.rated = false;
+    game.saved = false;
+    game.persistenceStatus = "disabled";
+    game.persistenceReady = Promise.resolve(false);
+    return;
+  }
+
+  game.persistenceReady = persistence
+    .createGame(activeGameRecord(game))
+    .then(() => {
+      game.saved = game.status === "playing";
+      game.persistenceStatus = game.status === "playing" ? "saved" : "pending";
+      broadcastGameState(game);
+      return true;
+    })
+    .catch((error) => {
+      game.rated = false;
+      game.saved = false;
+      game.persistenceStatus = "failed";
+      persistence.warn("create-game", error);
+      broadcastGameState(game);
+      return false;
+    });
+}
+
+function queueActiveGamePersistence(game) {
+  if (!persistence.enabled || game.status !== "playing") return;
+
+  const snapshot = activeGameRecord(game);
+  game.lastPersistedAt = Date.now();
+  game.persistenceQueue = game.persistenceQueue
+    .then(async () => {
+      if (!(await game.persistenceReady)) return;
+      await persistence.updateGame(game.id, snapshot);
+      game.saved = true;
+      game.persistenceStatus = "saved";
+    })
+    .catch((error) => {
+      game.saved = false;
+      game.persistenceStatus = "failed";
+      persistence.warn("update-game", error);
+    });
+}
+
+function sendSavedGameState(game) {
+  game.whitePlayer.send({ type: MSG.GAME_SAVED, game: gameSnapshot(game, game.whitePlayer) });
+  game.blackPlayer.send({ type: MSG.GAME_SAVED, game: gameSnapshot(game, game.blackPlayer) });
+}
+
+async function finalizePersistedGame(game) {
+  const ready = await game.persistenceReady;
+  await game.persistenceQueue;
+
+  if (!ready) {
+    game.rated = false;
+    game.saved = false;
+    game.persistenceStatus = persistence.enabled ? "failed" : "disabled";
+    sendSavedGameState(game);
+    return;
+  }
+
+  const payload = {
+    p_game_id: game.id,
+    p_fen: game.chess.fen(),
+    p_pgn: game.chess.pgn(),
+    p_result: game.result,
+    p_reason: game.reason,
+    p_white_time_ms: Math.round(game.whiteTime),
+    p_black_time_ms: Math.round(game.blackTime),
+    p_moves_count: game.chess.history().length,
+  };
+
+  try {
+    const savedResult = await persistence.finalizeGame(payload);
+    game.saved = Boolean(savedResult?.saved ?? true);
+    game.persistenceStatus = game.saved ? "saved" : "failed";
+    game.rated = savedResult?.rated === true;
+    game.whiteRatingChange = Number.isInteger(savedResult?.white_rating_change)
+      ? savedResult.white_rating_change
+      : 0;
+    game.blackRatingChange = Number.isInteger(savedResult?.black_rating_change)
+      ? savedResult.black_rating_change
+      : 0;
+
+    const ratingCategory = ratingCategoryFor(game.timeControl);
+    if (Number.isInteger(savedResult?.white_rating_after)) {
+      game.whitePlayer.ratings[ratingCategory] = savedResult.white_rating_after;
+    }
+    if (Number.isInteger(savedResult?.black_rating_after)) {
+      game.blackPlayer.ratings[ratingCategory] = savedResult.black_rating_after;
+    }
+  } catch (error) {
+    game.saved = false;
+    game.persistenceStatus = "failed";
+    game.rated = false;
+    game.whiteRatingChange = 0;
+    game.blackRatingChange = 0;
+    persistence.warn("finish-game", error);
+  }
+
+  sendSavedGameState(game);
+}
+
 function finishGame(game, { result, winner = null, reason }) {
   if (game.status === "finished") {
     return;
@@ -236,6 +470,8 @@ function finishGame(game, { result, winner = null, reason }) {
   game.finishedAt = new Date().toISOString();
   game.drawOfferFrom = null;
   game.rematchOfferFrom = null;
+  game.saved = false;
+  game.persistenceStatus = persistence.enabled ? "pending" : "disabled";
 
   broadcastGame(game, {
     type: MSG.GAME_OVER,
@@ -247,12 +483,21 @@ function finishGame(game, { result, winner = null, reason }) {
     pgn: game.chess.pgn(),
     whiteTime: game.whiteTime,
     blackTime: game.blackTime,
+    rated: game.rated,
+    saved: game.saved,
+    persistenceStatus: game.persistenceStatus,
   });
+
+  if (!game.finalizationPromise) {
+    game.finalizationPromise = finalizePersistedGame(game);
+  }
 
   setTimeout(() => {
     const current = games.get(game.id);
     if (current?.status === "finished") {
       games.delete(game.id);
+      if (game.whitePlayer.gameId === game.id) game.whitePlayer.gameId = null;
+      if (game.blackPlayer.gameId === game.id) game.blackPlayer.gameId = null;
     }
   }, FINISHED_GAME_TTL_MS).unref();
 }
@@ -333,6 +578,7 @@ function createMatchedGame(first, second, timeControl) {
   games.set(game.id, game);
   colors.white.gameId = game.id;
   colors.black.gameId = game.id;
+  initializeGamePersistence(game);
   sendGameFound(game, colors.white);
   sendGameFound(game, colors.black);
   return game;
@@ -449,6 +695,8 @@ function handleMove(player, payload) {
     blackTime: game.blackTime,
   });
 
+  queueActiveGamePersistence(game);
+
   finishForPosition(game);
 }
 
@@ -556,6 +804,7 @@ function handleRematch(player, payload) {
   games.set(newGame.id, newGame);
   newGame.whitePlayer.gameId = newGame.id;
   newGame.blackPlayer.gameId = newGame.id;
+  initializeGamePersistence(newGame);
   sendGameFound(newGame, newGame.whitePlayer);
   sendGameFound(newGame, newGame.blackPlayer);
 }
@@ -694,6 +943,92 @@ function attachPlayerSocket(player, socket) {
   player.lastDisconnectedAt = null;
 }
 
+function applyProfileToPlayer(player, profile) {
+  if (!profile) return;
+  player.name = sanitizeName(profile.name, player.name);
+  player.ratings = {
+    bullet: normalizeRating(profile.ratings?.bullet),
+    blitz: normalizeRating(profile.ratings?.blitz),
+    rapid: normalizeRating(profile.ratings?.rapid),
+  };
+}
+
+async function restoreActiveGameForPlayer(player) {
+  if (!persistence.enabled) return null;
+
+  try {
+    const row = await persistence.findActiveGame(player.id);
+    if (!row || typeof row.id !== "string") return null;
+
+    const existingGame = games.get(row.id);
+    if (existingGame?.getPlayerColor(player.id)) {
+      player.gameId = existingGame.id;
+      return existingGame;
+    }
+
+    if (
+      typeof row.white_player_id !== "string"
+      || typeof row.black_player_id !== "string"
+      || row.white_player_id === row.black_player_id
+      || !TIME_CONTROLS.has(row.time_control)
+    ) {
+      return null;
+    }
+
+    const profiles = await persistence.loadProfiles([
+      row.white_player_id,
+      row.black_player_id,
+    ]);
+
+    const getOrCreatePlayer = (id, fallbackName) => {
+      const profile = profiles.get(id);
+      const existing = players.get(id);
+      if (existing) {
+        applyProfileToPlayer(existing, profile);
+        return existing;
+      }
+
+      const restoredPlayer = new Player({
+        id,
+        socket: null,
+        name: profile?.name || fallbackName,
+        ratings: profile?.ratings,
+      });
+      players.set(id, restoredPlayer);
+      return restoredPlayer;
+    };
+
+    const whitePlayer = getOrCreatePlayer(row.white_player_id, "Білі");
+    const blackPlayer = getOrCreatePlayer(row.black_player_id, "Чорні");
+    const restoredGame = new Game({
+      id: row.id,
+      whitePlayer,
+      blackPlayer,
+      timeControl: row.time_control,
+      restoredState: row,
+    });
+
+    const gameCreatedDuringRestore = games.get(row.id);
+    if (gameCreatedDuringRestore) {
+      player.gameId = gameCreatedDuringRestore.id;
+      return gameCreatedDuringRestore;
+    }
+
+    games.set(restoredGame.id, restoredGame);
+    whitePlayer.gameId = restoredGame.id;
+    blackPlayer.gameId = restoredGame.id;
+    const disconnectedOpponent = restoredGame.getOpponent(player.id);
+    if (!disconnectedOpponent.isConnected()) {
+      disconnectedOpponent.lastDisconnectedAt = Date.now();
+      scheduleDisconnectForfeit(disconnectedOpponent);
+    }
+    return restoredGame;
+  } catch (error) {
+    persistence.warn("restore-game", error);
+    return null;
+  }
+}
+
 const wss = new WebSocketServer({ port: PORT, maxPayload: MAX_MESSAGE_BYTES });
 
 wss.on("connection", (socket, request) => {
@@ -742,27 +1077,41 @@ wss.on("connection", (socket, request) => {
         return;
       }
 
+      clearTimeout(authTimer);
+      const metadataName = sanitizeName(
+        user.user_metadata?.display_name || user.user_metadata?.username || user.email?.split("@")[0],
+      );
+      let profile = null;
+      if (persistence.enabled) {
+        try {
+          profile = await persistence.loadProfile(user.id, metadataName);
+        } catch (error) {
+          persistence.warn("load-profile", error);
+        }
+      }
+
       const existing = players.get(user.id);
       if (existing) {
         player = existing;
-        player.name = sanitizeName(
-          user.user_metadata?.display_name || user.user_metadata?.username || user.email?.split("@")[0],
-          player.name,
-        );
+        player.name = sanitizeName(profile?.name || metadataName, player.name);
+        applyProfileToPlayer(player, profile);
         attachPlayerSocket(player, socket);
       } else {
         player = new Player({
           id: user.id,
           socket,
-          name: sanitizeName(user.user_metadata?.display_name || user.user_metadata?.username || user.email?.split("@")[0]),
+          name: profile?.name || metadataName,
+          ratings: profile?.ratings,
         });
         players.set(player.id, player);
       }
 
-      clearTimeout(authTimer);
       player.send({ type: MSG.AUTHENTICATED, playerId: player.id, name: player.name });
 
-      const activeGame = player.gameId ? games.get(player.gameId) : null;
+      let activeGame = player.gameId ? games.get(player.gameId) : null;
+      if (!activeGame || activeGame.status !== "playing") {
+        activeGame = await restoreActiveGameForPlayer(player);
+      }
       if (activeGame && activeGame.status === "playing") {
         sendGameState(activeGame, player);
       }
@@ -796,6 +1145,9 @@ setInterval(() => {
       continue;
     }
     broadcastGame(game, gameUpdatePayload(game));
+    if (Date.now() - game.lastPersistedAt >= ACTIVE_GAME_SYNC_MS) {
+      queueActiveGamePersistence(game);
+    }
   }
 }, 1_000).unref();
 

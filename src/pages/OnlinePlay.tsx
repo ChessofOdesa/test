@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { motion } from "framer-motion";
 import { useNavigate, useSearchParams } from "react-router-dom";
 import {
@@ -39,6 +39,7 @@ export default function OnlinePlay() {
   });
   const {
     connected,
+    connectionError,
     game,
     searching,
     queueSize,
@@ -48,6 +49,7 @@ export default function OnlinePlay() {
     findGame,
     cancelSearch,
   } = useOnlineGame();
+  const autoSearchStartedRef = useRef(false);
 
   const timeControl = TIME_CONTROLS[selectedTime];
 
@@ -65,6 +67,12 @@ export default function OnlinePlay() {
     findGame(timeControl.time, colorChoice);
   };
 
+  useEffect(() => {
+    if (searchParams.get("start") !== "1" || autoSearchStartedRef.current) return;
+    autoSearchStartedRef.current = true;
+    findGame(timeControl.time, colorChoice);
+  }, [colorChoice, findGame, searchParams, timeControl.time]);
+
   return (
     <div className="min-h-screen bg-[radial-gradient(circle_at_top,rgba(59,130,246,0.12),transparent_45%)] px-4 py-8">
       <div className="mx-auto flex max-w-5xl flex-col gap-6">
@@ -76,13 +84,13 @@ export default function OnlinePlay() {
           <div className="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
             <div>
               <p className="text-xs uppercase tracking-[0.32em] text-muted-foreground">
-                Stage 2 • Matchmaking
+                Онлайн-гра
               </p>
               <h1 className="mt-2 text-3xl font-semibold text-foreground">
-                Знайдіть суперника і переходьте до партії
+                Знайдіть суперника
               </h1>
               <p className="mt-3 max-w-2xl text-sm text-muted-foreground">
-                Лобі відповідає тільки за пошук. Щойно суперник знайдений, ми переносимо вас на окрему ігрову сторінку третього етапу.
+                Оберіть контроль часу й колір. Коли суперника буде знайдено, партія відкриється автоматично.
               </p>
             </div>
 
@@ -93,6 +101,11 @@ export default function OnlinePlay() {
               </span>
             </div>
           </div>
+          {connectionError && (
+            <div className="mt-4 rounded-2xl border border-amber-400/25 bg-amber-400/10 px-4 py-3 text-sm text-amber-100">
+              {connectionError}
+            </div>
+          )}
         </motion.section>
 
         <div className="grid gap-4 xl:grid-cols-[1.2fr_0.8fr]">
@@ -200,9 +213,8 @@ export default function OnlinePlay() {
                     size="lg"
                     className="w-full text-base font-semibold"
                     onClick={handleFindGame}
-                    disabled={!connected}
                   >
-                    <Search className="mr-2 h-4 w-4" /> Знайти гру
+                    <Search className="mr-2 h-4 w-4" /> {connected ? "Знайти гру" : "Підключитися й шукати"}
                   </Button>
                 </div>
               )}

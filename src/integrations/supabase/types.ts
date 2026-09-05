@@ -170,47 +170,71 @@ export type Database = {
       online_games: {
         Row: {
           black_player_id: string | null
+          black_rating_before: number | null
+          black_rating_change: number | null
           black_time_ms: number
           created_at: string
           fen: string
+          finished_at: string | null
           id: string
           last_move_at: string | null
+          moves_count: number
           pgn: string
+          rated: boolean
           result: string | null
           status: string
+          termination: string | null
           time_control: string
           updated_at: string
           white_player_id: string | null
+          white_rating_before: number | null
+          white_rating_change: number | null
           white_time_ms: number
         }
         Insert: {
           black_player_id?: string | null
+          black_rating_before?: number | null
+          black_rating_change?: number | null
           black_time_ms?: number
           created_at?: string
           fen?: string
+          finished_at?: string | null
           id?: string
           last_move_at?: string | null
+          moves_count?: number
           pgn?: string
+          rated?: boolean
           result?: string | null
           status?: string
+          termination?: string | null
           time_control?: string
           updated_at?: string
           white_player_id?: string | null
+          white_rating_before?: number | null
+          white_rating_change?: number | null
           white_time_ms?: number
         }
         Update: {
           black_player_id?: string | null
+          black_rating_before?: number | null
+          black_rating_change?: number | null
           black_time_ms?: number
           created_at?: string
           fen?: string
+          finished_at?: string | null
           id?: string
           last_move_at?: string | null
+          moves_count?: number
           pgn?: string
+          rated?: boolean
           result?: string | null
           status?: string
+          termination?: string | null
           time_control?: string
           updated_at?: string
           white_player_id?: string | null
+          white_rating_before?: number | null
+          white_rating_change?: number | null
           white_time_ms?: number
         }
         Relationships: [

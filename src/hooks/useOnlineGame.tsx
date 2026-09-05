@@ -17,8 +17,8 @@ const RECONNECT_MAX_DELAY_MS = 8_000;
 
 export type GameState = {
   id: string | null;
-  white: { id: string; name: string } | null;
-  black: { id: string; name: string } | null;
+  white: { id: string; name: string; rating: number | null } | null;
+  black: { id: string; name: string; rating: number | null } | null;
   timeControl: string;
   fen: string;
   pgn: string;
@@ -29,6 +29,13 @@ export type GameState = {
   status: "waiting" | "playing" | "finished";
   result: string;
   reason?: string;
+  rated: boolean;
+  saved: boolean;
+  persistenceStatus: "pending" | "saved" | "disabled" | "failed";
+  whiteRatingBefore: number | null;
+  blackRatingBefore: number | null;
+  whiteRatingChange: number | null;
+  blackRatingChange: number | null;
 };
 
 export type ChatMessage = {
@@ -89,12 +96,16 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
-function normalizePlayer(value: unknown): { id: string; name: string } | null {
+function normalizeInteger(value: unknown): number | null {
+  return typeof value === "number" && Number.isInteger(value) ? value : null;
+}
+
+function normalizePlayer(value: unknown): { id: string; name: string; rating: number | null } | null {
   if (!isRecord(value) || typeof value.id !== "string" || typeof value.name !== "string") {
     return null;
   }
 
-  return { id: value.id, name: value.name };
+  return { id: value.id, name: value.name, rating: normalizeInteger(value.rating) };
 }
 
 function normalizeGame(value: unknown): GameState | null {
@@ -103,6 +114,11 @@ function normalizeGame(value: unknown): GameState | null {
   const yourColor = value.yourColor === "w" || value.yourColor === "b" ? value.yourColor : null;
   const currentTurn = value.currentTurn === "b" ? "b" : "w";
   const status = value.status === "finished" || value.status === "waiting" ? value.status : "playing";
+  const persistenceStatus = value.persistenceStatus === "saved"
+    || value.persistenceStatus === "disabled"
+    || value.persistenceStatus === "failed"
+    ? value.persistenceStatus
+    : "pending";
 
   return {
     id: value.id,
@@ -118,6 +134,13 @@ function normalizeGame(value: unknown): GameState | null {
     status,
     result: typeof value.result === "string" ? value.result : "*",
     reason: typeof value.reason === "string" ? value.reason : undefined,
+    rated: value.rated === true,
+    saved: value.saved === true,
+    persistenceStatus,
+    whiteRatingBefore: normalizeInteger(value.whiteRatingBefore),
+    blackRatingBefore: normalizeInteger(value.blackRatingBefore),
+    whiteRatingChange: normalizeInteger(value.whiteRatingChange),
+    blackRatingChange: normalizeInteger(value.blackRatingChange),
   };
 }
 
@@ -139,6 +162,10 @@ export function OnlineGameProvider({ children }: { children: ReactNode }) {
   const gameRef = useRef<GameState | null>(null);
   const playerIdRef = useRef<string | null>(null);
   const searchStartRef = useRef(0);
+  const searchRequestRef = useRef<{
+    timeControl: string;
+    color: "w" | "b" | "random";
+  } | null>(null);
   const reconnectTimerRef = useRef<number | null>(null);
   const reconnectAttemptsRef = useRef(0);
   const shouldReconnectRef = useRef(true);
@@ -207,6 +234,9 @@ export function OnlineGameProvider({ children }: { children: ReactNode }) {
         clearReconnectTimer();
         setConnectionError(null);
         setConnected(true);
+        if (searchRequestRef.current && wsRef.current?.readyState === WebSocket.OPEN) {
+          wsRef.current.send(JSON.stringify({ type: "find_game", ...searchRequestRef.current }));
+        }
         return;
 
       case "waiting":
@@ -217,6 +247,7 @@ export function OnlineGameProvider({ children }: { children: ReactNode }) {
         return;
 
       case "cancelled":
+        searchRequestRef.current = null;
         clearSearchState();
         return;
 
@@ -225,6 +256,7 @@ export function OnlineGameProvider({ children }: { children: ReactNode }) {
         return;
 
       case "game_found":
+        searchRequestRef.current = null;
         clearSearchState();
         setChatMessages([]);
         setIncomingDrawOffer(null);
@@ -281,9 +313,19 @@ export function OnlineGameProvider({ children }: { children: ReactNode }) {
                 status: "finished",
                 result: typeof data.result === "string" ? data.result : current.result,
                 reason: typeof data.reason === "string" ? data.reason : undefined,
+                rated: data.rated === true,
+                saved: data.saved === true,
+                persistenceStatus: data.persistenceStatus === "disabled"
+                  || data.persistenceStatus === "failed"
+                  ? data.persistenceStatus
+                  : "pending",
               }
             : current,
         );
+        return;
+
+      case "game_saved":
+        applyGame(data.game);
         return;
 
       case "draw_offer":
@@ -314,9 +356,11 @@ export function OnlineGameProvider({ children }: { children: ReactNode }) {
 
       case "chat_msg":
         if (data.gameId === gameRef.current?.id && typeof data.from === "string" && typeof data.message === "string") {
+          const from = data.from;
+          const message = data.message;
           setChatMessages((current) => [
             ...current,
-            { from: data.from, message: data.message, self: data.fromId === playerIdRef.current },
+            { from, message, self: data.fromId === playerIdRef.current },
           ]);
         }
         return;
@@ -411,6 +455,7 @@ export function OnlineGameProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     if (!session?.access_token || isGuest) {
       shouldReconnectRef.current = false;
+      searchRequestRef.current = null;
       clearReconnectTimer();
       reconnectAttemptsRef.current = 0;
       wsRef.current?.close();
@@ -448,9 +493,13 @@ export function OnlineGameProvider({ children }: { children: ReactNode }) {
       return;
     }
 
+    searchRequestRef.current = { timeControl, color };
+
     if (!connected) {
       connect();
-      toast.info("Підключаємося до сервера. Спробуйте пошук через мить.");
+      setSearching(true);
+      searchStartRef.current = Date.now();
+      toast.info("Підключаємося до сервера. Пошук почнеться автоматично.");
       return;
     }
 
@@ -458,6 +507,7 @@ export function OnlineGameProvider({ children }: { children: ReactNode }) {
   }, [connect, connected, isGuest, send, session?.access_token]);
 
   const cancelSearch = useCallback(() => {
+    searchRequestRef.current = null;
     send({ type: "cancel_find" });
     clearSearchState();
   }, [clearSearchState, send]);
@@ -503,6 +553,7 @@ export function OnlineGameProvider({ children }: { children: ReactNode }) {
   }, [incomingRematchOffer, send]);
 
   const resetGame = useCallback(() => {
+    searchRequestRef.current = null;
     clearSearchState();
     clearGameState();
   }, [clearGameState, clearSearchState]);

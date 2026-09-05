@@ -98,7 +98,7 @@ export default function PlayHub() {
 
   const startGame = () => {
     if (mode === "online") {
-      const query = new URLSearchParams({ time: onlineTime, color });
+      const query = new URLSearchParams({ time: onlineTime, color, start: "1" });
       navigate(`/online?${query.toString()}`);
       return;
     }

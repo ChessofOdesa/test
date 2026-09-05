@@ -6,6 +6,7 @@ import {
   ArrowLeft,
   Ban,
   Clock3,
+  Database,
   Flag,
   Handshake,
   Loader2,
@@ -13,6 +14,7 @@ import {
   RefreshCw,
   Send,
   Swords,
+  TrendingUp,
   UserRound,
   Wifi,
   WifiOff,
@@ -224,6 +226,18 @@ export default function GamePage() {
   const yourTime = yourColor === "w" ? liveGame.whiteTime : liveGame.blackTime;
   const opponentTime = yourColor === "w" ? liveGame.blackTime : liveGame.whiteTime;
   const resultTone = getResultTone(liveGame);
+  const yourRatingBefore = yourColor === "w"
+    ? liveGame.whiteRatingBefore
+    : liveGame.blackRatingBefore;
+  const opponentRatingBefore = yourColor === "w"
+    ? liveGame.blackRatingBefore
+    : liveGame.whiteRatingBefore;
+  const yourRatingChange = yourColor === "w"
+    ? liveGame.whiteRatingChange
+    : liveGame.blackRatingChange;
+  const opponentRatingChange = yourColor === "w"
+    ? liveGame.blackRatingChange
+    : liveGame.whiteRatingChange;
 
   const actionButtons = (
     <div className="grid grid-cols-3 gap-2">
@@ -309,7 +323,7 @@ export default function GamePage() {
           <main className="min-w-0 space-y-2.5 lg:sticky lg:top-4 lg:self-start">
             <PlayerStrip
               name={opponent?.name || "Суперник"}
-              subtitle={`${opponentColor === "w" ? "Білі" : "Чорні"} · онлайн`}
+              subtitle={`${opponentColor === "w" ? "Білі" : "Чорні"} · ${formatRating(opponent?.rating ?? opponentRatingBefore)}`}
               active={liveGame.currentTurn !== yourColor && liveGame.status === "playing"}
               clock={
                 <ChessTimer
@@ -342,7 +356,7 @@ export default function GamePage() {
 
             <PlayerStrip
               name={yourSeat?.name || playerName}
-              subtitle={`${yourColor === "w" ? "Білі" : "Чорні"} · це ви`}
+              subtitle={`${yourColor === "w" ? "Білі" : "Чорні"} · ${formatRating(yourSeat?.rating ?? yourRatingBefore)}`}
               active={liveGame.currentTurn === yourColor && liveGame.status === "playing"}
               player
               clock={
@@ -454,15 +468,28 @@ export default function GamePage() {
 
               <TabsContent value="details" className="m-0 min-h-0 flex-1 overflow-y-auto p-4">
                 <div className="space-y-3">
-                  <MatchPlayer name={opponent?.name || "Суперник"} label="Суперник" color={opponentColor === "w" ? "Білі" : "Чорні"} />
-                  <MatchPlayer name={yourSeat?.name || playerName} label="Ви" color={yourColor === "w" ? "Білі" : "Чорні"} />
+                  <MatchPlayer name={opponent?.name || "Суперник"} label="Суперник" color={opponentColor === "w" ? "Білі" : "Чорні"} rating={opponent?.rating ?? opponentRatingBefore} />
+                  <MatchPlayer name={yourSeat?.name || playerName} label="Ви" color={yourColor === "w" ? "Білі" : "Чорні"} rating={yourSeat?.rating ?? yourRatingBefore} />
 
                   <div className="grid grid-cols-2 gap-2">
                     <MatchStat icon={<Clock3 className="h-4 w-4" />} label="Контроль" value={liveGame.timeControl} />
                     <MatchStat icon={connected ? <Wifi className="h-4 w-4" /> : <WifiOff className="h-4 w-4" />} label="З’єднання" value={connected ? "Стабільне" : "Відновлення"} />
                     <MatchStat icon={<Swords className="h-4 w-4" />} label="Ходів" value={String(replayState.movesSan.length)} />
                     <MatchStat icon={<UserRound className="h-4 w-4" />} label="Результат" value={liveGame.result === "*" ? "Триває" : liveGame.result} />
+                    <MatchStat icon={<TrendingUp className="h-4 w-4" />} label="Режим" value={liveGame.rated ? "Рейтингова" : "Без рейтингу"} />
+                    <MatchStat icon={<Database className="h-4 w-4" />} label="Збереження" value={getSaveLabel(liveGame)} />
                   </div>
+
+                  {liveGame.status === "finished" && (
+                    <RatingResult
+                      saved={liveGame.saved}
+                      rated={liveGame.rated}
+                      persistenceStatus={liveGame.persistenceStatus}
+                      ratingBefore={yourRatingBefore}
+                      ratingChange={yourRatingChange}
+                      opponentRatingChange={opponentRatingChange}
+                    />
+                  )}
 
                   <div className="rounded-lg border border-black/25 bg-[#262421] px-3 py-3">
                     <p className="text-xs font-bold uppercase tracking-wider text-[#918e89]">Номер партії</p>
@@ -542,14 +569,89 @@ function GameAction({ icon, label, onClick, disabled }: { icon: ReactNode; label
   );
 }
 
-function MatchPlayer({ name, label, color }: { name: string; label: string; color: string }) {
+function MatchPlayer({
+  name,
+  label,
+  color,
+  rating,
+}: {
+  name: string;
+  label: string;
+  color: string;
+  rating: number | null;
+}) {
   return (
     <div className="flex items-center gap-3 rounded-lg border border-black/25 bg-[#3a3835] px-3 py-3">
       <span className="grid h-10 w-10 shrink-0 place-items-center rounded-lg bg-[#242321] text-sm font-black text-white">{name.charAt(0).toUpperCase() || "?"}</span>
       <span className="min-w-0">
         <span className="block text-xs font-bold uppercase tracking-wider text-[#918e89]">{label}</span>
-        <span className="mt-0.5 block truncate text-sm font-bold text-white">{name} · {color}</span>
+        <span className="mt-0.5 block truncate text-sm font-bold text-white">{name} · {color} · {formatRating(rating)}</span>
       </span>
+    </div>
+  );
+}
+
+function RatingResult({
+  saved,
+  rated,
+  persistenceStatus,
+  ratingBefore,
+  ratingChange,
+  opponentRatingChange,
+}: {
+  saved: boolean;
+  rated: boolean;
+  persistenceStatus: GameState["persistenceStatus"];
+  ratingBefore: number | null;
+  ratingChange: number | null;
+  opponentRatingChange: number | null;
+}) {
+  if (persistenceStatus === "pending") {
+    return (
+      <div className="rounded-lg border border-amber-400/25 bg-amber-400/10 px-3 py-3 text-sm text-amber-100">
+        Зберігаємо результат партії…
+      </div>
+    );
+  }
+
+  if (persistenceStatus === "failed") {
+    return (
+      <div className="rounded-lg border border-rose-400/25 bg-rose-400/10 px-3 py-3 text-sm text-rose-100">
+        Результат не вдалося зберегти. Рейтинг не змінено.
+      </div>
+    );
+  }
+
+  if (persistenceStatus === "disabled") {
+    return (
+      <div className="rounded-lg border border-white/10 bg-[#262421] px-3 py-3 text-sm text-[#c9c5bf]">
+        Партія завершена без рейтингу: збереження на сервері ще не активоване.
+      </div>
+    );
+  }
+
+  if (!saved || !rated || ratingBefore == null || ratingChange == null) {
+    return (
+      <div className="rounded-lg border border-white/10 bg-[#262421] px-3 py-3 text-sm text-[#c9c5bf]">
+        Партію збережено без зміни рейтингу.
+      </div>
+    );
+  }
+
+  const ratingAfter = ratingBefore + ratingChange;
+  const changeLabel = ratingChange > 0 ? `+${ratingChange}` : String(ratingChange);
+  const opponentLabel = opponentRatingChange == null
+    ? ""
+    : ` · суперник ${opponentRatingChange > 0 ? "+" : ""}${opponentRatingChange}`;
+
+  return (
+    <div className="rounded-lg border border-[#81b64c]/30 bg-[#34422a] px-3 py-3">
+      <p className="text-xs font-bold uppercase tracking-wider text-[#b9e383]">Ваш рейтинг</p>
+      <p className="mt-1 text-lg font-black text-white">
+        {ratingBefore} → {ratingAfter}
+        <span className={`ml-2 text-sm ${ratingChange >= 0 ? "text-[#b9e383]" : "text-rose-300"}`}>{changeLabel}</span>
+      </p>
+      {opponentLabel && <p className="mt-1 text-xs text-[#aaa7a2]">Зміна рейтингу{opponentLabel}</p>}
     </div>
   );
 }
@@ -561,6 +663,19 @@ function MatchStat({ icon, label, value }: { icon: ReactNode; label: string; val
       <p className="mt-2 text-sm font-bold text-white">{value}</p>
     </div>
   );
+}
+
+function formatRating(rating: number | null | undefined) {
+  return rating == null ? "без рейтингу" : `рейтинг ${rating}`;
+}
+
+function getSaveLabel(game: GameState) {
+  if (game.persistenceStatus === "saved") {
+    return game.status === "playing" ? "Синхронізовано" : "Збережено";
+  }
+  if (game.persistenceStatus === "failed") return "Помилка";
+  if (game.persistenceStatus === "disabled") return "Вимкнено";
+  return game.status === "playing" ? "Підготовка" : "Зберігаємо";
 }
 
 function getStatusLabel(game: GameState, inCheck: boolean, opponentName: string) {
