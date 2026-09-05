@@ -14,7 +14,8 @@ import { createSupabasePersistence } from "./supabase-persistence.js";
 const PORT = readPort(process.env.PORT, 3001);
 const SUPABASE_URL = (process.env.SUPABASE_URL || "").replace(/\/+$/, "");
 const SUPABASE_ANON_KEY = process.env.SUPABASE_ANON_KEY || "";
-const SUPABASE_SERVICE_ROLE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY || "";
+const SUPABASE_ADMIN_KEY =
+  process.env.SUPABASE_SECRET_KEY || process.env.SUPABASE_SERVICE_ROLE_KEY || "";
 const NODE_ENV = process.env.NODE_ENV || "development";
 const MAX_MESSAGE_BYTES = 8 * 1024;
 const AUTH_TIMEOUT_MS = 10_000;
@@ -80,12 +81,12 @@ const players = new Map();
 const waitingPlayers = new Map();
 const persistence = createSupabasePersistence({
   url: SUPABASE_URL,
-  serviceRoleKey: SUPABASE_SERVICE_ROLE_KEY,
+  secretKey: SUPABASE_ADMIN_KEY,
 });
 
 if (!persistence.enabled) {
   console.warn(
-    "SUPABASE_SERVICE_ROLE_KEY is not set. Online games remain playable, but persistence and ratings are disabled.",
+    "SUPABASE_SECRET_KEY is not set. Online games remain playable, but persistence and ratings are disabled.",
   );
 }
 

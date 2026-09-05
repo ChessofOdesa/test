@@ -37,8 +37,8 @@ events, and notifications.
 3. Deploy the `server` folder separately behind a reverse proxy with `wss://`.
 4. Set `VITE_ONLINE_WS_URL` to that exact `wss://` address.
 5. Set `NODE_ENV=production`, `ALLOWED_ORIGINS` and
-   `SUPABASE_SERVICE_ROLE_KEY` on the online server.
-6. Keep `SUPABASE_SERVICE_ROLE_KEY` only on Render. Never put it in Vercel, a
+   `SUPABASE_SECRET_KEY` on the online server.
+6. Keep `SUPABASE_SECRET_KEY` only on Render. Never put it in Vercel, a
    `VITE_*` variable, browser code, or committed `.env` files.
 
 ## Current online-game scope
@@ -46,7 +46,7 @@ events, and notifications.
 The game server validates the Supabase session, legal moves and clock on the
 server. A browser is never trusted to provide a FEN, PGN, result or time.
 
-With the persistence migration and server-only service-role key enabled, active
+With the persistence migration and server-only secret key enabled, active
 games survive a server restart, completed games appear in profile history, and
 Bullet, Blitz or Rapid rating updates atomically. If the key is absent, the
 server remains available but clearly marks new games as unrated and does not

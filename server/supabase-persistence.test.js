@@ -9,7 +9,7 @@ test.afterEach(() => {
 });
 
 test("keeps the chess server usable when persistence is not configured", async () => {
-  const persistence = createSupabasePersistence({ url: "", serviceRoleKey: "" });
+  const persistence = createSupabasePersistence({ url: "", secretKey: "" });
 
   assert.equal(persistence.enabled, false);
   assert.equal((await persistence.loadProfiles(["player-id"])).size, 0);
@@ -20,8 +20,8 @@ test("loads a player's public ratings with server-only credentials", async () =>
   let requestUrl = "";
   globalThis.fetch = async (url, options) => {
     requestUrl = String(url);
-    assert.equal(options.headers.apikey, "server-secret");
-    assert.equal(options.headers.Authorization, "Bearer server-secret");
+    assert.equal(options.headers.apikey, "sb_secret_test");
+    assert.equal(options.headers.Authorization, undefined);
     return new Response(JSON.stringify([
       {
         user_id: "player-id",
@@ -35,7 +35,7 @@ test("loads a player's public ratings with server-only credentials", async () =>
 
   const persistence = createSupabasePersistence({
     url: "https://example.supabase.co/",
-    serviceRoleKey: "server-secret",
+    secretKey: "sb_secret_test",
   });
   const profile = await persistence.loadProfile("player-id", "Гравець");
 
@@ -45,6 +45,21 @@ test("loads a player's public ratings with server-only credentials", async () =>
     name: "Андрій",
     ratings: { bullet: 1710, blitz: 1840, rapid: 1920 },
   });
+});
+
+test("keeps legacy service-role JWT authentication compatible", async () => {
+  globalThis.fetch = async (_url, options) => {
+    assert.equal(options.headers.apikey, "eyJheader.payload.signature");
+    assert.equal(options.headers.Authorization, "Bearer eyJheader.payload.signature");
+    return new Response("[]");
+  };
+
+  const persistence = createSupabasePersistence({
+    url: "https://example.supabase.co",
+    serviceRoleKey: "eyJheader.payload.signature",
+  });
+
+  await persistence.loadProfiles(["player-id"]);
 });
 
 test("writes active games and finalizes results through the protected RPC", async () => {
@@ -64,7 +79,7 @@ test("writes active games and finalizes results through the protected RPC", asyn
 
   const persistence = createSupabasePersistence({
     url: "https://example.supabase.co",
-    serviceRoleKey: "server-secret",
+    secretKey: "sb_secret_test",
   });
 
   await persistence.createGame({ id: "game-id", status: "playing" });
@@ -78,4 +93,3 @@ test("writes active games and finalizes results through the protected RPC", asyn
   assert.equal(calls[2].method, "POST");
   assert.equal(result.white_rating_after, 1512);
 });
-

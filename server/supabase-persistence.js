@@ -58,9 +58,19 @@ function normalizeProfile(row, fallbackName = "Гравець") {
   };
 }
 
-export function createSupabasePersistence({ url, serviceRoleKey, logger = console }) {
+function isLegacyJwtKey(value) {
+  return /^eyJ[^.]*\.[^.]+\.[^.]+$/.test(value);
+}
+
+export function createSupabasePersistence({
+  url,
+  secretKey,
+  serviceRoleKey,
+  logger = console,
+}) {
   const baseUrl = normalizeBaseUrl(url);
-  const key = typeof serviceRoleKey === "string" ? serviceRoleKey.trim() : "";
+  const configuredKey = secretKey || serviceRoleKey;
+  const key = typeof configuredKey === "string" ? configuredKey.trim() : "";
   const enabled = Boolean(baseUrl && key);
 
   async function request(path, { method = "GET", body, prefer } = {}) {
@@ -76,7 +86,7 @@ export function createSupabasePersistence({ url, serviceRoleKey, logger = consol
         method,
         headers: {
           apikey: key,
-          Authorization: `Bearer ${key}`,
+          ...(isLegacyJwtKey(key) ? { Authorization: `Bearer ${key}` } : {}),
           "Content-Type": "application/json",
           ...(prefer ? { Prefer: prefer } : {}),
         },
@@ -181,4 +191,3 @@ export function createSupabasePersistence({ url, serviceRoleKey, logger = consol
     warn,
   };
 }
-
