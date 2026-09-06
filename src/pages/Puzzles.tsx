@@ -1,445 +1,87 @@
-import { useState, useEffect, useCallback, useMemo, useRef } from "react";
-import { motion, AnimatePresence } from "framer-motion";
-import { Chess, Square } from "chess.js";
 import ChessBoard from "@/components/ChessBoard";
-import { Puzzle, Lightbulb, SkipForward, Target, Flame, Timer, Zap, ChevronRight, ChevronLeft, Trophy, RotateCcw, Flag, Settings, User, History, X, Menu, Star, ArrowRight, RefreshCw } from "lucide-react";
+import { Page } from "@/components/layout/Page";
 import { Button } from "@/components/ui/button";
-import { Progress } from "@/components/ui/progress";
-import { FEN_PUZZLES } from "@/lib/fen-puzzles-data";
-import { LICHESS_PUZZLES } from "@/data/lichess-puzzles-converted";
-import { MATE_IN_1_PUZZLES } from "@/data/mate-in-1-puzzles";
-import { EXTRA_PUZZLES } from "@/data/extra-puzzles";
-import { useAuth } from "@/hooks/useAuth";
-import { toast } from "sonner";
-
-interface PuzzleData {
-  fen: string;
-  solution: string[];
-  title: string;
-  theme: string;
-  rating: number;
-  id?: string;
-  disabled?: boolean;
-}
-
-function parseMoveCoord(move: string): { from: string; to: string } | null {
-  const clean = move.replace(/[+#!?]/g, "");
-  if (clean.length < 4) return null;
-  return { from: clean.slice(0, 2), to: clean.slice(2, 4) };
-}
-
-const THEMES = [
-  { id: "all", label: "Всі задачі", icon: Puzzle, color: "accent" },
-  { id: "Мат в 1", label: "Мат в 1", icon: Target, color: "red" },
-  { id: "Тактика", label: "Тактика", icon: Zap, color: "blue" },
-  { id: "Вилка", label: "Вилка", icon: Zap, color: "purple" },
-  { id: "Зв'язка", label: "Зв'язка", icon: Target, color: "green" },
-  { id: "Жертва", label: "Жертва", icon: Flame, color: "orange" },
-  { id: "Ендшпіль", label: "Ендшпіль", icon: Timer, color: "amber" },
-  { id: "Дебют", label: "Дебют", icon: Star, color: "cyan" },
-];
-
-export default function PuzzlesPage() {
-  const [puzzles, setPuzzles] = useState<PuzzleData[]>([]);
-  const [currentIndex, setCurrentIndex] = useState(0);
-  const [solved, setSolved] = useState(0);
-  const [streak, setStreak] = useState(0);
-  const [showHint, setShowHint] = useState(false);
-  const [puzzleKey, setPuzzleKey] = useState(0);
-  const [filter, setFilter] = useState("all");
-  const [feedback, setFeedback] = useState<"neutral" | "correct" | "wrong">("neutral");
-  const [highlightSquares, setHighlightSquares] = useState<{ squares: Square[]; type: "correct" | "wrong" } | undefined>();
-  const [userRating, setUserRating] = useState(1500);
-  const [bestStreak, setBestStreak] = useState(0);
-  const [sidebarOpen, setSidebarOpen] = useState(true);
-  const [isAnimating, setIsAnimating] = useState(false);
-  const [currentMoveIndex, setCurrentMoveIndex] = useState(0);
-  const [currentFen, setCurrentFen] = useState("");
-  const [opponentLastMove, setOpponentLastMove] = useState<{ from: string; to: string } | null>(null);
-  const [mode, setMode] = useState<"classic" | "rush">("classic");
-  const [rushTimeLeft, setRushTimeLeft] = useState(180);
-  const [rushActive, setRushActive] = useState(false);
-  const [rushScore, setRushScore] = useState(0);
-  const [rushFails, setRushFails] = useState(0);
-  const [showSettings, setShowSettings] = useState(false);
-  const [totalAttempts, setTotalAttempts] = useState(0);
-  const [correctAttempts, setCorrectAttempts] = useState(0);
-  const rushTimerRef = useRef<NodeJS.Timeout | null>(null);
-  const { user } = useAuth();
-
-  // Load puzzles
-  useEffect(() => {
-    const localPuzzles = FEN_PUZZLES.filter(p => !p.disabled);
-    const allPuzzles = [...localPuzzles, ...MATE_IN_1_PUZZLES, ...EXTRA_PUZZLES, ...LICHESS_PUZZLES];
-    const seenFen = new Set<string>();
-    const unique = allPuzzles.filter(p => {
-      if (seenFen.has(p.fen)) return false;
-      seenFen.add(p.fen);
-      return true;
-    });
-    setPuzzles(unique);
-    const saved = localStorage.getItem("puzzle_rating");
-    const savedBest = localStorage.getItem("puzzle_best_streak");
-    if (saved) setUserRating(parseInt(saved));
-    if (savedBest) setBestStreak(parseInt(savedBest));
-    console.log(`✅ Завантажено ${unique.length} задач:`);
-    console.log(`   - Локальні: ${localPuzzles.length}`);
-    console.log(`   - Мати в 1: ${MATE_IN_1_PUZZLES.length}`);
-    console.log(`   - Додаткові: ${EXTRA_PUZZLES.length}`);
-    console.log(`   - Lichess: ${LICHESS_PUZZLES.length}`);
-  }, []);
-
-  // Rush timer
-  useEffect(() => {
-    if (rushActive && rushTimeLeft > 0) {
-      rushTimerRef.current = setInterval(() => {
-        setRushTimeLeft(t => {
-          if (t <= 1) {
-            clearInterval(rushTimerRef.current!);
-            setRushActive(false);
-            toast.info(`⏰ Час! Результат: ${rushScore}`);
-            return 0;
-          }
-          return t - 1;
-        });
-      }, 1000);
-      return () => clearInterval(rushTimerRef.current!);
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { playPuzzleMove, type PuzzleManifest, type TrainingPuzzle } from "@/features/puzzles/model";
+import { useQuery } from "@tanstack/react-query";
+import type { Square } from "chess.js";
+import { ArrowRight, Lightbulb, RotateCcw } from "lucide-react";
+import { useEffect, useMemo, useRef, useState } from "react";
+async function loadJson<T>(path: string, signal: AbortSignal): Promise<T> { const r = await fetch(path, { signal }); if (!r.ok)
+    throw new Error("Завантаження недоступне"); return r.json(); }
+export default function Puzzles() {
+    const [theme, setTheme] = useState("all"), [chunk, setChunk] = useState(0), [index, setIndex] = useState(0), [fen, setFen] = useState(""), [step, setStep] = useState(0), [feedback, setFeedback] = useState<"idle" | "wrong" | "solved">("idle"), [hint, setHint] = useState(false);
+    const [mode, setMode] = useState("classic"), [active, setActive] = useState(false), [remaining, setRemaining] = useState(180), [solved, setSolved] = useState(0), [mistakes, setMistakes] = useState(0), [attempted, setAttempted] = useState(false);
+    const [boardSize, setBoardSize] = useState(480);
+    const locked = useRef(false);
+    const sizeRef = useRef<HTMLDivElement>(null);
+    const manifest = useQuery({ queryKey: ["puzzle-manifest"], queryFn: ({ signal }) => loadJson<PuzzleManifest>("/puzzles/manifest.json", signal), staleTime: Infinity });
+    const available = useMemo(() => manifest.data?.chunks.filter(c => theme === "all" || c.themes.includes(theme)) ?? [], [manifest.data, theme]);
+    const selectedSet = available[chunk % Math.max(1, available.length)];
+    const batch = useQuery({ queryKey: ["puzzle-set", selectedSet?.file], enabled: !!selectedSet, queryFn: ({ signal }) => loadJson<TrainingPuzzle[]>(`/puzzles/${selectedSet!.file}`, signal), staleTime: Infinity, gcTime: 60000 });
+    const puzzles = useMemo(() => batch.data?.filter(p => theme === "all" || p.theme === theme) ?? [], [batch.data, theme]);
+    const puzzle = puzzles[index];
+    useEffect(() => { if (!sizeRef.current)
+        return; const observer = new ResizeObserver(entries => { setBoardSize(Math.floor(Math.min(600, entries[0].contentRect.width))); }); observer.observe(sizeRef.current); return () => observer.disconnect(); }, []);
+    useEffect(() => { if (puzzle) {
+        setFen(puzzle.fen);
+        setStep(0);
+        setFeedback("idle");
+        setHint(false);
+        setAttempted(false);
+        locked.current = false;
+    } }, [puzzle]);
+    useEffect(() => { if (!active)
+        return; const deadline = Date.now() + 180000; const timer = window.setInterval(() => { const left = Math.max(0, Math.ceil((deadline - Date.now()) / 1000)); setRemaining(left); if (!left)
+        setActive(false); }, 250); return () => clearInterval(timer); }, [active]);
+    function next() { locked.current = false; setFeedback("idle"); setHint(false); if (index + 1 >= puzzles.length) {
+        setIndex(0);
+        setChunk(c => (c + 1) % Math.max(available.length, 1));
     }
-  }, [rushActive, rushTimeLeft]);
-
-  const filteredPuzzles = useMemo(() =>
-    filter === "all" ? puzzles.filter(p => !p.disabled) : puzzles.filter(p => p.theme === filter && !p.disabled),
-    [puzzles, filter]
-  );
-
-  const puzzle = filteredPuzzles[currentIndex % (filteredPuzzles.length || 1)];
-  const accuracy = totalAttempts > 0 ? Math.round((correctAttempts / totalAttempts) * 100) : 0;
-
-  // Init puzzle
-  useEffect(() => {
-    if (!puzzle) return;
-    const moves = puzzle.solution.filter(s => s !== "--");
-    setCurrentFen(puzzle.fen);
-    setCurrentMoveIndex(0);
-    setShowHint(false);
-    setFeedback("neutral");
-    setHighlightSquares(undefined);
-
-    if (moves.length > 0) {
-      const first = parseMoveCoord(moves[0]);
-      if (first) {
-        setIsAnimating(true);
-        setOpponentLastMove(first);
-        setTimeout(() => {
-          try {
-            const g = new Chess(puzzle.fen);
-            const r = g.move({ from: first.from as any, to: first.to as any, promotion: "q" });
-            if (r) { setCurrentFen(g.fen()); setCurrentMoveIndex(1); }
-          } catch {}
-          setOpponentLastMove(null);
-          setIsAnimating(false);
-          setPuzzleKey(k => k + 1);
-        }, 700);
-      }
+    else
+        setIndex(i => i + 1); }
+    function resetMode(nextMode: string) { setMode(nextMode); setActive(false); setRemaining(180); setSolved(0); setMistakes(0); setChunk(0); setIndex(0); setFeedback("idle"); setAttempted(false); setHint(false); locked.current = false; if (puzzle) {
+        setFen(puzzle.fen);
+        setStep(0);
+    } }
+    function move(from: string, to: string, promotion?: "q" | "r" | "b" | "n") {
+        if (!puzzle || locked.current || feedback === "solved" || (mode === "rush" && !active))
+            return false;
+        const result = playPuzzleMove(fen, puzzle.solution, step, from, to, promotion);
+        if (!result) {
+            setFeedback("wrong");
+            if (!attempted) {
+                setAttempted(true);
+                const fails = mistakes + 1;
+                setMistakes(fails);
+                if (mode === "rush" && fails >= 3) {
+                    setActive(false);
+                    locked.current = true;
+                }
+            }
+            return false;
+        }
+        setFen(result.fen);
+        setStep(result.index);
+        setHint(false);
+        setFeedback(result.complete ? "solved" : "idle");
+        if (result.complete) {
+            locked.current = true;
+            if (!attempted)
+                setSolved(s => s + 1);
+        }
+        return true;
     }
-  }, [puzzle?.fen, currentIndex]);
-
-  const puzzleTurn = useMemo(() => {
-    if (!currentFen) return "w";
-    return currentFen.split(" ")[1] || "w";
-  }, [currentFen]);
-
-  const handleSolve = useCallback((from: string, to: string): boolean => {
-    if (!puzzle || isAnimating) return false;
-    const moves = puzzle.solution.filter(s => s !== "--");
-    const expected = moves[currentMoveIndex];
-
-    if (!expected) {
-      setSolved(s => s + 1);
-      setCorrectAttempts(c => c + 1);
-      setTotalAttempts(t => t + 1);
-      const gain = Math.max(5, Math.round((puzzle.rating - userRating) * 0.05 + 10));
-      const newR = userRating + gain;
-      setUserRating(newR);
-      localStorage.setItem("puzzle_rating", String(newR));
-      setFeedback("correct");
-      toast.success(`✓ Вирішено! +${gain}`);
-      setTimeout(() => { setCurrentIndex(i => (i + 1) % filteredPuzzles.length); }, 1200);
-      return true;
-    }
-
-    const clean = expected.replace(/[+#!?]/g, "");
-    const coord = from + to;
-    let san = "";
-    try { const g = new Chess(currentFen); const m = g.move({ from: from as any, to: to as any, promotion: "q" }); if (m) san = m.san.replace(/[+#!?]/g, ""); } catch {}
-
-    const isCorrect = coord === clean || coord === clean.slice(-4) || san === clean;
-    if (!isCorrect) {
-      setFeedback("wrong");
-      setHighlightSquares({ squares: [from as Square, to as Square], type: "wrong" });
-      setStreak(0);
-      setTotalAttempts(t => t + 1);
-      const loss = Math.max(3, Math.round(userRating * 0.01 + 5));
-      setUserRating(Math.max(400, userRating - loss));
-      localStorage.setItem("puzzle_rating", String(Math.max(400, userRating - loss)));
-      toast.error(`Неправильно! -${loss}`);
-      if (mode === "rush") {
-        setRushFails(f => {
-          if (f + 1 >= 3) {
-            setRushActive(false);
-            clearInterval(rushTimerRef.current!);
-            toast.error(`💥 3 помилки! Результат: ${rushScore}`);
-          }
-          return f + 1;
-        });
-      }
-      setTimeout(() => { setHighlightSquares(undefined); setFeedback("neutral"); }, 800);
-      return false;
-    }
-
-    // Correct
-    try {
-      const g = new Chess(currentFen);
-      const r = g.move({ from, to, promotion: "q" });
-      if (r) setCurrentFen(g.fen());
-    } catch {}
-
-    setFeedback("correct");
-    setHighlightSquares({ squares: [from as Square, to as Square], type: "correct" });
-    const next = currentMoveIndex + 1;
-
-    if (next < moves.length) {
-      const opp = parseMoveCoord(moves[next]);
-      if (opp) {
-        setIsAnimating(true);
-        setOpponentLastMove(opp);
-        setTimeout(() => {
-          try {
-            const g = new Chess(currentFen);
-            const r = g.move({ from: opp.from as any, to: opp.to as any, promotion: "q" });
-            if (r) { setCurrentFen(g.fen()); setCurrentMoveIndex(next + 1); }
-          } catch {}
-          setOpponentLastMove(null);
-          setFeedback("neutral");
-          setHighlightSquares(undefined);
-          setIsAnimating(false);
-          setPuzzleKey(k => k + 1);
-        }, 500);
-      }
-      setCurrentMoveIndex(next);
-    } else {
-      setSolved(s => s + 1);
-      const ns = streak + 1;
-      setStreak(ns);
-      if (ns > bestStreak) { setBestStreak(ns); localStorage.setItem("puzzle_best_streak", String(ns)); }
-      setCorrectAttempts(c => c + 1);
-      setTotalAttempts(t => t + 1);
-      const gain = Math.max(5, Math.round((puzzle.rating - userRating) * 0.05 + 10));
-      setUserRating(userRating + gain);
-      localStorage.setItem("puzzle_rating", String(userRating + gain));
-      if (mode === "rush") setRushScore(s => s + 1);
-      toast.success(`✓ Правильно! +${gain}`);
-      setTimeout(() => setCurrentIndex(i => (i + 1) % filteredPuzzles.length), 1000);
-    }
-    return true;
-  }, [puzzle, currentMoveIndex, currentFen, filteredPuzzles.length, isAnimating, streak, bestStreak, userRating, mode, rushScore]);
-
-  const formatTime = (s: number) => `${Math.floor(s / 60)}:${(s % 60).toString().padStart(2, "0")}`;
-
-  const activeTheme = THEMES.find(t => t.id === filter);
-
-  return (
-    <div className="min-h-screen flex bg-transparent text-white">
-      {/* SIDEBAR */}
-      <AnimatePresence mode="wait">
-        {sidebarOpen && (
-          <motion.aside
-            initial={{ width: 0, opacity: 0 }}
-            animate={{ width: 280, opacity: 1 }}
-            exit={{ width: 0, opacity: 0 }}
-            transition={{ duration: 0.2 }}
-            className="flex-shrink-0 overflow-y-auto border-r border-white/[0.07] bg-[#0b1119]/88 backdrop-blur-xl"
-            style={{ height: "100vh" }}
-          >
-            <div className="p-4 space-y-4">
-              {/* Profile */}
-              <div className="flex items-center gap-3 p-3 rounded-xl bg-muted/50">
-                <div className="w-10 h-10 rounded-full bg-accent/20 flex items-center justify-center">
-                  <User size={20} className="text-accent" />
-                </div>
-                <div className="flex-1 min-w-0">
-                  <div className="font-bold text-sm truncate">{user?.user_metadata?.display_name || "Гравець"}</div>
-                  <div className="text-xs text-muted-foreground">Рейтинг: <span className="text-accent font-bold">{userRating}</span></div>
-                </div>
-                <button onClick={() => setShowSettings(!showSettings)} className="p-1.5 rounded-lg hover:bg-muted/80">
-                  <Settings size={16} className="text-muted-foreground" />
-                </button>
-              </div>
-
-              {/* Modes */}
-              <div className="grid grid-cols-2 gap-2">
-                <button onClick={() => { setMode("classic"); setRushActive(false); }}
-                  className={`p-2 rounded-lg text-xs font-medium transition-all flex items-center justify-center gap-1 ${mode === "classic" ? "bg-accent/15 text-accent border border-accent/30" : "bg-muted text-muted-foreground"}`}>
-                  <Target size={12} /> Класика
-                </button>
-                <button onClick={() => { setMode("rush"); setRushActive(true); setRushTimeLeft(180); setRushScore(0); setRushFails(0); }}
-                  className={`p-2 rounded-lg text-xs font-medium transition-all flex items-center justify-center gap-1 ${mode === "rush" ? "bg-accent/15 text-accent border border-accent/30" : "bg-muted text-muted-foreground"}`}>
-                  <Zap size={12} /> Rush
-                </button>
-              </div>
-
-              {/* Themes */}
-              <div>
-                <div className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-2">Теми</div>
-                <div className="space-y-1">
-                  {THEMES.map(t => {
-                    const count = t.id === "all" ? filteredPuzzles.length : puzzles.filter(p => p.theme === t.id).length;
-                    return (
-                      <button key={t.id} onClick={() => { setFilter(t.id); setCurrentIndex(0); }}
-                        className={`w-full flex items-center gap-3 px-3 py-2 rounded-lg text-sm transition-all ${
-                          filter === t.id ? "bg-accent/10 text-accent font-medium" : "text-muted-foreground hover:bg-muted/50"
-                        }`}>
-                        <t.icon size={14} className={filter === t.id ? "text-accent" : ""} />
-                        <span className="flex-1 text-left">{t.label}</span>
-                        <span className="text-xs text-muted-foreground">{count}</span>
-                      </button>
-                    );
-                  })}
-                </div>
-              </div>
-
-              {/* Stats */}
-              <div className="p-3 rounded-xl bg-muted/30 space-y-2">
-                <div className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">Статистика</div>
-                <div className="grid grid-cols-2 gap-2 text-xs">
-                  <div><span className="text-muted-foreground">Вирішено</span><br /><span className="font-bold text-primary text-lg">{solved}</span></div>
-                  <div><span className="text-muted-foreground">Серія</span><br /><span className="font-bold text-accent text-lg"><Flame size={14} className="inline" /> {streak}</span></div>
-                  <div><span className="text-muted-foreground">Точність</span><br /><span className="font-bold text-green-400 text-lg">{accuracy}%</span></div>
-                  <div><span className="text-muted-foreground">Найкраща</span><br /><span className="font-bold text-yellow-400 text-lg">{bestStreak}</span></div>
-                </div>
-                {mode === "rush" && (
-                  <div className="pt-2 border-t border-border">
-                    <div className="flex justify-between text-xs">
-                      <span className="text-muted-foreground">⏱️ Час</span>
-                      <span className={`font-mono font-bold ${rushTimeLeft < 30 ? "text-destructive" : "text-foreground"}`}>{formatTime(rushTimeLeft)}</span>
-                    </div>
-                    <div className="flex justify-between text-xs mt-1">
-                      <span className="text-muted-foreground">Рахунок</span>
-                      <span className="font-bold text-accent">{rushScore}</span>
-                    </div>
-                    <div className="flex gap-1 mt-2">
-                      {[0,1,2].map(i => <div key={i} className={`h-1.5 flex-1 rounded-full ${i < rushFails ? "bg-destructive" : "bg-muted"}`} />)}
-                    </div>
-                  </div>
-                )}
-              </div>
-            </div>
-          </motion.aside>
-        )}
-      </AnimatePresence>
-
-      {/* MAIN AREA */}
-      <div className="flex-1 flex flex-col min-h-screen bg-transparent">
-        {/* Top bar */}
-        <div className="flex items-center justify-between px-4 py-2 border-b border-white/[0.07] bg-[#0b1119]/70 backdrop-blur-xl">
-          <div className="flex items-center gap-3">
-            <button onClick={() => setSidebarOpen(!sidebarOpen)} className="p-1.5 rounded-lg hover:bg-muted/50">
-              {sidebarOpen ? <ChevronLeft size={18} /> : <Menu size={18} />}
-            </button>
-            <div className="flex items-center gap-2">
-              <Puzzle size={18} className="text-accent" />
-              <span className="font-bold text-sm">Шахові задачі</span>
-              {activeTheme && <span className="text-xs text-muted-foreground">· {activeTheme.label}</span>}
-            </div>
-          </div>
-          <div className="flex items-center gap-4 text-sm">
-            <span className="text-muted-foreground">Рейтинг: <span className="text-accent font-bold">{userRating}</span></span>
-            <span className="text-muted-foreground">#{currentIndex + 1} / {filteredPuzzles.length}</span>
-          </div>
-        </div>
-
-        {/* Content: Board + Right Panel */}
-        <div className="flex-1 flex items-center justify-center p-4 gap-6">
-          {/* Board */}
-          <div className="flex flex-col items-center gap-3">
-            {isAnimating && (
-              <div className="flex items-center gap-2 px-4 py-2 rounded-lg bg-muted/50 text-muted-foreground text-sm animate-pulse">
-                <RefreshCw size={14} className="animate-spin" /> Хід суперника...
-              </div>
-            )}
-            {!isAnimating && puzzle && (
-              <div className={`flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-semibold border ${
-                puzzleTurn === "w" ? "bg-white/10 border-white/20" : "bg-black/20 border-gray-600"
-              }`}>
-                <span className="text-lg">{puzzleTurn === "w" ? "♔" : "♚"}</span>
-                {puzzleTurn === "w" ? "Хід білих" : "Хід чорних"}
-              </div>
-            )}
-            <ChessBoard
-              key={puzzleKey}
-              initialFen={currentFen || puzzle?.fen}
-              size={Math.min(520, typeof window !== "undefined" ? window.innerWidth - 400 : 520)}
-              onMove={handleSolve}
-              highlightSquares={highlightSquares || (opponentLastMove ? { squares: [opponentLastMove.from as Square, opponentLastMove.to as Square], type: "correct" } : undefined)}
-              flipped={puzzleTurn === "b"}
-              interactive={!isAnimating}
-            />
-          </div>
-
-          {/* Right Panel */}
-          {puzzle && (
-            <div className="w-64 space-y-3">
-              <div className="bg-card rounded-xl p-4 border border-border">
-                <div className="flex items-center gap-2 mb-2">
-                  <span className="text-2xl">🎯</span>
-                  <div>
-                    <div className="font-bold">{puzzle.title}</div>
-                    <div className="text-xs text-muted-foreground">Рейтинг: {puzzle.rating}</div>
-                  </div>
-                </div>
-                <span className="text-[10px] px-2 py-0.5 rounded-full bg-muted border border-border text-muted-foreground">{puzzle.theme}</span>
-              </div>
-
-              <div className={`rounded-lg p-3 border text-sm font-semibold transition-all ${
-                feedback === "correct" ? "text-primary border-primary/40 bg-primary/10" :
-                feedback === "wrong" ? "text-destructive border-destructive/40 bg-destructive/10" :
-                "text-muted-foreground border-border bg-card"
-              }`}>
-                {feedback === "correct" ? "✓ Правильно!" : feedback === "wrong" ? "✗ Невірно" : "Знайдіть найкращий хід"}
-              </div>
-
-              {showHint && puzzle.solution?.length > 0 && (
-                <div className="p-3 rounded-lg bg-primary/10 border border-primary/20">
-                  <p className="text-xs text-primary">💡 {puzzle.solution[currentMoveIndex] || puzzle.solution[0]}</p>
-                </div>
-              )}
-
-              <div className="bg-card rounded-xl p-4 border border-border">
-                <Progress value={((currentIndex % filteredPuzzles.length) / Math.min(filteredPuzzles.length, 10)) * 100} className="h-1.5 mb-2" />
-                <div className="text-[10px] text-muted-foreground">Прогрес: {currentIndex % filteredPuzzles.length + 1}/{Math.min(filteredPuzzles.length, 10)}</div>
-              </div>
-            </div>
-          )}
-        </div>
-
-        {/* Bottom Panel */}
-        <div className="px-4 py-3 border-t border-border bg-card/50">
-          <div className="flex items-center justify-center gap-3">
-            <Button variant="outline" size="sm" onClick={() => setShowHint(true)} className="border-border">
-              <Lightbulb size={14} className="mr-1.5" /> Підказка
-            </Button>
-            <Button size="sm" onClick={() => { setCurrentIndex(i => (i + 1) % filteredPuzzles.length); }} className="bg-accent text-accent-foreground">
-              <ArrowRight size={14} className="mr-1.5" /> Далі
-            </Button>
-            <Button variant="outline" size="sm" onClick={() => setCurrentIndex(0)} className="border-border">
-              <RotateCcw size={14} className="mr-1.5" /> З початку
-            </Button>
-            <Button variant="outline" size="sm" onClick={() => { setStreak(0); setCurrentIndex(Math.floor(Math.random() * filteredPuzzles.length)); }} className="border-border">
-              <Flag size={14} className="mr-1.5" /> Випадкова
-            </Button>
-          </div>
-        </div>
-      </div>
-    </div>
-  );
+    const loading = manifest.isPending || batch.isPending;
+    const error = manifest.isError || batch.isError;
+    return <Page title="Тренуйте розрахунок" eyebrow="Тактичні задачі"><div className="flex flex-wrap justify-between items-center gap-4 mb-6"><Tabs value={mode} onValueChange={resetMode}><TabsList><TabsTrigger value="classic">За темами</TabsTrigger><TabsTrigger value="rush">На час · 3 хв</TabsTrigger></TabsList></Tabs><Select value={theme} disabled={active} onValueChange={v => { setTheme(v); setChunk(0); setIndex(0); }}><SelectTrigger aria-label="Тема задач" className="w-56"><SelectValue /></SelectTrigger><SelectContent><SelectItem value="all">Усі теми</SelectItem>{manifest.data?.themes.map(t => <SelectItem key={t} value={t}>{t}</SelectItem>)}</SelectContent></Select></div>
+ <div className="grid lg:grid-cols-[minmax(0,620px)_minmax(260px,1fr)] gap-7 items-start"><div ref={sizeRef} className="min-w-0">
+ {error ? <div className="surface p-8" role="alert">Не вдалося завантажити задачі.<Button className="mt-4" onClick={() => { void manifest.refetch(); void batch.refetch(); }}>Повторити</Button></div> : loading || !puzzle || !fen ? <div className="surface min-h-80 grid place-items-center" role="status">Завантаження задач…</div> : <div className="overflow-hidden rounded-lg border"><ChessBoard key={`${puzzle.id}-${chunk}`} displayFen={fen} initialFen={puzzle.fen} size={boardSize} flipped={puzzle.fen.split(" ")[1] === "b"} interactive={feedback !== "solved" && (mode !== "rush" || active)} onMove={move} annotationSquares={hint && puzzle.solution[step] ? [puzzle.solution[step].slice(0, 2) as Square] : []} allowArrows/></div>}
+ </div><aside className="surface p-6"><p className="eyebrow">{puzzle?.theme || "Тренування"}</p><h2 className="text-xl font-semibold">{puzzle ? (puzzle.fen.split(" ")[1] === "w" ? "Хід білих" : "Хід чорних") : "Знайдіть продовження"}</h2><p className="field-note">{puzzle ? `Складність задачі: ${puzzle.rating}` : ""}</p>
+ <div className="grid grid-cols-2 gap-4 my-6 border-y py-5"><div><p className="text-sm text-muted-foreground">Без помилок</p><strong className="text-3xl">{solved}</strong></div><div><p className="text-sm text-muted-foreground">З помилкою</p><strong className="text-3xl">{mistakes}</strong></div></div>
+ {mode === "rush" && <div className="mb-6"><strong className="text-4xl font-mono tabular-nums">{Math.floor(remaining / 60)}:{String(remaining % 60).padStart(2, "0")}</strong><p className="field-note">До завершення часу або трьох помилок.</p>{!active && <Button disabled={loading || error} className="mt-4 w-full" onClick={() => { resetMode("rush"); setActive(true); }}>Почати тренування</Button>}</div>}
+ <div aria-live="polite" className="min-h-16 text-sm">{feedback === "solved" ? <p className="text-primary font-semibold">Задачу розв’язано. {attempted ? "Повторіть її пізніше без помилок." : "Усе точно!"}</p> : feedback === "wrong" ? <p className="text-destructive">Це не розв’язок. Спробуйте інший хід.</p> : <p className="text-muted-foreground">Розрахуйте весь варіант перед першим ходом.</p>}</div>
+ <div className="grid gap-3 mt-4"><Button disabled={loading || error} onClick={next}>{feedback === "solved" ? "Наступна задача" : "Пропустити"}<ArrowRight size={17}/></Button>{mode === "classic" && <Button variant="outline" disabled={!puzzle || feedback === "solved"} onClick={() => setHint(!hint)}><Lightbulb size={17}/>Підказка</Button>}<Button variant="ghost" onClick={() => resetMode(mode)}><RotateCcw size={17}/>Почати заново</Button></div><p className="field-note mt-6">Результати цього тренування. База задач Lichess · CC0.</p>
+ </aside></div></Page>;
 }

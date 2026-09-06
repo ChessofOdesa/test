@@ -605,7 +605,7 @@ export default function ChessBoard({
       return false;
     }
 
-    const soundType = enableMoveSounds ? getMoveSoundType(fen, sourceSquare, targetSquare, promotion) : null;
+    const soundType = enableMoveSounds ? getMoveSoundType(fen, sourceSquare, targetSquare, "q") : null;
     const success = commitMove(sourceSquare, targetSquare);
     if (enableMoveSounds) {
       playChessSound(success ? soundType || "move" : "illegal");

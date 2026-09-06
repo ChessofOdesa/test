@@ -1,8 +1,9 @@
+type ChessAudioWindow = Window & { __chessAudioCtx?: AudioContext };
 const audioCtx = () => {
-  if (!(window as any).__chessAudioCtx) {
-    (window as any).__chessAudioCtx = new AudioContext();
+  if (!(window as ChessAudioWindow).__chessAudioCtx) {
+    (window as ChessAudioWindow).__chessAudioCtx = new AudioContext();
   }
-  return (window as any).__chessAudioCtx as AudioContext;
+  return (window as ChessAudioWindow).__chessAudioCtx as AudioContext;
 };
 
 function playTone(freq: number, duration: number, type: OscillatorType = "sine", volume = 0.15) {

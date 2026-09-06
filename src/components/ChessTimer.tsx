@@ -104,9 +104,9 @@ export default function ChessTimer({
   const isLive = isActive && isRunning;
   const surfaceClass = isLive
     ? isCritical
-      ? "bg-[#c94b46] text-white shadow-[0_3px_0_#8d302d]"
-      : "bg-[#f1f1ef] text-[#262522] shadow-[0_3px_0_#b9b7b2]"
-    : "bg-[#3a3835] text-[#d7d4cf] shadow-[0_2px_0_#1e1d1b]";
+      ? "bg-secondary text-foreground shadow-sm"
+      : "bg-muted text-foreground shadow-sm"
+    : "bg-secondary text-muted-foreground shadow-sm";
 
   return (
     <div
@@ -117,15 +117,15 @@ export default function ChessTimer({
         <div className="flex min-w-0 items-center gap-2">
           <span
             className={`h-2.5 w-2.5 shrink-0 rounded-sm border ${
-              color === "w" ? "border-black/20 bg-white" : "border-white/20 bg-[#1d1c1a]"
+              color === "w" ? "border-border bg-white" : "border-border bg-card"
             }`}
           />
-          <span className={`truncate text-xs font-semibold ${isLive ? "opacity-75" : "text-[#aaa7a2]"}`}>
+          <span className={`truncate text-xs font-semibold ${isLive ? "opacity-75" : "text-muted-foreground"}`}>
             {playerName || (color === "w" ? "Білі" : "Чорні")}
           </span>
         </div>
         <div className="flex items-center gap-1.5">
-          <Clock size={14} className={isLive ? "opacity-70" : "text-[#918e89]"} />
+          <Clock size={14} className={isLive ? "opacity-70" : "text-muted-foreground"} />
           <span className={`font-mono text-xl font-black tabular-nums sm:text-2xl ${isLow && isLive ? "tracking-tight" : ""}`}>
             {formatTime(displayTimeMs)}
           </span>

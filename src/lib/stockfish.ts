@@ -1,4 +1,3 @@
-import { Chess, type Square } from "chess.js";
 
 export type EngineBackend = "native" | "worker" | "cloud";
 
@@ -90,15 +89,6 @@ let nativeEngineHealth: EngineHealth = "unknown";
 let nativeEngineFailureReason: string | null = null;
 let workerHealth: EngineHealth = "unknown";
 let workerFailureReason: string | null = null;
-
-const FALLBACK_PIECE_VALUES: Record<string, number> = {
-  p: 100,
-  n: 320,
-  b: 330,
-  r: 500,
-  q: 900,
-  k: 0,
-};
 
 function getNativeEngineUrl() {
   const explicitUrl = import.meta.env.VITE_STOCKFISH_API_URL?.trim();
@@ -361,83 +351,6 @@ async function analyzeWithCloudEvaluation(
   } finally {
     window.clearTimeout(timer);
   }
-}
-
-function evaluateMaterialCp(chess: Chess) {
-  return chess
-    .board()
-    .flat()
-    .reduce((score, piece) => {
-      if (!piece) {
-        return score;
-      }
-
-      const value = FALLBACK_PIECE_VALUES[piece.type] ?? 0;
-      return score + (piece.color === "w" ? value : -value);
-    }, 0);
-}
-
-function squareActivityBonus(square: Square) {
-  const file = square.charCodeAt(0) - 97;
-  const rank = Number(square[1]) - 1;
-  const fileDistance = Math.abs(file - 3.5);
-  const rankDistance = Math.abs(rank - 3.5);
-
-  return Math.max(0, 24 - Math.round((fileDistance + rankDistance) * 6));
-}
-
-function createLocalFallbackResult(fen: string): AnalyzeResult {
-  const chess = new Chess(fen);
-  const legalMoves = chess.moves({ verbose: true });
-  const scoredMoves = legalMoves
-    .map((move) => {
-      const capturedValue = move.captured ? FALLBACK_PIECE_VALUES[move.captured] ?? 0 : 0;
-      const promotionValue = move.promotion ? FALLBACK_PIECE_VALUES[move.promotion] ?? 0 : 0;
-      const checkBonus = move.san.includes("#") ? 10_000 : move.san.includes("+") ? 90 : 0;
-      const moveFlags = "flags" in move && typeof move.flags === "string" ? move.flags : "";
-      const castleBonus = moveFlags.includes("k") || moveFlags.includes("q") ? 35 : 0;
-      const activityBonus = squareActivityBonus(move.to as Square);
-
-      return {
-        move,
-        score: capturedValue + promotionValue + checkBonus + castleBonus + activityBonus,
-      };
-    })
-    .sort((a, b) => b.score - a.score);
-
-  const bestMove = scoredMoves[0]?.move ?? null;
-  const bestmove = bestMove
-    ? `${bestMove.from}${bestMove.to}${bestMove.promotion ?? ""}`
-    : null;
-  const pv = bestmove ? [bestmove] : [];
-  const scoreCp = evaluateMaterialCp(chess);
-
-  return {
-    backend: "worker",
-    bestmove,
-    raw: [
-      "info string local fallback analysis used because Stockfish was unavailable or too slow",
-    ],
-    scoreCp,
-    scoreMate: null,
-    pv,
-    depth: 0,
-    nodes: legalMoves.length,
-    timeMs: 0,
-    lines: bestmove
-      ? [
-          {
-            multipv: 1,
-            scoreCp,
-            scoreMate: null,
-            pv,
-            depth: 0,
-            nodes: legalMoves.length,
-            timeMs: 0,
-          },
-        ]
-      : [],
-  };
 }
 
 function parseSseFrame(frame: string) {
@@ -977,8 +890,8 @@ export async function analyzeFenWithStockfish(
     );
     return normalizeSideToMoveResultForWhite(fen, result);
   } catch (error) {
-    console.warn("Browser Stockfish failed, using local fallback analysis.", error);
-    return createLocalFallbackResult(fen);
+    console.warn("Browser Stockfish is unavailable.", error);
+    throw new Error("Stockfish недоступний. Оновіть сторінку та повторіть аналіз.");
   }
 }
 

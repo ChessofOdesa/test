@@ -8,7 +8,7 @@ interface PgnViewerProps {
 
 export default function PgnViewer({ pgn, className }: PgnViewerProps) {
   const ref = useRef<HTMLDivElement | null>(null);
-  const ctrlRef = useRef<any>(null);
+  const ctrlRef = useRef<ReturnType<typeof startPgnViewer> | null>(null);
 
   useEffect(() => {
     const cssId = "lichess-pgn-viewer-css";

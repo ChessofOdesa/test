@@ -8,6 +8,7 @@ export interface BoardTheme {
 }
 
 export const BOARD_THEMES: BoardTheme[] = [
+  { id: "odesa", name: "Одеська синя", light: "#dce4f0", dark: "#7289ac" },
   { id: "lichess", name: "Lichess Green", light: "#f3eedb", dark: "#6d8a4a" },
   { id: "wood", name: "Walnut", light: "#e8c98a", dark: "#7a5c3a" },
   { id: "classic", name: "Classic", light: "#f0d9b5", dark: "#b58863" },
