@@ -26,7 +26,7 @@ export type BotProfile = {
         glow: string;
     };
 };
-export type TimeControlId = "unlimited" | "1m" | "3m" | "5m" | "10m" | "30m";
+export type TimeControlId = string;
 export type SideChoice = "w" | "b" | "random";
 export type EngineMode = "stockfish" | "fallback";
 export type Arrow = [

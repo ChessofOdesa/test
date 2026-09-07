@@ -2,6 +2,8 @@ import { randomUUID } from "node:crypto";
 import { createServer } from "node:http";
 import { WebSocket, WebSocketServer } from "ws";
 import { Chess } from "chess.js";
+import { parseTimeControl, LEGACY_RATED_TIMES, colorsForPair, entriesCompatible, validateMatchOptions } from "./time-control.js";
+import { createChallengeService } from "./challenges.js";
 import { createSupabasePersistence } from "./supabase-persistence.js";
 import {
   LichessEvaluationError,
@@ -39,13 +41,6 @@ const allowedOrigins = new Set(
     .filter(Boolean),
 );
 
-const TIME_CONTROLS = new Map([
-  ["1+0", { initialMs: 60_000, incrementMs: 0 }],
-  ["3+0", { initialMs: 3 * 60_000, incrementMs: 0 }],
-  ["5+0", { initialMs: 5 * 60_000, incrementMs: 0 }],
-  ["10+0", { initialMs: 10 * 60_000, incrementMs: 0 }],
-  ["15+10", { initialMs: 15 * 60_000, incrementMs: 10_000 }],
-]);
 
 const MSG = {
   AUTHENTICATE: "authenticate",
@@ -92,6 +87,16 @@ const persistence = createSupabasePersistence({
 });
 const evaluationService = createLichessEvaluationService({ persistence });
 const evaluationRateLimits = new Map();
+let flexibleRatings = false;
+async function refreshCapabilities() { flexibleRatings = await persistence.supportsFlexibleRatings(); }
+await refreshCapabilities();
+setInterval(() => { void refreshCapabilities(); }, 60_000).unref();
+function validateOptions(data) { return validateMatchOptions(data, { persistenceEnabled: persistence.enabled, flexibleRatings }); }
+function capabilities() {
+  return { protocol: 2, customTime: true, challenges: true, casual: !persistence.enabled || flexibleRatings, ratingRange: true, rated: persistence.enabled, ratedTimeControls: flexibleRatings ? "all" : LEGACY_RATED_TIMES, tournaments: false, chess960: false };
+}
+function lobbyStats() { return { players: [...players.values()].filter(p => p.isConnected()).length, games: [...games.values()].filter(g => g.status === "playing").length }; }
+const challenges = createChallengeService({ players, games, validate: validateOptions, startGame: createMatchedGame, removeFromQueue });
 
 if (!persistence.enabled) {
   console.warn(
@@ -132,8 +137,8 @@ class Player {
 }
 
 class Game {
-  constructor({ id, whitePlayer, blackPlayer, timeControl, restoredState = null }) {
-    const settings = TIME_CONTROLS.get(timeControl);
+  constructor({ id, whitePlayer, blackPlayer, timeControl, rated = true, restoredState = null }) {
+    const settings = parseTimeControl(timeControl);
 
     this.id = id;
     this.whitePlayer = whitePlayer;
@@ -152,7 +157,7 @@ class Game {
     this.rematchOfferFrom = null;
     this.createdAt = restoredState?.created_at || new Date().toISOString();
     this.finishedAt = null;
-    this.rated = restoredState ? restoredState.rated !== false : persistence.enabled;
+    this.rated = restoredState ? restoredState.rated !== false : rated && persistence.enabled;
     this.saved = Boolean(restoredState);
     this.persistenceStatus = restoredState
       ? "saved"
@@ -231,9 +236,8 @@ function normalizeClock(value, fallback) {
 }
 
 function ratingCategoryFor(timeControl) {
-  if (timeControl === "1+0") return "bullet";
-  if (timeControl === "3+0" || timeControl === "5+0") return "blitz";
-  return "rapid";
+  const category = parseTimeControl(timeControl)?.category;
+  return category === "classical" ? "rapid" : category || "rapid";
 }
 
 function restoreChess(state) {
@@ -560,20 +564,6 @@ function getQueueSize(timeControl) {
   return waitingPlayers.get(timeControl)?.size || 0;
 }
 
-function colorsForPair(first, second) {
-  const firstColor = first.color;
-  const secondColor = second.color;
-
-  if (firstColor === "w" && secondColor === "w") return null;
-  if (firstColor === "b" && secondColor === "b") return null;
-  if (firstColor === "w" || secondColor === "b") return { white: first.player, black: second.player };
-  if (firstColor === "b" || secondColor === "w") return { white: second.player, black: first.player };
-
-  return Math.random() < 0.5
-    ? { white: first.player, black: second.player }
-    : { white: second.player, black: first.player };
-}
-
 function createMatchedGame(first, second, timeControl) {
   const colors = colorsForPair(first, second);
   if (!colors) return null;
@@ -583,6 +573,7 @@ function createMatchedGame(first, second, timeControl) {
     whitePlayer: colors.white,
     blackPlayer: colors.black,
     timeControl,
+    rated: first.rated,
   });
 
   games.set(game.id, game);
@@ -594,7 +585,8 @@ function createMatchedGame(first, second, timeControl) {
   return game;
 }
 
-function enqueuePlayer(player, timeControl, color) {
+function enqueuePlayer(player, options) {
+  const { timeControl } = options;
   if (player.gameId && games.get(player.gameId)?.status === "playing") {
     player.send({ type: MSG.ERROR, message: "Спочатку завершіть поточну партію." });
     return;
@@ -602,10 +594,11 @@ function enqueuePlayer(player, timeControl, color) {
 
   removeFromQueue(player);
   const queue = waitingPlayers.get(timeControl) || new Set();
-  const newEntry = { player, timeControl, color };
+  const newEntry = { player, ...options };
+  challenges.cancelFor(player);
 
   for (const waitingEntry of queue) {
-    if (waitingEntry.player.id === player.id || !waitingEntry.player.isConnected()) {
+    if (!entriesCompatible(newEntry, waitingEntry) || !waitingEntry.player.isConnected()) {
       continue;
     }
 
@@ -624,7 +617,7 @@ function enqueuePlayer(player, timeControl, color) {
   queue.add(newEntry);
   waitingPlayers.set(timeControl, queue);
   player.queueEntry = newEntry;
-  player.send({ type: "waiting", queueSize: getQueueSize(timeControl) });
+  player.send({ type: "waiting", options, queueSize: getQueueSize(timeControl) });
 }
 
 function getParticipantGame(player, gameId, { active = true } = {}) {
@@ -793,7 +786,9 @@ function handleRematch(player, payload) {
   const game = getParticipantGame(player, payload.gameId, { active: false });
   if (!game || game.status !== "finished") return;
 
-  const timeControl = TIME_CONTROLS.has(payload.timeControl) ? payload.timeControl : game.timeControl;
+  const timeControl = game.timeControl;
+  if (!game.getOpponent(player.id).isConnected()) throw new Error("Суперник уже від’єднався.");
+  if ([game.whitePlayer, game.blackPlayer].some(p => games.get(p.gameId)?.status === "playing")) throw new Error("Один із гравців уже має активну партію.");
   const opponent = game.getOpponent(player.id);
 
   if (!game.rematchOfferFrom) {
@@ -810,7 +805,13 @@ function handleRematch(player, payload) {
     whitePlayer: game.blackPlayer,
     blackPlayer: game.whitePlayer,
     timeControl,
+    rated: game.rated,
   });
+  game.rematchOfferFrom = null;
+  removeFromQueue(game.whitePlayer);
+  removeFromQueue(game.blackPlayer);
+  challenges.cancelFor(game.whitePlayer);
+  challenges.cancelFor(game.blackPlayer);
   games.set(newGame.id, newGame);
   newGame.whitePlayer.gameId = newGame.id;
   newGame.blackPlayer.gameId = newGame.id;
@@ -821,7 +822,7 @@ function handleRematch(player, payload) {
 
 function handleRematchResponse(player, payload) {
   const game = getParticipantGame(player, payload.gameId, { active: false });
-  if (!game || game.status !== "finished" || !game.rematchOfferFrom) return;
+  if (!game || game.status !== "finished" || !game.rematchOfferFrom || game.rematchOfferFrom === player.id) return;
 
   if (payload.accept !== true) {
     const offerPlayer = game.rematchOfferFrom === game.whitePlayer.id ? game.whitePlayer : game.blackPlayer;
@@ -841,15 +842,17 @@ function handleAuthenticatedMessage(player, data) {
 
   switch (data.type) {
     case MSG.FIND_GAME: {
-      if (!TIME_CONTROLS.has(data.timeControl)) {
-        player.send({ type: MSG.ERROR, message: "Цей контроль часу зараз недоступний." });
-        return;
-      }
-
-      const color = ["w", "b", "random"].includes(data.color) ? data.color : "random";
-      enqueuePlayer(player, data.timeControl, color);
+      enqueuePlayer(player, validateOptions(data));
       return;
     }
+    case "search_players":
+    case "create_challenge":
+    case "get_challenge":
+    case "accept_challenge":
+    case "decline_challenge":
+    case "cancel_challenge":
+      challenges.handle(player, data);
+      return;
     case MSG.CANCEL_FIND:
       removeFromQueue(player);
       player.send({ type: "cancelled" });
@@ -971,10 +974,18 @@ async function handleHttpRequest(request, response) {
       ok: true,
       service: "chess-of-odesa-server",
       evaluationCache: persistence.enabled ? "supabase" : "memory",
+      playProtocol: 2,
     });
     return;
   }
 
+  if (requestUrl.pathname === "/api/play") {
+    if (!isOriginAllowed(origin)) { sendHttpJson(response, 403, { error: "Origin is not allowed." }); return; }
+    if (request.method === "OPTIONS") { response.writeHead(204, corsHeaders(origin)); response.end(); return; }
+    if (request.method !== "GET") { sendHttpJson(response, 405, { error: "Method not allowed." }, corsHeaders(origin)); return; }
+    sendHttpJson(response, 200, { capabilities: capabilities(), stats: lobbyStats() }, { ...corsHeaders(origin), "Cache-Control": "no-store" });
+    return;
+  }
   if (requestUrl.pathname !== "/api/evaluation") {
     sendHttpJson(response, 404, { error: "Not found." });
     return;
@@ -1096,7 +1107,7 @@ async function restoreActiveGameForPlayer(player) {
       typeof row.white_player_id !== "string"
       || typeof row.black_player_id !== "string"
       || row.white_player_id === row.black_player_id
-      || !TIME_CONTROLS.has(row.time_control)
+      || !parseTimeControl(row.time_control)
     ) {
       return null;
     }
@@ -1175,6 +1186,7 @@ wss.on("connection", (socket, request) => {
 
   let player = null;
   let authenticationInProgress = false;
+  let sessionReady = false;
   const authTimer = setTimeout(() => {
     if (!player) socket.close(1008, "Authentication timed out");
   }, AUTH_TIMEOUT_MS);
@@ -1226,6 +1238,7 @@ wss.on("connection", (socket, request) => {
         }
       }
 
+      if (socket.readyState !== WebSocket.OPEN) return;
       const existing = players.get(user.id);
       if (existing) {
         player = existing;
@@ -1242,19 +1255,21 @@ wss.on("connection", (socket, request) => {
         players.set(player.id, player);
       }
 
-      player.send({ type: MSG.AUTHENTICATED, playerId: player.id, name: player.name });
-
       let activeGame = player.gameId ? games.get(player.gameId) : null;
       if (!activeGame || activeGame.status !== "playing") {
         activeGame = await restoreActiveGameForPlayer(player);
       }
-      if (activeGame && activeGame.status === "playing") {
-        sendGameState(activeGame, player);
-      }
+      if (socket.readyState !== WebSocket.OPEN) return;
+      sessionReady = true;
+      player.send({ type: MSG.AUTHENTICATED, playerId: player.id, name: player.name, capabilities: capabilities(), hasActiveGame: activeGame?.status === "playing", ratings: player.ratings });
+      if (activeGame && activeGame.status === "playing") sendGameState(activeGame, player);
+      challenges.restore(player);
       return;
     }
 
-    handleAuthenticatedMessage(player, data);
+    if (player.socket !== socket || !sessionReady) return;
+    try { handleAuthenticatedMessage(player, data); }
+    catch (error) { player.send({ type: MSG.ERROR, action: data.type, message: error instanceof Error ? error.message : "Не вдалося виконати дію." }); }
   });
 
   socket.on("close", () => {
@@ -1288,6 +1303,7 @@ setInterval(() => {
 }, 1_000).unref();
 
 setInterval(() => {
+  challenges.prune();
   for (const [timeControl, queue] of waitingPlayers.entries()) {
     for (const entry of [...queue]) {
       if (!entry.player.isConnected()) {

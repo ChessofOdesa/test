@@ -7,6 +7,7 @@ import {
   useState,
   type ReactNode,
 } from "react";
+import type { MatchOptions, PlayCapabilities, Challenge, AvailablePlayer } from "@/lib/play-types";
 import { toast } from "sonner";
 import { useAuth } from "@/hooks/useAuth";
 
@@ -70,7 +71,20 @@ type OnlineGameContextValue = {
   incomingDrawOffer: string | null;
   incomingRematchOffer: RematchOffer | null;
   connect: () => void;
-  findGame: (timeControl: string, color?: "w" | "b" | "random") => void;
+  findGame: (timeControl: string, color?: "w" | "b" | "random", options?: Partial<MatchOptions>) => void;
+  capabilities: PlayCapabilities | null;
+  searchSettings: MatchOptions | null;
+  actionError: string | null;
+  clearActionError: () => void;
+  incomingChallenge: Challenge | null;
+  outgoingChallenge: Challenge | null;
+  challengeStatus: string | null;
+  challengeBusy: boolean;
+  availablePlayers: AvailablePlayer[];
+  playersQuery: string;
+  challengeAction: (type: string, payload?: Record<string, unknown>) => boolean;
+  pendingGameId: string | null;
+  acknowledgeMatch: () => void;
   cancelSearch: () => void;
   makeMove: (from: string, to: string, promotion?: "q" | "r" | "b" | "n") => void;
   resign: () => void;
@@ -147,6 +161,22 @@ function normalizeGame(value: unknown): GameState | null {
 export function OnlineGameProvider({ children }: { children: ReactNode }) {
   const { user, session, isGuest } = useAuth();
   const [connected, setConnected] = useState(false);
+  const [capabilities, setCapabilities] = useState<PlayCapabilities | null>(null);
+  const [searchSettings, setSearchSettings] = useState<MatchOptions | null>(null);
+  const [actionError, setActionError] = useState<string | null>(null);
+  const [incomingChallenge, setIncomingChallenge] = useState<Challenge | null>(null);
+  const [outgoingChallenge, setOutgoingChallenge] = useState<Challenge | null>(null);
+  const [challengeStatus, setChallengeStatus] = useState<string | null>(null);
+  const [challengeBusy, setChallengeBusy] = useState(false);
+  const [availablePlayers, setAvailablePlayers] = useState<AvailablePlayer[]>([]);
+  const [playersQuery, setPlayersQuery] = useState("");
+  const [pendingGameId, setPendingGameId] = useState<string | null>(null);
+  const accountIdRef = useRef(user?.id);
+  const previousAccountRef = useRef(user?.id);
+  accountIdRef.current = user?.id;
+  const clearStoredSearch = useCallback(() => {
+    try { if (accountIdRef.current) sessionStorage.removeItem(`coo.matchmaking:${accountIdRef.current}`); } catch { /* Browser storage is optional. */ }
+  }, []);
   const [connectionError, setConnectionError] = useState<string | null>(null);
   const [playerId, setPlayerId] = useState<string | null>(null);
   const [game, setGame] = useState<GameState | null>(null);
@@ -162,10 +192,7 @@ export function OnlineGameProvider({ children }: { children: ReactNode }) {
   const gameRef = useRef<GameState | null>(null);
   const playerIdRef = useRef<string | null>(null);
   const searchStartRef = useRef(0);
-  const searchRequestRef = useRef<{
-    timeControl: string;
-    color: "w" | "b" | "random";
-  } | null>(null);
+  const searchRequestRef = useRef<MatchOptions | null>(null);
   const reconnectTimerRef = useRef<number | null>(null);
   const reconnectAttemptsRef = useRef(0);
   const shouldReconnectRef = useRef(true);
@@ -204,7 +231,9 @@ export function OnlineGameProvider({ children }: { children: ReactNode }) {
   const send = useCallback((data: Record<string, unknown>) => {
     if (wsRef.current?.readyState === WebSocket.OPEN) {
       wsRef.current.send(JSON.stringify(data));
+      return true;
     }
+    return false;
   }, []);
 
   const applyGame = useCallback((rawGame: unknown, { rememberOpponent = false } = {}) => {
@@ -221,6 +250,7 @@ export function OnlineGameProvider({ children }: { children: ReactNode }) {
       }
     }
 
+    gameRef.current = nextGame;
     setGame(nextGame);
   }, []);
 
@@ -229,6 +259,12 @@ export function OnlineGameProvider({ children }: { children: ReactNode }) {
 
     switch (data.type) {
       case "authenticated":
+        if (isRecord(data.capabilities)) setCapabilities(data.capabilities as unknown as PlayCapabilities);
+        if (data.hasActiveGame === true) {
+          searchRequestRef.current = null;
+          clearStoredSearch();
+          clearSearchState();
+        }
         if (typeof data.playerId === "string") setPlayerId(data.playerId);
         reconnectAttemptsRef.current = 0;
         clearReconnectTimer();
@@ -241,13 +277,14 @@ export function OnlineGameProvider({ children }: { children: ReactNode }) {
 
       case "waiting":
         setSearching(true);
-        searchStartRef.current = Date.now();
-        setSearchTime(0);
+        if (!searchStartRef.current) searchStartRef.current = Date.now();
+        setSearchTime(Math.floor((Date.now() - searchStartRef.current) / 1000));
         setQueueSize(typeof data.queueSize === "number" ? data.queueSize : 0);
         return;
 
       case "cancelled":
         searchRequestRef.current = null;
+        clearStoredSearch();
         clearSearchState();
         return;
 
@@ -257,6 +294,11 @@ export function OnlineGameProvider({ children }: { children: ReactNode }) {
 
       case "game_found":
         searchRequestRef.current = null;
+        clearStoredSearch();
+        setIncomingChallenge(null);
+        setOutgoingChallenge(null);
+        setChallengeBusy(false);
+        if (isRecord(data.game) && typeof data.game.id === "string") setPendingGameId(data.game.id);
         clearSearchState();
         setChatMessages([]);
         setIncomingDrawOffer(null);
@@ -265,6 +307,7 @@ export function OnlineGameProvider({ children }: { children: ReactNode }) {
         return;
 
       case "game_state":
+        if (isRecord(data.game) && data.game.status === "playing") { searchRequestRef.current = null; clearStoredSearch(); clearSearchState(); }
         applyGame(data.game);
         return;
 
@@ -325,7 +368,7 @@ export function OnlineGameProvider({ children }: { children: ReactNode }) {
         return;
 
       case "game_saved":
-        applyGame(data.game);
+        if (isRecord(data.game) && data.game.id === gameRef.current?.id) applyGame(data.game);
         return;
 
       case "draw_offer":
@@ -365,9 +408,32 @@ export function OnlineGameProvider({ children }: { children: ReactNode }) {
         }
         return;
 
+      case "challenge_created":
+      case "challenge_received":
+        if (isRecord(data.challenge) && typeof data.challenge.id === "string" && isRecord(data.challenge.from)) {
+          const challenge = data.challenge as unknown as Challenge;
+          if (data.type === "challenge_created") setOutgoingChallenge(challenge);
+          else setIncomingChallenge(challenge);
+          setChallengeStatus(null);
+          setActionError(null);
+        }
+        setChallengeBusy(false);
+        return;
+      case "challenge_closed":
+        setOutgoingChallenge(current => current?.id === data.id ? null : current);
+        setIncomingChallenge(current => current?.id === data.id ? null : current);
+        setChallengeBusy(false);
+        setChallengeStatus(data.status === "expired" ? "Термін виклику минув." : data.status === "declined" ? "Виклик відхилено." : "Виклик скасовано.");
+        return;
+      case "player_results":
+        setAvailablePlayers(Array.isArray(data.players) ? data.players as AvailablePlayer[] : []);
+        setPlayersQuery(typeof data.query === "string" ? data.query : "");
+        return;
       case "error":
         if (typeof data.message === "string") {
-          setConnectionError(data.message);
+          setActionError(data.message);
+          setChallengeBusy(false);
+          if (data.action === "find_game") { searchRequestRef.current = null; clearStoredSearch(); clearSearchState(); }
           toast.error(data.message);
         }
         return;
@@ -375,7 +441,7 @@ export function OnlineGameProvider({ children }: { children: ReactNode }) {
       default:
         return;
     }
-  }, [applyGame, clearReconnectTimer, clearSearchState]);
+  }, [applyGame, clearReconnectTimer, clearSearchState, clearStoredSearch]);
 
   const scheduleReconnect = useCallback(() => {
     if (!shouldReconnectRef.current || reconnectTimerRef.current != null) {
@@ -413,6 +479,7 @@ export function OnlineGameProvider({ children }: { children: ReactNode }) {
       return;
     }
 
+    if (!navigator.onLine) { setConnectionError("Немає з’єднання з мережею."); return; }
     const socket = new WebSocket(wsUrl);
     wsRef.current = socket;
     setConnectionError(null);
@@ -426,9 +493,11 @@ export function OnlineGameProvider({ children }: { children: ReactNode }) {
       wsRef.current = null;
       setConnected(false);
       setPlayerId(null);
-      clearSearchState();
+      if (searchRequestRef.current) setSearching(true);
+      else clearSearchState();
 
-      if (event.code !== 1008) {
+      if (event.code === 4001) setConnectionError("Акаунт відкрито в іншій вкладці або на іншому пристрої.");
+      if (event.code !== 1008 && event.code !== 4001) {
         scheduleReconnect();
       }
     };
@@ -458,8 +527,12 @@ export function OnlineGameProvider({ children }: { children: ReactNode }) {
       searchRequestRef.current = null;
       clearReconnectTimer();
       reconnectAttemptsRef.current = 0;
-      wsRef.current?.close();
+      const previousSocket = wsRef.current;
       wsRef.current = null;
+      previousSocket?.close();
+      setCapabilities(null);
+      setIncomingChallenge(null);
+      setOutgoingChallenge(null);
       setConnected(false);
       setPlayerId(null);
       clearSearchState();
@@ -487,30 +560,34 @@ export function OnlineGameProvider({ children }: { children: ReactNode }) {
     return () => window.clearInterval(interval);
   }, [searching]);
 
-  const findGame = useCallback((timeControl: string, color: "w" | "b" | "random" = "random") => {
-    if (!session?.access_token || isGuest) {
-      toast.info("Увійдіть у свій акаунт, щоб грати онлайн.");
-      return;
-    }
+  const findGame = useCallback((timeControl: string, color: "w" | "b" | "random" = "random", options: Partial<MatchOptions> = {}) => {
+    if (!connected || !navigator.onLine) { setConnectionError("Немає з’єднання з сервером. Спробуйте підключитися знову."); return; }
+    if (gameRef.current?.status === "playing") { setActionError("У вас уже є активна партія."); return; }
+    const request = { timeControl, color, rated: capabilities?.rated ?? false, minRating: 100, maxRating: 4000, ...options };
+    searchRequestRef.current = request;
+    setSearchSettings(request);
+    setActionError(null);
+    searchStartRef.current = Date.now();
+    setSearchTime(0);
+    setSearching(true);
+    try { sessionStorage.setItem(`coo.matchmaking:${accountIdRef.current}`, JSON.stringify({ options: request, startedAt: searchStartRef.current })); } catch { /* Optional storage. */ }
+    send({ type: "find_game", ...request });
+  }, [capabilities?.rated, connected, send]);
 
-    searchRequestRef.current = { timeControl, color };
-
-    if (!connected) {
-      connect();
-      setSearching(true);
-      searchStartRef.current = Date.now();
-      toast.info("Підключаємося до сервера. Пошук почнеться автоматично.");
-      return;
-    }
-
-    send({ type: "find_game", timeControl, color });
-  }, [connect, connected, isGuest, send, session?.access_token]);
+  const challengeAction = useCallback((type: string, payload: Record<string, unknown> = {}) => {
+    if (!connected || !navigator.onLine) { setActionError("Немає з’єднання з сервером."); return false; }
+    setActionError(null);
+    if (["create_challenge", "accept_challenge", "get_challenge"].includes(type)) setChallengeBusy(true);
+    return send({ type, ...payload });
+  }, [connected, send]);
 
   const cancelSearch = useCallback(() => {
     searchRequestRef.current = null;
+    clearStoredSearch();
+    searchStartRef.current = 0;
     send({ type: "cancel_find" });
     clearSearchState();
-  }, [clearSearchState, send]);
+  }, [clearSearchState, clearStoredSearch, send]);
 
   const makeMove = useCallback((from: string, to: string, promotion: "q" | "r" | "b" | "n" = "q") => {
     if (!gameRef.current?.id) return;
@@ -553,17 +630,66 @@ export function OnlineGameProvider({ children }: { children: ReactNode }) {
   }, [incomingRematchOffer, send]);
 
   const resetGame = useCallback(() => {
+    if (gameRef.current?.status === "playing") return;
+    gameRef.current = null;
     searchRequestRef.current = null;
+    clearStoredSearch();
     clearSearchState();
     clearGameState();
-  }, [clearGameState, clearSearchState]);
+  }, [clearGameState, clearSearchState, clearStoredSearch]);
 
+  useEffect(() => {
+    const previous = previousAccountRef.current;
+    if (previous && previous !== user?.id) {
+      try { sessionStorage.removeItem(`coo.matchmaking:${previous}`); } catch { /* Optional storage. */ }
+      searchRequestRef.current = null;
+      gameRef.current = null;
+      setPendingGameId(null);
+      clearSearchState();
+      clearGameState();
+      const socket = wsRef.current;
+      wsRef.current = null;
+      socket?.close();
+      setConnected(false);
+    }
+    previousAccountRef.current = user?.id;
+  }, [user?.id, clearSearchState, clearGameState]);
+
+  useEffect(() => {
+    if (!user?.id || isGuest) return;
+    try {
+      const stored = JSON.parse(sessionStorage.getItem(`coo.matchmaking:${user.id}`) || "null");
+      if (stored?.options && Date.now() - stored.startedAt < 30 * 60_000) {
+        searchRequestRef.current = stored.options;
+        searchStartRef.current = stored.startedAt;
+        setSearchSettings(stored.options);
+        setSearching(true);
+      }
+    } catch { /* Ignore invalid browser preferences. */ }
+  }, [user?.id, isGuest]);
+
+  useEffect(() => {
+    if (user?.id && session?.access_token && !isGuest) connect();
+  }, [connect, user?.id, isGuest, session?.access_token]);
+
+  useEffect(() => {
+    const online = () => connectRef.current();
+    const offline = () => { setConnectionError("Немає з’єднання з мережею."); setConnected(false); wsRef.current?.close(); };
+    window.addEventListener("online", online);
+    window.addEventListener("offline", offline);
+    return () => { window.removeEventListener("online", online); window.removeEventListener("offline", offline); };
+  }, []);
+
+  const acknowledgeMatch = useCallback(() => setPendingGameId(null), []);
   const getPlayerColor = useCallback(() => gameRef.current?.yourColor || null, []);
 
   return (
     <OnlineGameContext.Provider
       value={{
         connected,
+        capabilities, searchSettings, actionError, clearActionError: () => setActionError(null),
+        incomingChallenge, outgoingChallenge, challengeStatus, challengeBusy, availablePlayers, playersQuery, challengeAction,
+        pendingGameId, acknowledgeMatch,
         connectionError,
         playerId,
         playerName,

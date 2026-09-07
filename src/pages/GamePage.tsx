@@ -28,7 +28,7 @@ export default function GamePage() {
             const width = window.innerWidth;
             const height = window.innerHeight;
             if (width < 640) {
-                setBoardSize(Math.max(292, width - 24));
+                setBoardSize(Math.max(180, width - 24));
                 return;
             }
             if (width < 1024) {
@@ -130,8 +130,10 @@ export default function GamePage() {
             requestRematch(liveGame.timeControl);
     };
     const handleBackToLobby = () => {
+        if (!liveGame || liveGame.status !== "finished") return;
+        const query = new URLSearchParams({ mode: "online", time: liveGame.timeControl, color: "random", rated: liveGame.rated ? "1" : "0", start: "1" });
         resetGame();
-        navigate("/online");
+        navigate(`/play?${query}`);
     };
     const handleSendChat = () => {
         if (!chatInput.trim())
@@ -190,7 +192,7 @@ export default function GamePage() {
                 resign();
         }}/>
     </div>);
-    return (<div className="min-h-screen bg-card text-foreground lg:h-[100dvh] lg:min-h-0">
+    return (<div className="min-h-screen bg-card text-foreground lg:h-[calc(100dvh-76px)] lg:min-h-0">
       <div className="sticky top-0 z-20 flex items-center justify-between border-b border-border bg-card px-3 py-2.5 backdrop-blur md:hidden">
         <div className="flex items-center gap-2.5">
           
@@ -243,13 +245,13 @@ export default function GamePage() {
             <div className="lg:hidden">
               <div className={`mb-2 rounded-lg border px-3 py-2.5 text-sm font-semibold ${resultTone}`}>{displayedStatus}</div>
               {liveGame.status === "playing" ? actionButtons : (<div className="grid grid-cols-2 gap-2">
-                  <Button onClick={handleRematch} className="bg-primary font-bold hover:bg-primary"><RefreshCw className="mr-2 h-4 w-4"/> Реванш</Button>
-                  <Button variant="outline" onClick={handleBackToLobby} className="border-border bg-secondary text-foreground hover:bg-secondary hover:text-foreground"><ArrowLeft className="mr-2 h-4 w-4"/> До лобі</Button>
+                  <Button disabled={!connected} onClick={handleRematch} className="bg-primary font-bold hover:bg-primary"><RefreshCw className="mr-2 h-4 w-4"/> Реванш</Button>
+                  <Button variant="outline" onClick={handleBackToLobby} className="border-border bg-secondary text-foreground hover:bg-secondary hover:text-foreground"><ArrowLeft className="mr-2 h-4 w-4"/> Нова партія</Button><Button className="col-span-full" variant="outline" disabled={!liveGame.pgn} onClick={() => navigate("/analysis", { state: { pgn: liveGame.pgn } })}>Аналізувати</Button>
                 </div>)}
             </div>
           </main>
 
-          <aside className="min-h-[560px] overflow-hidden rounded-xl bg-card shadow-sm lg:h-[calc(100dvh-32px)] lg:min-h-0">
+          <aside className="min-h-[560px] overflow-hidden rounded-xl bg-card shadow-sm lg:h-[calc(100dvh-110px)] lg:min-h-0">
             <div className="flex items-center justify-between border-b border-border bg-card px-4 py-3.5">
               <div>
                 <div className="flex items-center gap-2">
@@ -280,8 +282,8 @@ export default function GamePage() {
                   </Button>)}
                 <div className="mt-3 hidden lg:block">
                   {liveGame.status === "playing" ? actionButtons : (<div className="grid grid-cols-2 gap-2">
-                      <Button onClick={handleRematch} className="bg-primary font-bold hover:bg-primary"><RefreshCw className="mr-2 h-4 w-4"/> Реванш</Button>
-                      <Button variant="outline" onClick={handleBackToLobby} className="border-border bg-secondary text-foreground hover:bg-secondary hover:text-foreground"><ArrowLeft className="mr-2 h-4 w-4"/> До лобі</Button>
+                      <Button disabled={!connected} onClick={handleRematch} className="bg-primary font-bold hover:bg-primary"><RefreshCw className="mr-2 h-4 w-4"/> Реванш</Button>
+                      <Button variant="outline" onClick={handleBackToLobby} className="border-border bg-secondary text-foreground hover:bg-secondary hover:text-foreground"><ArrowLeft className="mr-2 h-4 w-4"/> Нова партія</Button><Button className="col-span-full" variant="outline" disabled={!liveGame.pgn} onClick={() => navigate("/analysis", { state: { pgn: liveGame.pgn } })}>Аналізувати</Button>
                     </div>)}
                 </div>
               </TabsContent>
@@ -328,8 +330,8 @@ export default function GamePage() {
                   </div>
 
                   {liveGame.status === "finished" && (<div className="grid gap-2">
-                      <Button onClick={handleRematch} className="h-11 bg-primary font-bold hover:bg-primary"><RefreshCw className="mr-2 h-4 w-4"/> Запропонувати реванш</Button>
-                      <Button variant="outline" onClick={handleBackToLobby} className="h-11 border-border bg-secondary text-foreground hover:bg-secondary hover:text-foreground"><ArrowLeft className="mr-2 h-4 w-4"/> Повернутися до лобі</Button>
+                      <Button disabled={!connected} onClick={handleRematch} className="h-11 bg-primary font-bold hover:bg-primary"><RefreshCw className="mr-2 h-4 w-4"/> Запропонувати реванш</Button>
+                      <Button variant="outline" onClick={handleBackToLobby} className="h-11 border-border bg-secondary text-foreground hover:bg-secondary hover:text-foreground"><ArrowLeft className="mr-2 h-4 w-4"/> Нова партія</Button><Button className="col-span-full" variant="outline" disabled={!liveGame.pgn} onClick={() => navigate("/analysis", { state: { pgn: liveGame.pgn } })}>Аналізувати</Button>
                     </div>)}
                 </div>
               </TabsContent>

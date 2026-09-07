@@ -46,8 +46,7 @@ export default function ChessTimer({
     const nextTime = timeMs ?? initialTimeMs;
     latestTimeRef.current = nextTime;
     setDisplayTimeMs(nextTime);
-    wasActiveRef.current = isActive;
-  }, [initialTimeMs, isActive, timeMs]);
+  }, [initialTimeMs, timeMs]);
 
   useEffect(() => {
     if (isRunning && isActive && latestTimeRef.current > 0) {
@@ -56,16 +55,13 @@ export default function ChessTimer({
         const now = Date.now();
         const elapsed = now - lastTickRef.current;
         lastTickRef.current = now;
-        setDisplayTimeMs((prev) => {
-          const next = prev - elapsed;
-          latestTimeRef.current = next;
-          if (next <= 0) {
-            if (intervalRef.current) clearInterval(intervalRef.current);
-            onTimeout();
-            return 0;
-          }
-          return next;
-        });
+        const next = Math.max(0, latestTimeRef.current - elapsed);
+        latestTimeRef.current = next;
+        setDisplayTimeMs(next);
+        if (next <= 0) {
+          if (intervalRef.current) clearInterval(intervalRef.current);
+          onTimeout();
+        }
       }, 100);
     } else {
       if (intervalRef.current) {

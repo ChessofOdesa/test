@@ -9,6 +9,7 @@ import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle, } from 
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { useBoardSettings } from "@/contexts/BoardSettingsContext";
 import { ActionButton, BotAvatar, buildReviewData, buildReviewInsights, calculateAccuracy, calculateAccuracyBreakdown, calculateRatingDelta, chooseBotMove, cloneGame, cloneGameFromSnapshot, evaluatePositionCp, formatEval, formatResultLabel, getCapturedPieces, getGameResult, getLocalAnalysisSnapshot, isUciMove, OptionsCard, parseEngineInfoLine, playMoveSound, randomBetween, randomItem, resolveBotAiLevel, resolveStockfishDepth, reviewLabelUa, StatCard, uciPvToSan, uciToSan } from '@/features/play/components';
+import { parseTimeControl } from "../../server/time-control.js";
 import { Arrow, BotQuoteEvent, BOTS, EngineMode, PLAY_BOARD_THEME, SHARED_QUOTES, SideChoice, STOCKFISH_EVAL_TIMEOUT_MS, STOCKFISH_HINT_TIMEOUT_MS, STOCKFISH_MOVE_TIMEOUT_MS, TIME_CONTROLS, TimeControlId } from '@/features/play/model';
 import { useIsMobile } from "@/hooks/use-mobile";
 import { useAuth } from "@/hooks/useAuth";
@@ -41,7 +42,7 @@ export default function Play() {
     });
     const [selectedTimeControl, setSelectedTimeControl] = useState<TimeControlId>(() => {
         const requested = searchParams.get("time") as TimeControlId | null;
-        return TIME_CONTROLS.some((control) => control.id === requested) ? requested! : "unlimited";
+        return parseTimeControl(requested)?.value || (TIME_CONTROLS.some((control) => control.id === requested) ? requested! : "unlimited");
     });
     const [flipBoard, setFlipBoard] = useState(false);
     const [highlightMoves, setHighlightMoves] = useState(true);
@@ -87,14 +88,19 @@ export default function Play() {
     } | null>(null);
     const hasAutoStartedRef = useRef(false);
     const selectedBot = useMemo(() => BOTS.find((bot) => bot.id === selectedBotId) || BOTS[0], [selectedBotId]);
-    const timeControl = useMemo(() => TIME_CONTROLS.find((control) => control.id === selectedTimeControl) || TIME_CONTROLS[0], [selectedTimeControl]);
+    const timeControl = useMemo(() => {
+        const parsed = parseTimeControl(selectedTimeControl);
+        if (parsed) return { id: parsed.value, label: parsed.value, description: "Власний контроль", minutes: parsed.minutes, increment: parsed.increment, initialMs: parsed.initialMs };
+        const known = TIME_CONTROLS.find(control => control.id === selectedTimeControl) || TIME_CONTROLS[0];
+        return { ...known, increment: 0, initialMs: (known.minutes || 0) * 60000 };
+    }, [selectedTimeControl]);
     const botAiLevel = useMemo(() => resolveBotAiLevel(selectedBot, trainingRating), [selectedBot, trainingRating]);
     const playerName = user?.user_metadata?.display_name ||
         user?.email?.split("@")[0] ||
         "Гість";
     const playerInitial = playerName.charAt(0).toUpperCase() || "G";
     const actualBoardFlipped = flipBoard ? playerColor === "w" : playerColor === "b";
-    const clockMs = timeControl.minutes ? timeControl.minutes * 60 * 1000 : 0;
+    const clockMs = timeControl.initialMs;
     const reviewData = useMemo(() => buildReviewData(game), [game]);
     const latestMoveIndex = reviewData.movesSan.length > 0 ? reviewData.movesSan.length - 1 : null;
     const reviewMode = selectedMoveIndex != null && selectedMoveIndex !== latestMoveIndex;
@@ -817,8 +823,8 @@ export default function Play() {
                   </div>
                 </div>
 
-                {timeControl.minutes ? (<div className="w-full sm:w-[210px]">
-                    <ChessTimer key={`bot-clock-${gameNonce}-${selectedBot.id}-${selectedTimeControl}`} initialTimeMs={clockMs} isRunning={hasStartedMatch && !gameOver && !isPaused} isActive={currentTurn === opponentColor && !reviewMode} onTimeout={handleBotTimeout} color={opponentColor} playerName={selectedBot.name}/>
+                {clockMs > 0 ? (<div className="w-full sm:w-[210px]">
+                    <ChessTimer key={`bot-clock-${gameNonce}-${selectedBot.id}-${selectedTimeControl}`} initialTimeMs={clockMs} incrementMs={timeControl.increment * 1000} isRunning={hasStartedMatch && !gameOver && !isPaused} isActive={currentTurn === opponentColor && !reviewMode} onTimeout={handleBotTimeout} color={opponentColor} playerName={selectedBot.name}/>
                   </div>) : (<div className="rounded-md bg-card px-3 py-2 text-sm font-bold text-muted-foreground">
                     Без годинника
                   </div>)}
@@ -845,8 +851,8 @@ export default function Play() {
                   </div>
                 </div>
 
-                {timeControl.minutes ? (<div className="w-full sm:w-[210px]">
-                    <ChessTimer key={`player-clock-${gameNonce}-${selectedBot.id}-${selectedTimeControl}`} initialTimeMs={clockMs} isRunning={hasStartedMatch && !gameOver && !isPaused} isActive={currentTurn === playerColor && !reviewMode} onTimeout={handlePlayerTimeout} color={playerColor} playerName={playerName}/>
+                {clockMs > 0 ? (<div className="w-full sm:w-[210px]">
+                    <ChessTimer key={`player-clock-${gameNonce}-${selectedBot.id}-${selectedTimeControl}`} initialTimeMs={clockMs} incrementMs={timeControl.increment * 1000} isRunning={hasStartedMatch && !gameOver && !isPaused} isActive={currentTurn === playerColor && !reviewMode} onTimeout={handlePlayerTimeout} color={playerColor} playerName={playerName}/>
                   </div>) : (<div className="rounded-md bg-muted px-3 py-2 text-sm font-extrabold text-foreground">
                     {playerColor === "w" ? "Ви граєте білими" : "Ви граєте чорними"}
                   </div>)}

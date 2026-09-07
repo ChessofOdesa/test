@@ -177,6 +177,12 @@ export function createSupabasePersistence({
     return Array.isArray(rows) && rows.length > 0 ? rows[0] : null;
   }
 
+  async function supportsFlexibleRatings() {
+    if (!enabled) return false;
+    try { const result = await request("rpc/play_capabilities", { method: "POST", body: {} }); return result?.version >= 2; }
+    catch { return false; }
+  }
+
   async function finalizeGame(payload) {
     const result = await request("rpc/finalize_online_game", {
       method: "POST",
@@ -216,6 +222,7 @@ export function createSupabasePersistence({
 
   return {
     enabled,
+    supportsFlexibleRatings,
     loadProfile,
     loadProfiles,
     createGame,

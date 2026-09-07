@@ -40,6 +40,7 @@ export function OptionsCard({ lockMatchOptions = false, selectedSide, setSelecte
             <SelectValue placeholder="Оберіть контроль часу"/>
           </SelectTrigger>
           <SelectContent>
+            {!TIME_CONTROLS.some(control => control.id === selectedTimeControl) && <SelectItem value={selectedTimeControl}>{selectedTimeControl}</SelectItem>}
             {TIME_CONTROLS.map((control) => (<SelectItem key={control.id} value={control.id}>
                 {control.label}
               </SelectItem>))}

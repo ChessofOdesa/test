@@ -13,6 +13,7 @@ each file, paste the complete file, and run the migrations in this exact order:
 8. `20260826000000_secure_profiles_and_game_access.sql`
 9. `20260904000000_online_game_persistence_and_ratings.sql`
 10. `20260905000000_lichess_evaluation_cache.sql`
+11. `20260906000000_flexible_play_ratings.sql`
 
 Run every file separately and wait for a successful result before continuing.
 Do not rerun files that already completed successfully. The final migration
@@ -28,3 +29,11 @@ server. Never add this key to Vercel, a `VITE_*` variable, client code, or Git.
 Migration 10 creates a private server-only cache for Lichess position
 evaluations. It is safe to run after migration 9 and does not require any new
 environment variable. Browser users cannot read or change this table directly.
+
+Migration 11 enables the correct Bullet/Blitz/Rapid category for custom time
+controls. Apply it once, then deploy the current server on Render. The server
+checks this capability automatically every minute. Until it is available, only
+the five legacy time controls support rated games. Casual online games remain
+unavailable when persistence is configured, to protect users from the old SQL
+function that ignored the rated flag. Apply migration 11 to enable them. Classical controls are casual because the platform does
+not have a separate classical rating.
