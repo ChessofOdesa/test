@@ -25,6 +25,8 @@ export type AnalyzeResult = {
 };
 
 export type AnalyzeOptions = {
+  signal?: AbortSignal;
+  workerOnly?: boolean;
   moves?: string[];
   multiPv?: number;
   movetime?: number;
@@ -51,6 +53,8 @@ type CloudEvaluationResponse = {
 type EngineHealth = "unknown" | "healthy" | "unavailable";
 
 type PendingRequest = {
+  movetime?: number;
+  cleanup?: () => void;
   fen: string;
   depth: number;
   timeoutMs: number;
@@ -571,6 +575,7 @@ class StockfishManager {
   private queue: PendingRequest[] = [];
   private current: PendingRequest | null = null;
   private timer: number | null = null;
+  private uciReady = false;
 
   private ensureWorker() {
     if (this.worker) {
@@ -579,8 +584,10 @@ class StockfishManager {
 
     const workerUrl = getStockfishWorkerUrl();
     this.worker = new Worker(workerUrl, { name: "stockfish-engine" });
-    this.worker.onmessage = this.handleMessage;
+    const source = this.worker;
+    this.worker.onmessage = event => { if (this.worker === source) this.handleMessage(event); };
     this.worker.onerror = () => {
+      if (this.worker !== source) return;
       this.failCurrentAndQueue(
         new Error(`Stockfish worker failed to load: ${workerUrl}`),
         true,
@@ -588,8 +595,8 @@ class StockfishManager {
     };
 
     this.worker.postMessage("uci");
-    this.worker.postMessage("setoption name Threads value 1");
-    this.worker.postMessage("setoption name Hash value 16");
+    // This bundled WASM build has fixed defaults: one thread and 16 MB hash.
+    // Reconfiguring its thread pool can stall startup.
   }
 
   private clearTimer() {
@@ -627,6 +634,7 @@ class StockfishManager {
     }
 
     this.worker = null;
+    this.uciReady = false;
   }
 
   private processNext = () => {
@@ -652,8 +660,8 @@ class StockfishManager {
     }
 
     this.current.started = false;
-    this.scheduleTimeout(this.current.timeoutMs);
-    this.worker.postMessage("isready");
+    this.scheduleTimeout(this.uciReady ? this.current.timeoutMs : Math.max(20000, this.current.timeoutMs));
+    if (this.uciReady) this.worker.postMessage("isready");
   };
 
   private finishCurrent(result: AnalyzeResult) {
@@ -665,6 +673,7 @@ class StockfishManager {
     this.current = null;
     this.clearTimer();
     markWorkerHealthy();
+    request.cleanup?.();
     request.resolve(result);
     this.processNext();
   }
@@ -683,10 +692,11 @@ class StockfishManager {
     }
 
     if (active) {
+      active.cleanup?.();
       active.reject(error);
     }
 
-    pending.forEach((request) => request.reject(error));
+    pending.forEach((request) => { request.cleanup?.(); request.reject(error); });
   }
 
   private handleMessage = (event: MessageEvent) => {
@@ -699,11 +709,18 @@ class StockfishManager {
     request.rawLines.push(line);
     request.onOutput?.(line);
 
+    if (line === "uciok") {
+      this.uciReady = true;
+      this.worker.postMessage("isready");
+      return;
+    }
+
     if (line === "readyok" && !request.started) {
+      this.scheduleTimeout(request.timeoutMs);
       request.started = true;
       this.worker.postMessage("ucinewgame");
       this.worker.postMessage(`position fen ${request.fen}`);
-      this.worker.postMessage(`go depth ${request.depth}`);
+      this.worker.postMessage(`go depth ${request.depth}${request.movetime ? ` movetime ${request.movetime}` : ""}`);
       return;
     }
 
@@ -771,12 +788,26 @@ class StockfishManager {
     });
   };
 
+  private cancelRequest(request: PendingRequest) {
+    const error = new DOMException("Analysis cancelled", "AbortError");
+    request.cleanup?.();
+    if (this.current === request) {
+      this.current = null;
+      this.clearTimer();
+      this.cleanupWorker();
+    } else this.queue = this.queue.filter(item => item !== request);
+    request.reject(error);
+    this.processNext();
+  }
+
   enqueue(
     fen: string,
     depth: number,
     onOutput?: (line: string) => void,
     timeoutMs = 20_000,
+    options: { signal?: AbortSignal; movetime?: number } = {},
   ) {
+    if (options.signal?.aborted) return Promise.reject(new DOMException("Analysis cancelled", "AbortError"));
     if (workerHealth === "unavailable") {
       return Promise.reject(
         new Error(
@@ -786,7 +817,8 @@ class StockfishManager {
     }
 
     return new Promise<AnalyzeResult>((resolve, reject) => {
-      this.queue.push({
+      const request: PendingRequest = {
+        movetime: options.movetime,
         fen,
         depth,
         timeoutMs,
@@ -801,7 +833,11 @@ class StockfishManager {
         latestNodes: null,
         latestTimeMs: null,
         started: false,
-      });
+      };
+      const cancel = () => this.cancelRequest(request);
+      options.signal?.addEventListener("abort", cancel, { once: true });
+      request.cleanup = () => options.signal?.removeEventListener("abort", cancel);
+      this.queue.push(request);
       this.processNext();
     });
   }
@@ -842,7 +878,8 @@ export async function analyzeFenWithStockfish(
     ? (line: string) => onOutput(normalizeUciInfoLineForWhite(fen, line))
     : undefined;
 
-  if (options.preferCloud) {
+  if (options.signal?.aborted) throw new DOMException("Analysis cancelled", "AbortError");
+  if (options.preferCloud && !options.workerOnly) {
     try {
       const cloudResult = await analyzeWithCloudEvaluation(
         fen,
@@ -858,7 +895,7 @@ export async function analyzeFenWithStockfish(
     }
   }
 
-  if (nativeUrl && nativeEngineHealth !== "unavailable") {
+  if (nativeUrl && nativeEngineHealth !== "unavailable" && !options.workerOnly) {
     try {
       const result = await analyzeWithNativeEngine(
         {
@@ -886,10 +923,12 @@ export async function analyzeFenWithStockfish(
       fen,
       browserSafeDepth,
       whitePerspectiveOutput,
-      browserSafeTimeoutMs,
+      options.workerOnly ? requestTimeoutMs : browserSafeTimeoutMs,
+      { signal: options.signal, movetime: options.movetime },
     );
     return normalizeSideToMoveResultForWhite(fen, result);
   } catch (error) {
+    if (options.signal?.aborted || error instanceof DOMException && error.name === "AbortError") throw error;
     console.warn("Browser Stockfish is unavailable.", error);
     throw new Error("Stockfish недоступний. Оновіть сторінку та повторіть аналіз.");
   }

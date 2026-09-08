@@ -1,0 +1,45 @@
+import type { ReactNode } from "react";
+export type Color = "w" | "b";
+export type Promotion = "q" | "r" | "b" | "n";
+export type RoomMode = "online" | "computer";
+export type ClockState = {
+    remainingMs: number | null;
+    running: boolean;
+    asOf: number;
+    onFlag?: () => void;
+};
+export type RoomPlayer = {
+    name: string;
+    color: Color;
+    subtitle?: string;
+    rating?: number | null;
+    ratingChange?: number | null;
+    avatar?: string | null;
+    connected?: boolean;
+    own?: boolean;
+    computer?: boolean;
+    captures?: string;
+    advantage?: number;
+    clock: ClockState;
+};
+export type RoomResult = {
+    result: string;
+    reason: string;
+    title: string;
+    tone: "win" | "loss" | "draw";
+    rating?: ReactNode;
+    actions: ReactNode;
+};
+export type RoomPreferences = {
+    sound: boolean;
+    checkSound: boolean;
+    endSound: boolean;
+    lowTimeSound: boolean;
+    animation: boolean;
+    legalMoves: boolean;
+    lastMove: boolean;
+    autoQueen: boolean;
+    confirmMove: boolean;
+    evaluation: boolean;
+    focus: boolean;
+};

@@ -24,7 +24,7 @@ export function AppHeader() {
             {user && <><DropdownMenuSeparator /><DropdownMenuItem onSelect={() => void signOut()}><LogOut size={16} className="mr-2"/>Вийти</DropdownMenuItem></>}
           </DropdownMenuContent>
         </DropdownMenu>
-        <Button asChild className="account-button"><Link to={user && !isGuest ? "/profile" : "/login"}><UserRound size={17}/><span>{user && !isGuest ? "Профіль" : "Увійти"}</span></Link></Button>
+        <Button asChild className="account-button"><Link aria-label={user && !isGuest ? "Профіль" : "Увійти"} to={user && !isGuest ? "/profile" : "/login"}><UserRound size={17}/><span>{user && !isGuest ? "Профіль" : "Увійти"}</span></Link></Button>
       </div>
     </div>
   </header>;

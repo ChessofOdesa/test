@@ -4,9 +4,11 @@ import { createServer } from "node:http";
 import { spawn } from "node:child_process";
 import { once } from "node:events";
 import { WebSocket } from "ws";
+import { Chess } from "chess.js";
+import { randomUUID } from "node:crypto";
 import { parseTimeControl, validateMatchOptions } from "./time-control.js";
-const records = new Map(), sockets = [];
-const users = Object.fromEntries(["alice", "bob", "carol", "dave", "erin", "frank"].map((name, i) => [name, { id: `00000000-0000-4000-8000-${String(i + 1).padStart(12, "0")}`, name, rating: 1500 + i * 100 }]));
+const records = new Map(), reports = [], sockets = [];
+const users = Object.fromEntries(["alice", "bob", "carol", "dave", "erin", "frank", "gina", "hugo", "iris", "jules", "lily", "max", "nina", "pia", "quinn"].map((name, i) => [name, { id: `00000000-0000-4000-8000-${String(i + 1).padStart(12, "0")}`, name, rating: 1500 + i * 100 }]));
 let api, child, port;
 function listen(server) { return new Promise(resolve => server.listen(0, "127.0.0.1", () => resolve(server.address().port))); }
 before(async () => {
@@ -15,13 +17,18 @@ before(async () => {
     const data = body ? JSON.parse(body) : {};
     let result = [];
     if (url.pathname === "/auth/v1/user") { const name = req.headers.authorization?.replace("Bearer test-fixture-token-", ""); const u = users[name]; if (!u) { res.writeHead(401); res.end("{}"); return; } result = { id: u.id, user_metadata: { display_name: u.name } }; }
+    else if (url.pathname === "/rest/v1/rpc/game_room_capabilities") result = { reports: true };
+    else if (url.pathname === "/rest/v1/game_reports" && req.method === "POST") reports.push(data);
     else if (url.pathname === "/rest/v1/rpc/play_capabilities") result = { version: 2 };
     else if (url.pathname === "/rest/v1/profiles") result = Object.values(users).map(u => ({ user_id: u.id, display_name: u.name, rating_bullet: u.rating, rating_blitz: u.rating, rating_rapid: u.rating }));
     else if (url.pathname === "/rest/v1/online_games") {
       if (req.method === "POST") records.set(data.id, data);
       else if (req.method === "PATCH") { const id = url.searchParams.get("id").slice(3); Object.assign(records.get(id) || {}, data); }
-      else result = [...records.values()].filter(g => g.status === "playing" && (url.searchParams.get("or") || "").includes(g.white_player_id) || g.status === "playing" && (url.searchParams.get("or") || "").includes(g.black_player_id));
-    } else if (url.pathname === "/rest/v1/rpc/finalize_online_game") { const g = records.get(data.p_game_id); Object.assign(g, { status: "finished", result: data.p_result, pgn: data.p_pgn, fen: data.p_fen }); result = { white_rating_change: 0, black_rating_change: 0 }; }
+      else result = [...records.values()].filter(g => {
+        const id = url.searchParams.get("id"), status = url.searchParams.get("status"), participant = url.searchParams.get("or") || "";
+        return (!id || id === `eq.${g.id}`) && (!status || status === `eq.${g.status}`) && (participant.includes(g.white_player_id) || participant.includes(g.black_player_id));
+      });
+    } else if (url.pathname === "/rest/v1/rpc/finalize_online_game") { const g = records.get(data.p_game_id); Object.assign(g, { status: "finished", result: data.p_result, pgn: data.p_pgn, fen: data.p_fen, termination: data.p_termination, white_rating_change: 0, black_rating_change: 0 }); result = { white_rating_change: 0, black_rating_change: 0 }; }
     res.writeHead(200, { "Content-Type": "application/json" }); res.end(JSON.stringify(result));
   });
   const apiPort = await listen(api), reservation = createServer(); port = await listen(reservation); await new Promise(resolve => reservation.close(resolve));
@@ -74,4 +81,56 @@ test("private link challenges survive reconnect, reject self-accept, invite and 
   b.send({ type: "accept_challenge", id: challenge.id }); await b.next("error"); await finish(b, game);
   b.send({ type: "rematch", gameId: game.id, timeControl: "1+0" }); const offer = await host.next("rematch_offer"); assert.equal(offer.timeControl, "5+3");
   host.send({ type: "rematch_response", gameId: game.id, accept: true, timeControl: "10+0" }); const rematch = (await b.next("game_found")).game; assert.equal(rematch.timeControl, "5+3"); assert.equal(rematch.yourColor, "b"); assert.equal(rematch.rated, false); await finish(b, rematch);
+});
+async function pair(white, black, timeControl = "5+3") {
+  const a = await connect(white), b = await connect(black);
+  a.send({ type: "find_game", ...options, timeControl, color: "w" }); await a.next("waiting");
+  b.send({ type: "find_game", ...options, timeControl, color: "b" });
+  const game = (await a.next("game_found")).game; await b.next("game_found"); return { a, b, game };
+}
+test("complete game synchronizes legal moves, rejects duplicate/stale requests and saves checkmate", async () => {
+  const { a, b, game } = await pair("gina", "hugo"); const chess = new Chess();
+  assert.equal(a.auth.capabilities.gameRoom, true); assert.equal(a.auth.capabilities.reports, true);
+  for (const [ply, uci] of ["f2f3", "e7e5", "g2g4", "d8h4"].entries()) {
+    const player = ply % 2 ? b : a, payload = { type: "make_move", gameId: game.id, from: uci.slice(0,2), to: uci.slice(2,4), expectedPly: ply, moveId: `legal-${ply}` };
+    player.send(payload); const one = await a.next("move_made"), two = await b.next("move_made");
+    chess.move({ from: payload.from, to: payload.to }); assert.equal(one.fen, chess.fen()); assert.equal(two.fen, one.fen);
+    assert.ok(one.clockAt > 0); assert.ok(one.whiteTime > 0); assert.ok(one.blackTime > 0);
+    if (ply === 0) {
+      assert.ok(one.whiteTime > 300000 && one.whiteTime <= 303000);
+      player.send(payload); const state = (await player.next("game_state", m => m.game.id === game.id && m.game.fen === chess.fen())).game;
+      assert.equal(state.fen, chess.fen()); const replay=new Chess(); replay.loadPgn(state.pgn); assert.equal(replay.history().length,1);
+      b.send({ type: "make_move", gameId: game.id, from: "e7", to: "e5", expectedPly: 0 }); await b.next("error", m => m.action === "make_move");
+    }
+  }
+  const ended = await a.next("game_over"); await b.next("game_over"); assert.equal(ended.result, "0-1"); assert.equal(ended.reason, "checkmate");
+  const saved = (await a.next("game_saved", m => m.game.id === game.id)).game;
+  assert.equal(saved.persistenceStatus, "saved"); assert.match(saved.pgn, /\[Result "0-1"\]/); assert.equal(saved.rematchAvailable, true);
+  a.send({ type: "get_game", gameId: game.id }); assert.equal((await a.next("game_loaded")).game.status, "finished");
+});
+test("chat and draw survive reconnect; reports persist actual chat; agreed draw ends game", async () => {
+  const { a, b, game } = await pair("iris", "jules");
+  a.send({ type: "chat", gameId: game.id, message: "Good game" }); const message = await b.next("chat_msg"); assert.equal(message.message, "Good game"); assert.ok(message.id);
+  a.send({ type: "chat", gameId: game.id, message: "Too soon" }); await a.next("error", m => /секунду/.test(m.message));
+  a.send({ type: "draw_offer", gameId: game.id }); await a.next("draw_requested"); await b.next("draw_offer");
+  b.ws.close(); await once(b.ws,"close"); const reconnect = await connect("jules");
+  const state = (await reconnect.next("game_state")).game; assert.equal(state.id, game.id); assert.equal(state.white.connected,true);
+  const chat = await reconnect.next("chat_history"); assert.equal(chat.messages[0].message,"Good game"); await reconnect.next("draw_offer");
+  reconnect.send({ type: "report_game", gameId: game.id, reason: "other", note: "Integration test" }); await reconnect.next("report_saved");
+  const report = reports.find(row => row.game_id === game.id); assert.equal(report.reporter_id,users.jules.id); assert.equal(report.reported_id,users.iris.id); assert.equal(report.chat_snapshot[0].message,"Good game");
+  reconnect.send({ type: "draw_response", gameId: game.id, accept: true }); const result=await a.next("game_over"); assert.equal(result.result,"1/2-1/2"); assert.equal(result.reason,"draw_agreement");
+});
+test("restored positions support knight promotion and completed archives remain private", async () => {
+  const id = randomUUID(); records.set(id, { id, white_player_id: users.lily.id, black_player_id: users.max.id, status: "playing", result: "*", time_control: "5+0", rated: false, fen: "7k/P7/8/8/8/8/8/7K w - - 0 1", pgn: "", white_time_ms: 300000, black_time_ms: 300000, last_move_at: new Date().toISOString() });
+  const a = await connect("lily"), b = await connect("max"); await a.next("game_state"); await b.next("game_state");
+  a.send({ type: "make_move", gameId: id, from: "a7", to: "a8", promotion: "n", expectedPly: 0 });
+  const move = await a.next("move_made"); assert.match(move.fen,/^N6k/); const result = await a.next("game_over"); assert.equal(result.reason,"insufficient_material"); await a.next("game_saved");
+  const archiveId = randomUUID(); records.set(archiveId, { ...records.get(id), id: archiveId, status: "finished", termination: "insufficient_material" });
+  a.send({ type: "get_game", gameId: archiveId }); const archive = (await a.next("game_loaded")).game;
+  assert.equal(archive.id,archiveId); assert.equal(archive.status,"finished"); assert.equal(archive.rematchAvailable,false); assert.equal(archive.reason,"insufficient_material");
+  const visitor = await connect("nina"); visitor.send({ type: "get_game", gameId: archiveId }); assert.equal((await visitor.next("game_load_error")).code,"not_found");
+});
+test("server clock finishes a game without a client timeout message", async () => {
+  const { a, b, game } = await pair("pia", "quinn", "0+1");
+  const ended = await a.next("game_over"); await b.next("game_over"); assert.equal(ended.gameId,game.id); assert.equal(ended.result,"0-1"); assert.equal(ended.reason,"timeout");
 });

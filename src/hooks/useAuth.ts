@@ -1,3 +1,4 @@
+import { uniqueId } from "@/lib/unique-id";
 import {
   createElement,
   createContext,
@@ -104,7 +105,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     const signInAsGuest = async (displayName: string) => {
       const safeName = displayName.trim().slice(0, 30) || "Гість";
       const nextGuest = {
-        id: `guest-${crypto.randomUUID()}`,
+        id: `guest-${uniqueId()}`,
         email: null,
         user_metadata: { display_name: safeName, is_guest: true },
         app_metadata: {},

@@ -3,6 +3,7 @@ import { createServer } from "node:http";
 import { WebSocket, WebSocketServer } from "ws";
 import { Chess } from "chess.js";
 import { parseTimeControl, LEGACY_RATED_TIMES, colorsForPair, entriesCompatible, validateMatchOptions } from "./time-control.js";
+import { positionResult, timeoutResult } from "./game-rules.js";
 import { createChallengeService } from "./challenges.js";
 import { createSupabasePersistence } from "./supabase-persistence.js";
 import {
@@ -88,12 +89,13 @@ const persistence = createSupabasePersistence({
 const evaluationService = createLichessEvaluationService({ persistence });
 const evaluationRateLimits = new Map();
 let flexibleRatings = false;
-async function refreshCapabilities() { flexibleRatings = await persistence.supportsFlexibleRatings(); }
+let gameReports = false;
+async function refreshCapabilities() { [flexibleRatings, gameReports] = await Promise.all([persistence.supportsFlexibleRatings(), persistence.supportsGameReports()]); }
 await refreshCapabilities();
 setInterval(() => { void refreshCapabilities(); }, 60_000).unref();
 function validateOptions(data) { return validateMatchOptions(data, { persistenceEnabled: persistence.enabled, flexibleRatings }); }
 function capabilities() {
-  return { protocol: 2, customTime: true, challenges: true, casual: !persistence.enabled || flexibleRatings, ratingRange: true, rated: persistence.enabled, ratedTimeControls: flexibleRatings ? "all" : LEGACY_RATED_TIMES, tournaments: false, chess960: false };
+  return { protocol: 2, gameRoom: true, reports: gameReports, customTime: true, challenges: true, casual: !persistence.enabled || flexibleRatings, ratingRange: true, rated: persistence.enabled, ratedTimeControls: flexibleRatings ? "all" : LEGACY_RATED_TIMES, tournaments: false, chess960: false };
 }
 function lobbyStats() { return { players: [...players.values()].filter(p => p.isConnected()).length, games: [...games.values()].filter(g => g.status === "playing").length }; }
 const challenges = createChallengeService({ players, games, validate: validateOptions, startGame: createMatchedGame, removeFromQueue });
@@ -119,6 +121,8 @@ class Player {
     this.disconnectTimer = null;
     this.lastDisconnectedAt = null;
     this.lastChatAt = 0;
+    this.lastDrawAt = 0;
+    this.lastReportAt = 0;
   }
 
   isConnected() {
@@ -156,7 +160,9 @@ class Game {
     this.drawOfferFrom = null;
     this.rematchOfferFrom = null;
     this.createdAt = restoredState?.created_at || new Date().toISOString();
-    this.finishedAt = null;
+    this.finishedAt = restoredState?.status === "finished" ? restoredState.updated_at : null;
+    this.chat = [];
+    this.acceptedMoves = new Set();
     this.rated = restoredState ? restoredState.rated !== false : rated && persistence.enabled;
     this.saved = Boolean(restoredState);
     this.persistenceStatus = restoredState
@@ -180,6 +186,8 @@ class Game {
     this.persistenceQueue = Promise.resolve();
     this.lastPersistedAt = Date.now();
     this.finalizationPromise = null;
+    this.chess.header("White", whitePlayer.name, "Black", blackPlayer.name, "Site", "Chess of Odesa", "TimeControl", `${settings.minutes * 60}+${settings.increment}`, "Result", this.result);
+
   }
 
   get currentTurn() {
@@ -298,16 +306,23 @@ function gameSnapshot(game, player) {
     white: {
       id: game.whitePlayer.id,
       name: game.whitePlayer.name,
+      connected: game.whitePlayer.isConnected(),
       rating: game.whiteRatingBefore + (game.whiteRatingChange || 0),
     },
     black: {
       id: game.blackPlayer.id,
       name: game.blackPlayer.name,
+      connected: game.blackPlayer.isConnected(),
       rating: game.blackRatingBefore + (game.blackRatingChange || 0),
     },
+    createdAt: game.createdAt,
+    rematchAvailable: games.has(game.id) && game.status === "finished" && game.whitePlayer.isConnected() && game.blackPlayer.isConnected() && ![game.whitePlayer, game.blackPlayer].some(p => games.get(p.gameId)?.status === "playing"),
     timeControl: game.timeControl,
     fen: game.chess.fen(),
     pgn: game.chess.pgn(),
+    clockAt: game.lastClockUpdateAt,
+    whiteConnected: game.whitePlayer.isConnected(),
+    blackConnected: game.blackPlayer.isConnected(),
     currentTurn: game.currentTurn,
     whiteTime: game.whiteTime,
     blackTime: game.blackTime,
@@ -331,12 +346,18 @@ function sendGameFound(game, player) {
 
 function sendGameState(game, player) {
   player.send({ type: MSG.GAME_STATE, game: gameSnapshot(game, player) });
+  player.send({ type: "chat_history", gameId: game.id, messages: game.chat });
+  if (game.drawOfferFrom && game.drawOfferFrom !== player.id) player.send({ type: MSG.DRAW_OFFER, gameId: game.id, from: game.getOpponent(player.id).name });
+  if (game.rematchOfferFrom && game.rematchOfferFrom !== player.id) player.send({ type: MSG.REMATCH_OFFER, gameId: game.id, from: game.getOpponent(player.id).name, timeControl: game.timeControl });
 }
 
 function gameUpdatePayload(game) {
   return {
     type: MSG.GAME_UPDATE,
     gameId: game.id,
+    clockAt: game.lastClockUpdateAt,
+    whiteConnected: game.whitePlayer.isConnected(),
+    blackConnected: game.blackPlayer.isConnected(),
     currentTurn: game.currentTurn,
     whiteTime: game.whiteTime,
     blackTime: game.blackTime,
@@ -481,6 +502,7 @@ function finishGame(game, { result, winner = null, reason }) {
   game.result = result;
   game.winner = winner;
   game.reason = reason;
+  game.chess.header("Result", result, "Termination", reason);
   game.finishedAt = new Date().toISOString();
   game.drawOfferFrom = null;
   game.rematchOfferFrom = null;
@@ -517,32 +539,16 @@ function finishGame(game, { result, winner = null, reason }) {
 }
 
 function finishForTimeout(game, timedOutColor) {
+  const ending = timeoutResult(game.chess, timedOutColor);
   const winner = timedOutColor === "w" ? game.blackPlayer : game.whitePlayer;
-  finishGame(game, {
-    result: timedOutColor === "w" ? "0-1" : "1-0",
-    winner: winner.id,
-    reason: "timeout",
-  });
+  finishGame(game, { ...ending, winner: ending.result === "1/2-1/2" ? null : winner.id });
 }
 
 function finishForPosition(game) {
-  if (game.chess.isCheckmate()) {
-    const winner = game.currentTurn === "w" ? game.blackPlayer : game.whitePlayer;
-    finishGame(game, {
-      result: game.currentTurn === "w" ? "0-1" : "1-0",
-      winner: winner.id,
-      reason: "checkmate",
-    });
-    return;
-  }
-
-  if (game.chess.isDraw()) {
-    finishGame(game, {
-      result: "1/2-1/2",
-      winner: null,
-      reason: "draw",
-    });
-  }
+  const ending = positionResult(game.chess);
+  if (!ending) return;
+  const winner = ending.result === "1-0" ? game.whitePlayer.id : ending.result === "0-1" ? game.blackPlayer.id : null;
+  finishGame(game, { ...ending, winner });
 }
 
 function removeFromQueue(player) {
@@ -637,6 +643,7 @@ function getParticipantGame(player, gameId, { active = true } = {}) {
     return null;
   }
 
+  if (active) { const timedOut = game.advanceClock(); if (timedOut) { finishForTimeout(game, timedOut); return null; } }
   return game;
 }
 
@@ -650,6 +657,8 @@ function handleMove(player, payload) {
     return;
   }
 
+  if (typeof payload.moveId === "string" && game.acceptedMoves.has(`${player.id}:${payload.moveId}`)) { sendGameState(game, player); return; }
+  if (payload.expectedPly !== undefined && payload.expectedPly !== game.chess.history().length) { player.send({ type: MSG.ERROR, action: "make_move", message: "Позицію оновлено. Зробіть хід ще раз." }); sendGameState(game, player); return; }
   const playerColor = game.getPlayerColor(player.id);
   if (game.currentTurn !== playerColor) {
     player.send({ type: MSG.ERROR, message: "Зараз не ваш хід." });
@@ -680,6 +689,7 @@ function handleMove(player, payload) {
     return;
   }
 
+  if (typeof payload.moveId === "string" && payload.moveId.length <= 80) game.acceptedMoves.add(`${player.id}:${payload.moveId}`);
   game.addIncrement(playerColor);
   game.lastClockUpdateAt = Date.now();
   game.drawOfferFrom = null;
@@ -693,6 +703,9 @@ function handleMove(player, payload) {
     san: move.san,
     fen: game.chess.fen(),
     pgn: game.chess.pgn(),
+    clockAt: game.lastClockUpdateAt,
+    whiteConnected: game.whitePlayer.isConnected(),
+    blackConnected: game.blackPlayer.isConnected(),
     currentTurn: game.currentTurn,
     whiteTime: game.whiteTime,
     blackTime: game.blackTime,
@@ -719,11 +732,13 @@ function handleDrawOffer(player, payload) {
   const game = getParticipantGame(player, payload.gameId);
   if (!game) return;
 
-  if (game.drawOfferFrom === player.id) {
-    return;
-  }
+  if (game.drawOfferFrom === player.id) return;
+  if (Date.now() - player.lastDrawAt < 15000) { player.send({ type: MSG.ERROR, action: "draw_offer", message: "Зачекайте перед новою пропозицією нічиєї." }); return; }
+  if (game.drawOfferFrom) return;
+  player.lastDrawAt = Date.now();
 
   game.drawOfferFrom = player.id;
+  player.send({ type: "draw_requested", gameId: game.id });
   const opponent = game.getOpponent(player.id);
   opponent.send({ type: MSG.DRAW_OFFER, gameId: game.id, from: player.name });
 }
@@ -757,7 +772,7 @@ function handleAbort(player, payload) {
 }
 
 function handleChat(player, payload) {
-  const game = getParticipantGame(player, payload.gameId);
+  const game = getParticipantGame(player, payload.gameId, { active: false });
   if (!game || typeof payload.message !== "string") return;
 
   const message = payload.message.replace(/[\r\n]+/g, " ").trim();
@@ -773,13 +788,10 @@ function handleChat(player, payload) {
   }
 
   player.lastChatAt = now;
-  broadcastGame(game, {
-    type: MSG.CHAT_MSG,
-    gameId: game.id,
-    from: player.name,
-    fromId: player.id,
-    message,
-  });
+  const chatMessage = { id: randomUUID(), type: MSG.CHAT_MSG, gameId: game.id, from: player.name, fromId: player.id, message, timestamp: now };
+  game.chat.push(chatMessage);
+  game.chat = game.chat.slice(-100);
+  broadcastGame(game, chatMessage);
 }
 
 function handleRematch(player, payload) {
@@ -834,13 +846,47 @@ function handleRematchResponse(player, payload) {
   handleRematch(player, { gameId: game.id, timeControl: payload.timeControl || game.timeControl });
 }
 
-function handleAuthenticatedMessage(player, data) {
+async function handleGetGame(player, data) {
+  const id = data.gameId;
+  if (typeof id !== "string" || !/^[a-f0-9-]{36}$/i.test(id)) { player.send({ type: "game_load_error", gameId: id, code: "not_found" }); return; }
+  let game = games.get(id);
+  if (game && !game.getPlayerColor(player.id)) { player.send({ type: "game_load_error", gameId: id, code: "not_found" }); return; }
+  if (!game) {
+    try {
+      const row = await persistence.findGame(player.id, id);
+      if (!row || row.status !== "finished") { player.send({ type: "game_load_error", gameId: id, code: "not_found" }); return; }
+      const profiles = await persistence.loadProfiles([row.white_player_id, row.black_player_id]);
+      const seat = (id, name) => players.get(id) || new Player({ id, socket: null, name: profiles.get(id)?.name || name, ratings: profiles.get(id)?.ratings });
+      game = new Game({ id, whitePlayer: seat(row.white_player_id, "Білі"), blackPlayer: seat(row.black_player_id, "Чорні"), timeControl: row.time_control, restoredState: row });
+    } catch (error) { persistence.warn("read-game", error); player.send({ type: "game_load_error", gameId: id, code: "unavailable" }); return; }
+  }
+  player.send({ type: "game_loaded", game: gameSnapshot(game, player) });
+}
+
+async function handleGameReport(player, data) {
+  if (!gameReports) throw new Error("Скарги тимчасово недоступні.");
+  const game = getParticipantGame(player, data.gameId, { active: false });
+  if (!game) return;
+  if (!["abuse", "spam", "fair_play", "other"].includes(data.reason)) throw new Error("Оберіть причину скарги.");
+  if (Date.now() - player.lastReportAt < 30000) throw new Error("Скаргу вже надіслано. Зачекайте перед наступною.");
+  player.lastReportAt = Date.now();
+  const note = typeof data.note === "string" ? data.note.trim().slice(0,500) : "";
+  await game.persistenceReady;
+  await persistence.reportGame({ game_id: game.id, reporter_id: player.id, reported_id: game.getOpponent(player.id).id, reason: data.reason, note, chat_snapshot: game.chat.slice(-50) });
+  player.send({ type: "report_saved", gameId: game.id });
+}
+
+async function handleAuthenticatedMessage(player, data) {
   if (!data || typeof data !== "object" || Array.isArray(data) || typeof data.type !== "string") {
     player.send({ type: MSG.ERROR, message: "Некоректне повідомлення." });
     return;
   }
 
   switch (data.type) {
+    case "get_game":
+      await handleGetGame(player, data); return;
+    case "report_game":
+      await handleGameReport(player, data); return;
     case MSG.FIND_GAME: {
       enqueuePlayer(player, validateOptions(data));
       return;
@@ -1262,13 +1308,13 @@ wss.on("connection", (socket, request) => {
       if (socket.readyState !== WebSocket.OPEN) return;
       sessionReady = true;
       player.send({ type: MSG.AUTHENTICATED, playerId: player.id, name: player.name, capabilities: capabilities(), hasActiveGame: activeGame?.status === "playing", ratings: player.ratings });
-      if (activeGame && activeGame.status === "playing") sendGameState(activeGame, player);
+      if (activeGame && activeGame.status === "playing") broadcastGameState(activeGame);
       challenges.restore(player);
       return;
     }
 
     if (player.socket !== socket || !sessionReady) return;
-    try { handleAuthenticatedMessage(player, data); }
+    try { await handleAuthenticatedMessage(player, data); }
     catch (error) { player.send({ type: MSG.ERROR, action: data.type, message: error instanceof Error ? error.message : "Не вдалося виконати дію." }); }
   });
 
@@ -1278,6 +1324,8 @@ wss.on("connection", (socket, request) => {
 
     player.socket = null;
     player.lastDisconnectedAt = Date.now();
+    const currentGame = player.gameId ? games.get(player.gameId) : null;
+    if (currentGame) broadcastGameState(currentGame);
     removeFromQueue(player);
     scheduleDisconnectForfeit(player);
   });

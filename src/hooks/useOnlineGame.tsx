@@ -1,3 +1,4 @@
+import { uniqueId } from "@/lib/unique-id";
 import {
   createContext,
   useCallback,
@@ -18,8 +19,11 @@ const RECONNECT_MAX_DELAY_MS = 8_000;
 
 export type GameState = {
   id: string | null;
-  white: { id: string; name: string; rating: number | null } | null;
-  black: { id: string; name: string; rating: number | null } | null;
+  white: { id: string; name: string; rating: number | null; connected?: boolean } | null;
+  black: { id: string; name: string; rating: number | null; connected?: boolean } | null;
+  clockSyncAt: number;
+  createdAt?: string;
+  rematchAvailable?: boolean;
   timeControl: string;
   fen: string;
   pgn: string;
@@ -40,6 +44,9 @@ export type GameState = {
 };
 
 export type ChatMessage = {
+  id?: string;
+  fromId?: string;
+  timestamp?: number;
   from: string;
   message: string;
   self?: boolean;
@@ -70,6 +77,14 @@ type OnlineGameContextValue = {
   recentOpponents: Opponent[];
   incomingDrawOffer: string | null;
   incomingRematchOffer: RematchOffer | null;
+  viewedGame: GameState | null;
+  gameLoadStatus: "idle" | "loading" | "ready" | "not_found" | "error";
+  loadGame: (id: string) => void;
+  movePending: boolean;
+  outgoingDrawOffer: boolean;
+  rematchRequested: boolean;
+  reportStatus: "idle" | "sending" | "saved" | "error";
+  reportGame: (gameId: string, reason: string, note: string) => void;
   connect: () => void;
   findGame: (timeControl: string, color?: "w" | "b" | "random", options?: Partial<MatchOptions>) => void;
   capabilities: PlayCapabilities | null;
@@ -86,13 +101,13 @@ type OnlineGameContextValue = {
   pendingGameId: string | null;
   acknowledgeMatch: () => void;
   cancelSearch: () => void;
-  makeMove: (from: string, to: string, promotion?: "q" | "r" | "b" | "n") => void;
+  makeMove: (from: string, to: string, promotion?: "q" | "r" | "b" | "n", expectedPly?: number) => boolean;
   resign: () => void;
   abortGame: () => void;
   offerDraw: () => void;
   respondToDraw: (accept: boolean) => void;
   sendChat: (message: string) => void;
-  requestRematch: (timeControl: string) => void;
+  requestRematch: (timeControl: string, gameId?: string) => void;
   respondToRematch: (accept: boolean) => void;
   resetGame: () => void;
   getPlayerColor: () => "w" | "b" | null;
@@ -114,12 +129,12 @@ function normalizeInteger(value: unknown): number | null {
   return typeof value === "number" && Number.isInteger(value) ? value : null;
 }
 
-function normalizePlayer(value: unknown): { id: string; name: string; rating: number | null } | null {
+function normalizePlayer(value: unknown): { id: string; name: string; rating: number | null; connected?: boolean } | null {
   if (!isRecord(value) || typeof value.id !== "string" || typeof value.name !== "string") {
     return null;
   }
 
-  return { id: value.id, name: value.name, rating: normalizeInteger(value.rating) };
+  return { id: value.id, name: value.name, rating: normalizeInteger(value.rating), connected: typeof value.connected === "boolean" ? value.connected : undefined };
 }
 
 function normalizeGame(value: unknown): GameState | null {
@@ -136,6 +151,9 @@ function normalizeGame(value: unknown): GameState | null {
 
   return {
     id: value.id,
+    clockSyncAt: Date.now(),
+    createdAt: typeof value.createdAt === "string" ? value.createdAt : undefined,
+    rematchAvailable: value.rematchAvailable === true,
     white: normalizePlayer(value.white),
     black: normalizePlayer(value.black),
     timeControl: typeof value.timeControl === "string" ? value.timeControl : "5+0",
@@ -187,6 +205,14 @@ export function OnlineGameProvider({ children }: { children: ReactNode }) {
   const [recentOpponents, setRecentOpponents] = useState<Opponent[]>([]);
   const [incomingDrawOffer, setIncomingDrawOffer] = useState<string | null>(null);
   const [incomingRematchOffer, setIncomingRematchOffer] = useState<RematchOffer | null>(null);
+  const [viewedGame, setViewedGame] = useState<GameState | null>(null);
+  const [gameLoadStatus, setGameLoadStatus] = useState<"idle" | "loading" | "ready" | "not_found" | "error">("idle");
+  const requestedGameRef = useRef<string | null>(null);
+  const [movePending, setMovePending] = useState(false);
+  const pendingMoveRef = useRef(false);
+  const [outgoingDrawOffer, setOutgoingDrawOffer] = useState(false);
+  const [rematchRequested, setRematchRequested] = useState(false);
+  const [reportStatus, setReportStatus] = useState<"idle" | "sending" | "saved" | "error">("idle");
   const wsRef = useRef<WebSocket | null>(null);
   const connectRef = useRef<() => void>(() => undefined);
   const gameRef = useRef<GameState | null>(null);
@@ -222,6 +248,15 @@ export function OnlineGameProvider({ children }: { children: ReactNode }) {
   }, []);
 
   const clearGameState = useCallback(() => {
+    gameRef.current = null;
+    requestedGameRef.current = null;
+    setViewedGame(null);
+    setGameLoadStatus("idle");
+    pendingMoveRef.current = false;
+    setMovePending(false);
+    setOutgoingDrawOffer(false);
+    setRematchRequested(false);
+    setReportStatus("idle");
     setGame(null);
     setChatMessages([]);
     setIncomingDrawOffer(null);
@@ -251,6 +286,8 @@ export function OnlineGameProvider({ children }: { children: ReactNode }) {
     }
 
     gameRef.current = nextGame;
+    pendingMoveRef.current = false;
+    setMovePending(false);
     setGame(nextGame);
   }, []);
 
@@ -265,7 +302,7 @@ export function OnlineGameProvider({ children }: { children: ReactNode }) {
           clearStoredSearch();
           clearSearchState();
         }
-        if (typeof data.playerId === "string") setPlayerId(data.playerId);
+        if (typeof data.playerId === "string") { playerIdRef.current = data.playerId; setPlayerId(data.playerId); }
         reconnectAttemptsRef.current = 0;
         clearReconnectTimer();
         setConnectionError(null);
@@ -293,6 +330,7 @@ export function OnlineGameProvider({ children }: { children: ReactNode }) {
         return;
 
       case "game_found":
+        setOutgoingDrawOffer(false); setRematchRequested(false); setReportStatus("idle");
         searchRequestRef.current = null;
         clearStoredSearch();
         setIncomingChallenge(null);
@@ -312,59 +350,48 @@ export function OnlineGameProvider({ children }: { children: ReactNode }) {
         return;
 
       case "move_made":
-        if (data.gameId === gameRef.current?.id) {
-          setGame((current) =>
-            current
-              ? {
-                  ...current,
-                  fen: typeof data.fen === "string" ? data.fen : current.fen,
-                  pgn: typeof data.pgn === "string" ? data.pgn : current.pgn,
-                  currentTurn: data.currentTurn === "b" ? "b" : "w",
-                  whiteTime: typeof data.whiteTime === "number" ? data.whiteTime : current.whiteTime,
-                  blackTime: typeof data.blackTime === "number" ? data.blackTime : current.blackTime,
-                }
-              : current,
-          );
-        }
-        return;
-
       case "game_update":
-        if (data.gameId === gameRef.current?.id) {
-          setGame((current) =>
-            current
-              ? {
-                  ...current,
-                  currentTurn: data.currentTurn === "b" ? "b" : "w",
-                  whiteTime: typeof data.whiteTime === "number" ? data.whiteTime : current.whiteTime,
-                  blackTime: typeof data.blackTime === "number" ? data.blackTime : current.blackTime,
-                }
-              : current,
-          );
+      case "game_over": {
+        const current = gameRef.current;
+        if (!current || data.gameId !== current.id) return;
+        const next: GameState = {
+          ...current,
+          fen: typeof data.fen === "string" ? data.fen : current.fen,
+          pgn: typeof data.pgn === "string" ? data.pgn : current.pgn,
+          currentTurn: data.currentTurn === "w" || data.currentTurn === "b" ? data.currentTurn : current.currentTurn,
+          whiteTime: typeof data.whiteTime === "number" ? data.whiteTime : current.whiteTime,
+          blackTime: typeof data.blackTime === "number" ? data.blackTime : current.blackTime,
+          clockSyncAt: Date.now(),
+          white: current.white ? { ...current.white, connected: typeof data.whiteConnected === "boolean" ? data.whiteConnected : current.white.connected } : null,
+          black: current.black ? { ...current.black, connected: typeof data.blackConnected === "boolean" ? data.blackConnected : current.black.connected } : null,
+        };
+        if (data.type === "game_over") {
+          next.status = "finished";
+          next.result = typeof data.result === "string" ? data.result : current.result;
+          next.reason = typeof data.reason === "string" ? data.reason : undefined;
+          next.rated = data.rated === true;
+          next.saved = data.saved === true;
+          next.persistenceStatus = data.persistenceStatus === "disabled" || data.persistenceStatus === "failed" ? data.persistenceStatus : "pending";
         }
+        if (data.type !== "game_update") { pendingMoveRef.current = false; setMovePending(false); setIncomingDrawOffer(null); setOutgoingDrawOffer(false); }
+        gameRef.current = next; setGame(next);
         return;
+      }
 
-      case "game_over":
-        setIncomingDrawOffer(null);
-        setGame((current) =>
-          current && data.gameId === current.id
-            ? {
-                ...current,
-                fen: typeof data.fen === "string" ? data.fen : current.fen,
-                pgn: typeof data.pgn === "string" ? data.pgn : current.pgn,
-                whiteTime: typeof data.whiteTime === "number" ? data.whiteTime : current.whiteTime,
-                blackTime: typeof data.blackTime === "number" ? data.blackTime : current.blackTime,
-                status: "finished",
-                result: typeof data.result === "string" ? data.result : current.result,
-                reason: typeof data.reason === "string" ? data.reason : undefined,
-                rated: data.rated === true,
-                saved: data.saved === true,
-                persistenceStatus: data.persistenceStatus === "disabled"
-                  || data.persistenceStatus === "failed"
-                  ? data.persistenceStatus
-                  : "pending",
-              }
-            : current,
-        );
+      case "game_loaded":
+        if (isRecord(data.game) && data.game.id === requestedGameRef.current) { setViewedGame(normalizeGame(data.game)); setGameLoadStatus("ready"); }
+        return;
+      case "game_load_error":
+        if (data.gameId === requestedGameRef.current) setGameLoadStatus(data.code === "not_found" ? "not_found" : "error");
+        return;
+      case "draw_requested":
+        if (data.gameId === gameRef.current?.id) setOutgoingDrawOffer(true);
+        return;
+      case "report_saved":
+        if (data.gameId === gameRef.current?.id) setReportStatus("saved");
+        return;
+      case "chat_history":
+        if (data.gameId === gameRef.current?.id && Array.isArray(data.messages)) setChatMessages(data.messages.filter(isRecord).filter(item => typeof item.message === "string" && typeof item.from === "string").slice(-100).map(item => ({ id: String(item.id), from: String(item.from), fromId: String(item.fromId), message: String(item.message), self: item.fromId === playerIdRef.current })));
         return;
 
       case "game_saved":
@@ -372,11 +399,14 @@ export function OnlineGameProvider({ children }: { children: ReactNode }) {
         return;
 
       case "draw_offer":
+        if (data.gameId !== gameRef.current?.id) return;
         setIncomingDrawOffer(typeof data.from === "string" ? data.from : "Суперник");
         toast.info("Суперник пропонує нічию.");
         return;
 
       case "draw_response":
+        if (data.gameId !== gameRef.current?.id) return;
+        setOutgoingDrawOffer(false);
         if (data.accept === false) toast.info("Пропозицію нічиєї відхилено.");
         setIncomingDrawOffer(null);
         return;
@@ -389,10 +419,12 @@ export function OnlineGameProvider({ children }: { children: ReactNode }) {
         return;
 
       case "rematch_requested":
+        setRematchRequested(true);
         toast.info("Запит на реванш надіслано.");
         return;
 
       case "rematch_declined":
+        setRematchRequested(false);
         toast.info("Суперник відхилив реванш.");
         setIncomingRematchOffer(null);
         return;
@@ -403,8 +435,8 @@ export function OnlineGameProvider({ children }: { children: ReactNode }) {
           const message = data.message;
           setChatMessages((current) => [
             ...current,
-            { from, message, self: data.fromId === playerIdRef.current },
-          ]);
+            { id: typeof data.id === "string" ? data.id : undefined, fromId: typeof data.fromId === "string" ? data.fromId : undefined, from, message, self: data.fromId === playerIdRef.current },
+          ].slice(-100));
         }
         return;
 
@@ -430,6 +462,10 @@ export function OnlineGameProvider({ children }: { children: ReactNode }) {
         setPlayersQuery(typeof data.query === "string" ? data.query : "");
         return;
       case "error":
+        pendingMoveRef.current = false; setMovePending(false);
+        if (data.action === "draw_offer") setOutgoingDrawOffer(false);
+        if (data.action === "rematch") setRematchRequested(false);
+        if (data.action === "report_game") setReportStatus("error");
         if (typeof data.message === "string") {
           setActionError(data.message);
           setChallengeBusy(false);
@@ -491,6 +527,8 @@ export function OnlineGameProvider({ children }: { children: ReactNode }) {
     socket.onclose = (event) => {
       if (wsRef.current !== socket) return;
       wsRef.current = null;
+      pendingMoveRef.current = false;
+      setMovePending(false);
       setConnected(false);
       setPlayerId(null);
       if (searchRequestRef.current) setSearching(true);
@@ -589,10 +627,28 @@ export function OnlineGameProvider({ children }: { children: ReactNode }) {
     clearSearchState();
   }, [clearSearchState, clearStoredSearch, send]);
 
-  const makeMove = useCallback((from: string, to: string, promotion: "q" | "r" | "b" | "n" = "q") => {
-    if (!gameRef.current?.id) return;
-    send({ type: "make_move", gameId: gameRef.current.id, from, to, promotion });
+  const loadGame = useCallback((id: string) => {
+    if (!connected) return;
+    requestedGameRef.current = id;
+    setGameLoadStatus("loading");
+    setViewedGame(null);
+    if (!send({ type: "get_game", gameId: id })) setGameLoadStatus("error");
+  }, [connected, send]);
+
+  const reportGame = useCallback((gameId: string, reason: string, note: string) => {
+    setReportStatus("sending");
+    if (!send({ type: "report_game", gameId, reason, note })) setReportStatus("error");
   }, [send]);
+
+  const makeMove = useCallback((from: string, to: string, promotion: "q" | "r" | "b" | "n" = "q", expectedPly?: number) => {
+    const current = gameRef.current;
+    if (!connected || !current?.id || current.status !== "playing" || current.currentTurn !== current.yourColor || pendingMoveRef.current) return false;
+    pendingMoveRef.current = true;
+    const sent = send({ type: "make_move", gameId: current.id, from, to, promotion, expectedPly, moveId: uniqueId() });
+    pendingMoveRef.current = sent;
+    setMovePending(sent);
+    return sent;
+  }, [send, connected]);
 
   const resign = useCallback(() => {
     if (gameRef.current?.id) send({ type: "resign", gameId: gameRef.current.id });
@@ -618,8 +674,9 @@ export function OnlineGameProvider({ children }: { children: ReactNode }) {
     send({ type: "chat", gameId: gameRef.current.id, message: message.trim() });
   }, [send]);
 
-  const requestRematch = useCallback((timeControl: string) => {
-    if (gameRef.current?.id) send({ type: "rematch", gameId: gameRef.current.id, timeControl });
+  const requestRematch = useCallback((timeControl: string, gameId?: string) => {
+    const id = gameId || gameRef.current?.id;
+    if (id && send({ type: "rematch", gameId: id, timeControl })) setRematchRequested(true);
   }, [send]);
 
   const respondToRematch = useCallback((accept: boolean) => {
@@ -687,6 +744,7 @@ export function OnlineGameProvider({ children }: { children: ReactNode }) {
     <OnlineGameContext.Provider
       value={{
         connected,
+        viewedGame, gameLoadStatus, loadGame, movePending, outgoingDrawOffer, rematchRequested, reportStatus, reportGame,
         capabilities, searchSettings, actionError, clearActionError: () => setActionError(null),
         incomingChallenge, outgoingChallenge, challengeStatus, challengeBusy, availablePlayers, playersQuery, challengeAction,
         pendingGameId, acknowledgeMatch,

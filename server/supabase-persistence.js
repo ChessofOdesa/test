@@ -177,6 +177,23 @@ export function createSupabasePersistence({
     return Array.isArray(rows) && rows.length > 0 ? rows[0] : null;
   }
 
+  async function findGame(userId, gameId) {
+    if (!enabled) return null;
+    const query = new URLSearchParams({ select: ACTIVE_GAME_SELECT, id: `eq.${gameId}`, or: `(white_player_id.eq.${userId},black_player_id.eq.${userId})`, limit: "1" });
+    const rows = await request(`online_games?${query}`);
+    return Array.isArray(rows) ? rows[0] || null : null;
+  }
+
+  async function supportsGameReports() {
+    if (!enabled) return false;
+    try { const result = await request("rpc/game_room_capabilities", { method: "POST", body: {} }); return result?.reports === true; } catch { return false; }
+  }
+
+  async function reportGame(record) {
+    await request("game_reports?on_conflict=game_id,reporter_id", { method: "POST", prefer: "resolution=ignore-duplicates,return=minimal", body: record });
+    return true;
+  }
+
   async function supportsFlexibleRatings() {
     if (!enabled) return false;
     try { const result = await request("rpc/play_capabilities", { method: "POST", body: {} }); return result?.version >= 2; }
@@ -223,6 +240,9 @@ export function createSupabasePersistence({
   return {
     enabled,
     supportsFlexibleRatings,
+    supportsGameReports,
+    findGame,
+    reportGame,
     loadProfile,
     loadProfiles,
     createGame,

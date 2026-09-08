@@ -9,6 +9,7 @@ import { AuthProvider, useAuth } from "@/hooks/useAuth";
 import { AppHeader } from "@/components/layout/AppHeader";
 import { LoadingPage } from "@/components/layout/Page";
 import { OnlineGameProvider } from "@/hooks/useOnlineGame";
+import { GameLoading } from "@/features/game-room/GameLoading";
 import { GameConnectionUi } from "@/features/play/GameConnectionUi";
 import { RouteBoundary } from "@/app/RouteBoundary";
 
@@ -41,7 +42,7 @@ function LegacyOnline() { const location = useLocation(); return <Navigate to={`
 function AppShell() {
     const location = useLocation();
     return <div className="app-shell"><a href="#main-content" className="skip-link">До вмісту</a><AppHeader />
-    <main id="main-content" className="app-main"><RouteBoundary key={/^\/(online|game)(\/|$)/.test(location.pathname) ? "online" : location.pathname}><Suspense fallback={<LoadingPage />}><Routes>
+    <main id="main-content" className="app-main"><RouteBoundary key={/^\/(online|game)(\/|$)/.test(location.pathname) ? "online" : location.pathname}><Suspense fallback={/^\/(game\/|play\/computer)/.test(location.pathname) ? <GameLoading /> : <LoadingPage />}><Routes>
       <Route path="/" element={<Navigate to="/play" replace />}/><Route path="/play" element={<PlayHub />}/><Route path="/play/computer" element={<Play />}/>
       <Route path="/online" element={<LegacyOnline />}/><Route path="/challenge/:challengeId" element={<PlayHub />}/><Route path="/game/:gameId" element={<RequireAccount><GamePage /></RequireAccount>}/>
       <Route path="/puzzles" element={<Puzzles />}/><Route path="/lessons" element={<Lessons />}/><Route path="/analysis" element={<Analysis />}/><Route path="/openings" element={<Openings />}/>

@@ -14,9 +14,10 @@ each file, paste the complete file, and run the migrations in this exact order:
 9. `20260904000000_online_game_persistence_and_ratings.sql`
 10. `20260905000000_lichess_evaluation_cache.sql`
 11. `20260906000000_flexible_play_ratings.sql`
+12. `20260907000000_game_room_reports.sql`
 
 Run every file separately and wait for a successful result before continuing.
-Do not rerun files that already completed successfully. The final migration
+Do not rerun files that already completed successfully. Migration 11
 checks for the required base tables and reports which earlier migration is
 missing instead of failing later with an unclear relation error.
 
@@ -37,3 +38,12 @@ the five legacy time controls support rated games. Casual online games remain
 unavailable when persistence is configured, to protect users from the old SQL
 function that ignored the rated flag. Apply migration 11 to enable them. Classical controls are casual because the platform does
 not have a separate classical rating.
+
+Migration 12 adds private, participant-validated game reports. The server exposes
+this capability only after the migration succeeds; the report button stays hidden
+otherwise. Reports contain the chosen reason and up to 50 recent messages from
+that game, and are accessible only to the server role. This migration does not
+change ratings and requires no new secret. Reports are stored for review; there
+is no automated moderation or administrative review screen in this release.
+
+For the Game Room deployment and verification notes, see `docs/GAME_ROOM.md`.

@@ -1,16 +1,18 @@
-This folder is intended to hold a local Stockfish build used by the app.
+# Browser engine
 
-Recommended filename: `stockfish.wasm.js` (or `stockfish.js`).
+The bundled files contain Stockfish `2019-08-15 64 POPCNT Multi-Variant`,
+compiled by the stockfish.js project. The app identifies this backend as
+Stockfish; it does not claim it is Stockfish 18.
 
-To add a local engine copy (Windows PowerShell):
+`stockfish.worker.js` loads the existing `stockfish.wasm.js` and `stockfish.wasm`
+from the same directory. The browser manager waits for `uciok`, then `readyok`,
+before requesting a position. Keep the build's fixed defaults of one thread and
+16 MB hash: sending a Threads reconfiguration stalls this WASM build.
 
-mkdir -Force public/engines; Invoke-WebRequest -Uri "https://unpkg.com/stockfish.js@10.0.2/stockfish.wasm.js" -OutFile "public/engines/stockfish.wasm.js"
+The computer room uses this local worker only. If it fails, an explicitly named
+local fallback computes legal computer moves in a separate worker. Hints and
+position evaluations never use that fallback. Analysis can also use the configured
+server evaluation endpoint and a separately configured native engine bridge.
 
-Or using curl (Linux/macOS):
-
-mkdir -p public/engines && curl -L -o public/engines/stockfish.wasm.js https://unpkg.com/stockfish.js@10.0.2/stockfish.wasm.js
-
-Notes:
-- The project loader will try local files under `/engines/` first, then fall back to CDN URLs.
-- Stockfish is licensed under the GPL — ensure the license is acceptable for your deployment.
-- If you prefer using the CDN, no local file is required; the app will use the CDN fallback automatically.
+The existing Stockfish source attribution and GPLv3 notice are retained in
+`stockfish.wasm.js`. Upstream: https://github.com/niklasf/stockfish.js
