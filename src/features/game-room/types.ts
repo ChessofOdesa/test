@@ -23,12 +23,18 @@ export type RoomPlayer = {
     clock: ClockState;
 };
 export type RoomResult = {
+    id: string;
+    pgn: string;
     result: string;
     reason: string;
     title: string;
     tone: "win" | "loss" | "draw";
     rating?: ReactNode;
     actions: ReactNode;
+    players: Record<Color, Pick<RoomPlayer, "name" | "subtitle" | "rating">>;
+    startedAt?: string;
+    finishedAt?: string;
+    onFullAnalysis: () => void;
 };
 export type RoomPreferences = {
     sound: boolean;

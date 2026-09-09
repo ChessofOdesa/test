@@ -5,7 +5,9 @@ import { type AnalyzeResult, type EngineBackend, type EngineLine } from "@/lib/s
 import { Chess, type PieceSymbol } from "chess.js";
 import type { BoardPosition, Piece, Square } from "react-chessboard/dist/chessboard/types";
 export type MoveNag = "!!" | "!" | "!?" | "?!" | "?" | "??" | null;
-export type MoveClassification = "best" | "excellent" | "good" | "inaccuracy" | "mistake" | "blunder";
+import type { MoveClassification } from "./scoring";
+export type { MoveClassification } from "./scoring";
+export { classificationFromLoss } from "./scoring";
 export type AnalysisArrow = [
     Square,
     Square,
@@ -453,24 +455,6 @@ export function numericScoreFromEngine(result: AnalyzeResult) {
         return result.scoreMate > 0 ? 10000 : -10000;
     }
     return result.scoreCp ?? 0;
-}
-export function classificationFromLoss(loss: number, playedBestMove: boolean): MoveClassification {
-    if (playedBestMove) {
-        return "best";
-    }
-    if (loss <= 18) {
-        return "excellent";
-    }
-    if (loss >= 260) {
-        return "blunder";
-    }
-    if (loss >= 120) {
-        return "mistake";
-    }
-    if (loss >= 45) {
-        return "inaccuracy";
-    }
-    return "good";
 }
 export function classificationLabel(classification: MoveClassification | null) {
     if (!classification) {

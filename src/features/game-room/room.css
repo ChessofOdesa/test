@@ -1,6 +1,7 @@
 .game-room-open .app-header .header-inner {
-  min-height: 60px;
-  height: 60px
+  min-height: 55px;
+  height: 55px;
+  gap: 24px
 }
 .game-room-focus .app-header .primary-nav,.game-room-focus .app-header .header-actions {
   visibility: hidden
@@ -13,23 +14,25 @@
   --selected: rgba(44,82,148,.8);
   --legalMove: rgba(32,61,105,.45);
   --check: rgba(194,64,60,.65);
-  padding: 14px 24px 20px;
+  --room-player-height: 40px;
+  --room-board-gap: 4px;
+  padding: 6px 24px 4px;
   width: 100%;
   background: var(--room-surface,#f8f7f3);
   color: #1c2b43;
-  min-height: calc(100dvh - 61px)
+  min-height: calc(100dvh - 56px)
 }
 .game-room-page:fullscreen {
   overflow: auto;
-  padding-top: 16px
+  padding-top: 6px
 }
 .room-toolbar {
-  max-width: calc(var(--room-board-size) + 450px);
-  margin: 0 auto 12px;
+  max-width: calc(var(--room-board-size) + var(--room-panel-width) + 20px);
+  margin: 0 auto 4px;
   display: flex;
   align-items: center;
   justify-content: space-between;
-  min-height: 34px;
+  min-height: 36px;
   gap: 10px
 }
 .room-toolbar-title,.room-toolbar-actions {
@@ -64,17 +67,17 @@
 }
 .room-layout {
   display: grid;
-  grid-template-columns: var(--room-board-size) minmax(360px,426px);
-  gap: 24px;
+  grid-template-columns: var(--room-board-size) var(--room-panel-width);
+  gap: 20px;
   justify-content: center;
-  max-width: 1460px;
+  max-width: 1400px;
   margin: auto;
   align-items: start
 }
 .room-board-column {
   min-width: 0;
   display: grid;
-  gap: 8px
+  gap: var(--room-board-gap)
 }
 .room-board {
   position: relative;
@@ -87,7 +90,7 @@
   gap: 0
 }
 .room-player {
-  height: 54px;
+  min-height: var(--room-player-height);
   display: flex;
   align-items: center;
   gap: 11px;
@@ -95,8 +98,8 @@
   padding: 0 2px
 }
 .room-avatar {
-  flex: 0 0 39px;
-  height: 39px;
+  flex: 0 0 34px;
+  height: 34px;
   border-radius: 10px;
   display: grid;
   place-items: center;
@@ -139,10 +142,10 @@
   display: flex;
   align-items: center;
   gap: 5px;
-  font-size: 11px;
+  font-size: 12px;
   color: #647188;
   min-width: 0;
-  margin-top: 3px
+  margin-top: 1px
 }
 .room-player-detail>span:not(.room-color):not(.room-presence) {
   white-space: nowrap;
@@ -182,10 +185,10 @@
 }
 .room-captures>span {
   font-size: 15px;
-  letter-spacing: -3px
+  letter-spacing: -2px
 }
 .room-captures small {
-  font: 600 10px sans-serif;
+  font: 600 12px sans-serif;
   margin-left: 3px;
   color: #5d6a7e
 }
@@ -201,7 +204,7 @@
   color: #3a465a;
   border: 1px solid transparent;
   flex: none;
-  height: 48px
+  height: 38px
 }
 .room-clock>span {
   font-size: 28px;
@@ -244,7 +247,7 @@
   display: flex;
   flex-direction: column;
   min-width: 0;
-  height: calc(var(--room-board-size) + 124px);
+  height: calc(var(--room-board-size) + 2 * var(--room-player-height) + 2 * var(--room-board-gap));
   border: 1px solid #d7dce3;
   border-radius: 12px;
   background: #fff;
@@ -257,7 +260,7 @@
   gap: 8px;
   min-height: 43px;
   padding: 11px 18px;
-  font-size: 13px;
+  font-size: 14px;
   font-weight: 600;
   flex: none;
   border-bottom: 1px solid #e8ebef;
@@ -303,7 +306,7 @@
   border-radius: 0;
   background: transparent;
   padding: 12px;
-  font-size: 13px;
+  font-size: 14px;
   border-bottom: 2px solid transparent;
   box-shadow: none!important
 }
@@ -365,7 +368,7 @@
 .room-controls>button:not([aria-haspopup]) {
   flex: 1;
   min-width: 0;
-  font-size: 12px;
+  font-size: 14px;
   gap: 7px;
   font-weight: 500;
   height: 40px;
@@ -431,51 +434,6 @@
 .room-notice button {
   height: 32px;
   font-size: 12px
-}
-.room-result {
-  padding: 17px 18px 14px;
-  border-bottom: 1px solid #dfe5ee;
-  background: #f4f7fc;
-  flex: none
-}
-.room-result-heading {
-  display: flex;
-  align-items: center;
-  gap: 9px
-}
-.room-result-heading h2 {
-  font-size: 19px;
-  font-weight: 700;
-  flex: 1;
-  margin: 0
-}
-.room-result-heading>strong {
-  font-size: 22px;
-  letter-spacing: -.5px;
-  font-variant-numeric: tabular-nums
-}
-.room-result.is-win {
-  color: #234e91
-}
-.room-result.is-loss {
-  background: #faf5f2;
-  color: #67423e
-}
-.room-result p {
-  font-size: 12px;
-  color: #6c7789;
-  margin: 4px 0 10px
-}
-.room-result-actions {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 7px
-}
-.room-result-actions button,.room-result-actions a {
-  height: 35px;
-  font-size: 12px;
-  gap: 6px;
-  padding: 7px
 }
 .room-rating {
   font-size: 12px;
@@ -679,9 +637,9 @@
   padding-right: 6px
 }
 .room-move-row button,.room-move-row>span:not(:first-child) {
-  font-size: 14px;
+  font-size: 16px;
   line-height: 1.5;
-  padding: 7px 10px;
+  padding: 6px 10px;
   text-align: left;
   border-radius: 5px;
   font-weight: 550
@@ -760,42 +718,10 @@
     opacity: .55
   }
 }
-@media(min-width:1000px) and (max-height:800px) {
-  .game-room-page {
-    padding-top: 8px
-  }
-  .room-toolbar {
-    margin-bottom: 8px
-  }
-  .room-player {
-    height: 48px
-  }
-  .room-panel {
-    height: calc(var(--room-board-size) + 112px)
-  }
-  .room-clock {
-    height: 43px
-  }
-  .room-result {
-    padding: 12px
-  }
-  .room-result-heading h2 {
-    font-size: 17px
-  }
-  .room-result-actions button {
-    height: 31px
-  }
-  .room-tab-list {
-    height: 39px
-  }
-  .room-player-name strong {
-    font-size: 13px
-  }
-}
 @media(max-width:999px) {
   .game-room-page {
     padding: 10px 12px 24px;
-    min-height: calc(100dvh - 61px)
+    min-height: calc(100dvh - 56px)
   }
   .room-toolbar {
     max-width: 680px
@@ -810,9 +736,9 @@
     width: 100%
   }
   .room-player {
-    height: 51px
+    min-height: var(--room-player-height)
   }
-  .room-panel-footer {
+  .room-panel:not(.room-postgame) .room-panel-footer {
     position: sticky;
     bottom: 0;
     padding: 10px;
@@ -831,17 +757,11 @@
   .room-toolbar-title h1 {
     font-size: 12px
   }
-  .room-result + .room-panel-tabs .room-move-content {
-    min-height: 110px
-  }
-  .room-panel:has(.room-result) {
-    height: 560px
-  }
   .room-captures {
     height: 12px
   }
   .room-player-detail {
-    font-size: 10px
+    font-size: 12px
   }
 }
 @media(max-width:420px) {
@@ -937,7 +857,7 @@
   .game-room-page {
     padding-bottom: 84px
   }
-  .room-panel-footer {
+  .room-panel:not(.room-postgame) .room-panel-footer {
     position: fixed;
     left: 0;
     right: 0;
@@ -952,4 +872,113 @@
     margin: auto;
     justify-content: center
   }
+}
+
+.game-room-open .brand-mark { width: 31px; height: 34px; font-size: 27px; }
+.game-room-open .nav-link { padding: 8px 13px; font-size: 14px; }
+.game-room-open .header-actions button, .game-room-open .account-button { height: 34px; }
+.room-player-detail .room-captures { flex: 0 1 auto; min-width: 0; margin-left: 5px; overflow: hidden; }
+.room-player-detail .room-captures > span { overflow: hidden; text-overflow: ellipsis; }
+.room-player-detail > span:not(.room-color):not(.room-presence) { flex: 0 1 auto; }
+.room-panel-footer .room-state { margin: -12px -12px 10px; border-bottom: 1px solid #e8ebef; padding: 10px 16px; }
+.room-move-row button { display: flex; align-items: center; justify-content: space-between; gap: 6px; }
+.room-move-mark { font-size: 13px; color: #426aa4; }
+.room-move-mark.is-inaccuracy { color: #96702c; }
+.room-move-mark.is-mistake { color: #af6337; }
+.room-move-mark.is-blunder { color: #a94348; }
+@media(max-width:999px) {
+  .game-room-page { --room-player-height: 44px; }
+  .room-panel-footer .room-state { margin: -10px -12px 8px; }
+  .room-panel:not(.room-postgame) .room-panel-footer .room-state { min-height: 32px; padding: 5px 12px; }
+}
+
+/* Completed room: same frame and board geometry as the active game. */
+.room-review-loading { padding: 24px; color: #60718a; }
+.review-result { flex: none; padding: 16px 20px 14px; background: linear-gradient(120deg,#f2f6fc,#fff); border-bottom: 1px solid #e1e7f0; }
+.review-result-title { display: flex; justify-content: space-between; align-items: center; gap: 16px; }
+.review-eyebrow { display: flex; align-items: center; gap: 6px; color: #6a7890; font-size: 12px; }
+.review-result h2 { margin: 4px 0 2px; font-size: 26px; line-height: 1.2; font-weight: 700; letter-spacing: -.6px; }
+.review-result p { margin: 0; font-size: 13px; line-height: 1.4; color: #66748a; }
+.review-score { font-size: 36px; font-weight: 650; letter-spacing: -1px; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.review-result.is-win h2 { color: #295591; }
+.review-result.is-loss h2 { color: #775951; }
+.review-players { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; margin-top: 14px; }
+.review-players > div { display: flex; align-items: baseline; gap: 7px; min-width: 0; }
+.review-players > div > div { min-width: 0; }
+.review-players strong { display: block; font-size: 13px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.review-players span:not(.room-color) { display: block; font-size: 12px; color: #758299; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.review-rating { margin-top: 8px; }
+.review-rating .room-rating { padding: 0; gap: 2px; }
+.review-rating p { font-size: 12px; }
+.review-overview { padding: 18px 20px; scrollbar-width: thin; }
+.review-facts { display: flex; gap: 20px; padding-bottom: 16px; margin-bottom: 16px; border-bottom: 1px solid #e9edf3; }
+.review-facts > div { flex: 1; min-width: 0; }
+.review-facts dt { font-size: 12px; color: #78849a; margin-bottom: 3px; }
+.review-facts dd { font-size: 15px; font-weight: 650; font-variant-numeric: tabular-nums; }
+.review-empty { padding: 20px 8px; color: #60758f; }
+.review-empty > svg { margin-bottom: 12px; color: #6582af; }
+.review-empty h3 { font-size: 18px; font-weight: 600; color: #273f60; margin-bottom: 8px; }
+.review-empty p { font-size: 15px; line-height: 1.65; margin: 0; max-width: 35ch; }
+.review-progress { padding: 12px 0; font-size: 14px; color: #345782; }
+.review-progress > div:first-child { display: flex; align-items: center; gap: 8px; margin-bottom: 16px; }
+.review-progress [role=progressbar] { height: 6px; }
+.review-progress p { font-variant-numeric: tabular-nums; margin: 8px 0; }
+.review-progress > span { font-size: 13px; color: #78859a; }
+.review-error { background: #fff4ee; color: #915331; border-radius: 8px; padding: 12px; font-size: 14px; }
+.review-ready { display: flex; gap: 7px; color: #456999; align-items: center; font-size: 12px; margin-bottom: 12px; }
+.review-counts { border-collapse: collapse; width: 100%; font-size: 14px; }
+.review-counts thead { font-size: 12px; color: #77879c; }
+.review-counts th { font-weight: 500; text-align: left; }
+.review-counts th, .review-counts td { padding: 5px 0; height: 30px; }
+.review-counts th:not(:first-child), .review-counts td { width: 21%; text-align: center; font-variant-numeric: tabular-nums; }
+.review-counts tbody tr:nth-child(even) { background: #f8f9fc; }
+.review-counts button { color: #27559a; font-weight: 700; border-radius: 5px; background: #eaf0fa; min-width: 29px; padding: 2px 5px; }
+.review-category { width: 28px; display: inline-block; text-align: center; font-size: 13px; color: #557bae; }
+.review-category.is-inaccuracy { color: #94743b; }
+.review-category.is-mistake { color: #ad6845; }
+.review-category.is-blunder { color: #a9494e; }
+.review-opening { display: flex; align-items: center; gap: 10px; padding: 14px 0; color: #577090; border-bottom: 1px solid #e6ebf2; }
+.review-opening div { min-width: 0; }
+.review-opening span { display: block; color: #7b8799; font-size: 12px; }
+.review-opening strong { display: block; font-size: 14px; font-weight: 600; color: #354c6e; }
+.review-key { margin-top: 16px; padding: 14px; border-left: 3px solid #7494c5; background: #f3f6fb; border-radius: 0 8px 8px 0; }
+.review-section-heading { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-bottom: 8px; }
+.review-key h3 { font-size: 14px; font-weight: 600; }
+.review-section-heading > span { color: #7a889d; font-size: 12px; }
+.review-key > strong { display: block; font-size: 19px; font-weight: 650; }
+.review-key p { display: flex; align-items: center; flex-wrap: wrap; gap: 7px; font-size: 13px; margin: 7px 0; color: #536885; }
+.review-key small { font-size: 12px; color: #8a95a7; }
+.review-key-actions { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 12px; }
+.review-key-actions button { font-size: 12px; height: 32px; padding: 5px 8px; }
+.review-description { font-size: 14px; color: #6c7d95; line-height: 1.6; margin: 15px 0; }
+.review-method { padding: 0 20px 20px; color: #738299; font-size: 13px; line-height: 1.6; }
+.review-method h3 { color: #354c6a; font-size: 16px; font-weight: 600; }
+.review-method p { margin: 9px 0; }
+.review-method dl > div { margin: 10px 0; }
+.review-method dd { font-weight: 600; color: #465c7a; }
+.review-chat-details { margin: 0 20px 20px; font-size: 14px; color: #42618b; }
+.review-chat-details summary { padding: 10px 0; cursor: pointer; }
+.review-chat-details > div { height: 280px; border: 1px solid #e2e8f0; border-radius: 8px; }
+.review-actions { padding: 12px 16px 8px; }
+.review-actions > button { width: 100%; height: 42px; gap: 8px; font-size: 14px; }
+.review-secondary-actions { display: grid; grid-template-columns: repeat(2,minmax(0,1fr)); gap: 7px; margin-top: 8px; }
+.review-secondary-actions button, .review-secondary-actions a { height: 34px; font-size: 13px; gap: 6px; padding: 5px 7px; }
+.review-secondary-actions a[href="/play"] { grid-column: 1/-1; font-size: 12px; color: #74839a; height: 26px; }
+@media(max-width:999px) {
+  .room-postgame { height: 660px; }
+  .room-postgame .room-panel-footer { position: static; flex: none; }
+  .game-room-page:has(.room-postgame) { padding-bottom: 24px; }
+}
+@media(max-width:420px) {
+  .review-result { padding: 14px 15px; }
+  .review-overview { padding: 15px; }
+  .review-facts { gap: 12px; }
+  .review-score { font-size: 32px; }
+  .review-players { gap: 10px; }
+}
+.room-board .chess-keyboard-input:focus-within { position: absolute; bottom: 8px; left: 8px; z-index: 25; padding: 8px; background: #fff; border: 1px solid #becbe0; border-radius: 8px; box-shadow: 0 3px 12px #24385522; }
+@media(max-width:999px) {
+  .room-postgame .review-actions { order: 1; border-top: 0; border-bottom: 1px solid #e3e7ed; }
+  .room-postgame > .room-notices { order: 2; }
+  .room-postgame > .room-panel-tabs { order: 3; }
 }

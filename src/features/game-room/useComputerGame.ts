@@ -26,6 +26,7 @@ type Position = {
     result: string;
     reason: string;
     startedAt: string;
+    finishedAt?: string;
     id: string;
 };
 function fresh(config: Config): Position {
@@ -49,16 +50,16 @@ export function useComputerGame(config: Config, preferences: RoomPreferences) {
     const current = useRef(initial);
     const settings = useRef(preferences);
     settings.current = preferences;
-    const [view, setView] = useState(() => ({ fen: initial.chess.fen(), pgn: initial.chess.pgn(), clocks: initial.clocks, paused: false, result: "*", reason: "", id: initial.id, startedAt: initial.startedAt, revision: 0 }));
+    const [view, setView] = useState(() => ({ fen: initial.chess.fen(), pgn: initial.chess.pgn(), clocks: initial.clocks, paused: false, result: "*", reason: "", id: initial.id, startedAt: initial.startedAt, finishedAt: undefined as string | undefined, revision: 0 }));
     const [thinking, setThinking] = useState(false);
     const [error, setError] = useState<string | null>(null);
     const [backend, setBackend] = useState("Stockfish");
     const [retry, setRetry] = useState(0);
     const job = useRef<AbortController | null>(null);
-    const publish = useCallback(() => { const state = current.current; setView(previous => ({ fen: state.chess.fen(), pgn: state.chess.pgn(), clocks: { ...state.clocks }, paused: state.paused, result: state.result, reason: state.reason, id: state.id, startedAt: state.startedAt, revision: previous.revision + 1 })); }, []);
+    const publish = useCallback(() => { const state = current.current; setView(previous => ({ fen: state.chess.fen(), pgn: state.chess.pgn(), clocks: { ...state.clocks }, paused: state.paused, result: state.result, reason: state.reason, id: state.id, startedAt: state.startedAt, finishedAt: state.finishedAt, revision: previous.revision + 1 })); }, []);
     const cancel = useCallback(() => { job.current?.abort(); job.current = null; setThinking(false); }, []);
     const finish = useCallback((result: string, reason: string) => { const state = current.current; if (state.result !== "*")
-        return; state.clocks = clockAt(state, Date.now()); state.result = result; state.reason = reason; state.chess.header("Result", result, "Termination", reason); cancel(); if (settings.current.endSound)
+        return; state.clocks = clockAt(state, Date.now()); state.result = result; state.reason = reason; state.finishedAt = new Date().toISOString(); state.chess.header("Result", result, "Termination", reason); cancel(); if (settings.current.endSound)
         playChessSound(result === "1/2-1/2" ? "draw" : "gameEnd"); publish(); }, [cancel, publish]);
     const flag = useCallback(() => {
         const state = current.current;

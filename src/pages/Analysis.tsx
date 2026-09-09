@@ -215,7 +215,8 @@ export default function Analysis() {
                 const nextRecord = buildRecordFromPgn(queryPgn);
                 setRecord(nextRecord);
                 setPgnDraft(queryPgn);
-                setAnalysisStatus(`Loaded ${nextRecord.mainline.length} moves from the shared PGN.`);
+                setQuickImportDraft(queryPgn);
+                setAnalysisStatus(`Партію завантажено: ${nextRecord.mainline.length} півходів.`);
                 toast.success("Партію завантажено.");
             }
             catch {
@@ -1490,7 +1491,7 @@ export default function Analysis() {
                 <UserRound className="h-7 w-7 fill-[#1b1b1b] stroke-[#1b1b1b]"/>
               </button>
               <button type="button" onClick={() => toast.info(`${topPlayer.label}: ${topPlayer.name} · ${topPlayer.meta}`)} className="text-[19px] font-extrabold text-foreground drop-shadow transition hover:text-foreground focus:outline-none focus:ring-2 focus:ring-primary">
-                {topPlayer.label}
+                {topPlayer.name}
               </button>
             </div>
 
@@ -1541,7 +1542,7 @@ export default function Analysis() {
                 <UserRound className="h-7 w-7 fill-[#d9d9d9] stroke-[#d9d9d9]"/>
               </button>
               <button type="button" onClick={() => toast.info(`${bottomPlayer.label}: ${bottomPlayer.name} · ${bottomPlayer.meta}`)} className="text-[19px] font-extrabold text-foreground drop-shadow transition hover:text-foreground focus:outline-none focus:ring-2 focus:ring-primary">
-                {bottomPlayer.label}
+                {bottomPlayer.name}
               </button>
             </div>
           </section>
@@ -1941,7 +1942,7 @@ export default function Analysis() {
               </div>
                 </>)}
 
-              <button type="button" onClick={() => void handleStartAnalysis()} disabled={primaryActionDisabled} className="flex h-[50px] w-full items-center justify-center gap-3 rounded-[8px] bg-gradient-to-b from-[#79bf4a] to-[#5da73d] text-[18px] font-extrabold text-foreground shadow-sm transition hover:brightness-110 active:translate-y-px disabled:cursor-not-allowed disabled:opacity-65">
+              <button type="button" onClick={() => void handleStartAnalysis()} disabled={primaryActionDisabled} className="flex h-[50px] w-full items-center justify-center gap-3 rounded-[8px] bg-primary text-[18px] font-extrabold text-primary-foreground shadow-sm transition hover:brightness-110 active:translate-y-px disabled:cursor-not-allowed disabled:opacity-65">
                 {primaryActionDisabled ? <Loader2 className="h-5 w-5 animate-spin"/> : null}
                 {primaryActionDisabled ? "Analyzing..." : analysisPhase === "complete" ? "Re-analyze" : "Розпочати аналіз"}
               </button>

@@ -724,36 +724,41 @@ class StockfishManager {
       return;
     }
 
-    const depthMatch = line.match(/\bdepth (\d+)/);
-    if (depthMatch) {
-      request.latestDepth = Number.parseInt(depthMatch[1], 10);
-    }
+    // Keep depth and score from the same completed, exact PV. Search progress
+    // and aspiration bounds must not become a finished move evaluation.
+    if (/\bscore (cp|mate) -?\d+/.test(line) && !/\b(lowerbound|upperbound)\b/.test(line)) {
+      const depthMatch = line.match(/\bdepth (\d+)/);
+      if (depthMatch) {
+        request.latestDepth = Number.parseInt(depthMatch[1], 10);
+      }
 
-    const nodesMatch = line.match(/\bnodes (\d+)/);
-    if (nodesMatch) {
-      request.latestNodes = Number.parseInt(nodesMatch[1], 10);
-    }
+      const nodesMatch = line.match(/\bnodes (\d+)/);
+      if (nodesMatch) {
+        request.latestNodes = Number.parseInt(nodesMatch[1], 10);
+      }
 
-    const timeMatch = line.match(/\btime (\d+)/);
-    if (timeMatch) {
-      request.latestTimeMs = Number.parseInt(timeMatch[1], 10);
-    }
+      const timeMatch = line.match(/\btime (\d+)/);
+      if (timeMatch) {
+        request.latestTimeMs = Number.parseInt(timeMatch[1], 10);
+      }
 
-    const cpMatch = line.match(/\bscore cp (-?\d+)/);
-    if (cpMatch) {
-      request.latestScoreCp = Number.parseInt(cpMatch[1], 10);
-      request.latestScoreMate = null;
-    }
+      const cpMatch = line.match(/\bscore cp (-?\d+)/);
+      if (cpMatch) {
+        request.latestScoreCp = Number.parseInt(cpMatch[1], 10);
+        request.latestScoreMate = null;
+      }
 
-    const mateMatch = line.match(/\bscore mate (-?\d+)/);
-    if (mateMatch) {
-      request.latestScoreMate = Number.parseInt(mateMatch[1], 10);
-      request.latestScoreCp = null;
-    }
+      const mateMatch = line.match(/\bscore mate (-?\d+)/);
+      if (mateMatch) {
+        request.latestScoreMate = Number.parseInt(mateMatch[1], 10);
+        request.latestScoreCp = null;
+      }
 
-    const pvMatch = line.match(/\bpv (.+)$/);
-    if (pvMatch) {
-      request.latestPv = pvMatch[1].trim().split(/\s+/);
+      const pvMatch = line.match(/\bpv (.+)$/);
+      if (pvMatch) {
+        request.latestPv = pvMatch[1].trim().split(/\s+/);
+      }
+
     }
 
     const bestmoveMatch = line.match(/^bestmove\s+(\S+)/);
@@ -841,9 +846,15 @@ class StockfishManager {
       this.processNext();
     });
   }
+  releaseIfIdle() {
+    if (!this.current && this.queue.length === 0) this.cleanupWorker();
+  }
+
 }
 
 const stockfishManager = new StockfishManager();
+
+export function releaseIdleStockfishWorker() { stockfishManager.releaseIfIdle(); }
 
 export function getStockfishStatus() {
   return {
@@ -872,7 +883,10 @@ export async function analyzeFenWithStockfish(
 ) {
   const nativeUrl = getNativeEngineUrl();
   const requestTimeoutMs = options.timeoutMs ?? timeoutMs;
-  const browserSafeDepth = Math.min(depth, options.multiPv && options.multiPv > 1 ? 7 : 8);
+  // Time-bounded worker jobs can honour the requested depth. The legacy cap
+  // protected unbounded searches, but silently limited post-game review to 8.
+  const timedWorker = options.workerOnly && Number.isFinite(options.movetime) && options.movetime! > 0;
+  const browserSafeDepth = Math.min(depth, timedWorker ? 20 : options.multiPv && options.multiPv > 1 ? 7 : 8);
   const browserSafeTimeoutMs = Math.max(requestTimeoutMs, 18_000);
   const whitePerspectiveOutput = onOutput
     ? (line: string) => onOutput(normalizeUciInfoLineForWhite(fen, line))

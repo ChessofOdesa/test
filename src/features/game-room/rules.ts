@@ -48,8 +48,13 @@ export function undoToPlayer(game: Chess, player: Color) {
     } while (game.history().length && game.turn() !== player);
     return undone;
 }
-export function roomBoardSize(width: number, height: number, header = 60) {
+export function roomPanelWidth(width: number) {
+    return Math.round(Math.max(400, Math.min(500, width * .30)));
+}
+// The defaults mirror CSS before the first DOM measurement. Actual occupied
+// height is measured by GameRoom, including enlarged text and player bars.
+export function roomBoardSize(width: number, height: number, header = 56, vertical = 138, horizontal = width < 1000 ? 24 : 48, panel = roomPanelWidth(width)) {
     if (width < 1000)
-        return Math.max(160, Math.min(680, width - 24));
-    return Math.max(240, Math.floor(Math.min(760, width - 470, height - header - 210)));
+        return Math.max(160, Math.min(680, width - horizontal));
+    return Math.max(160, Math.floor(Math.min(880, width - horizontal - panel - 20, height - header - vertical)));
 }

@@ -4,7 +4,7 @@ import { Chess } from "chess.js";
 import ChessBoard from "@/components/ChessBoard";
 import { BoardSettingsProvider } from "@/contexts/BoardSettingsContext";
 import { ChessClock, remainingAt } from "@/features/game-room/ChessClock";
-import { roomBoardSize, readHistory } from "@/features/game-room/rules";
+import { roomBoardSize, roomPanelWidth, readHistory } from "@/features/game-room/rules";
 import { useComputerGame } from "@/features/game-room/useComputerGame";
 import { computerMove } from "@/features/game-room/engine/computer-engine";
 import type { RoomPreferences } from "@/features/game-room/types";
@@ -139,11 +139,11 @@ it("renders the actual tenths and derives clocks from elapsed time", () => {
     expect(remainingAt({ remainingMs: 12000, running: true, asOf: 1000 }, 3500)).toBe(9500);
     expect(remainingAt({ remainingMs: 12000, running: false, asOf: 1000 }, 3500)).toBe(12000);
 });
-it.each([[1920, 1080], [1366, 768], [1024, 768], [768, 1024], [390, 844], [375, 812]])("fits the board calculation within a %i × %i viewport", (width, height) => {
+it.each([[1920, 1080], [1600, 900], [1366, 768], [1024, 768], [768, 1024], [390, 844], [375, 812]])("fits the board calculation within a %i × %i viewport", (width, height) => {
     const size = roomBoardSize(width, height);
     expect(size + 24).toBeLessThanOrEqual(width);
     if (width >= 1000) {
-        expect(size + 450).toBeLessThanOrEqual(width);
-        expect(size + 250).toBeLessThanOrEqual(height);
+        expect(size + roomPanelWidth(width) + 48 + 20).toBeLessThanOrEqual(width);
+        expect(size + 56 + 138).toBeLessThanOrEqual(height);
     }
 });
