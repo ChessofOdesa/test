@@ -65,6 +65,12 @@ export type Database = {
         }
         Relationships: []
       }
+      analysis_sessions: {
+        Row: { id: string; user_id: string; game_id: string | null; title: string; pgn: string; metadata: Json; created_at: string; updated_at: string }
+        Insert: { id?: string; user_id: string; game_id?: string | null; title: string; pgn: string; metadata?: Json; created_at?: string; updated_at?: string }
+        Update: { id?: string; user_id?: string; game_id?: string | null; title?: string; pgn?: string; metadata?: Json; created_at?: string; updated_at?: string }
+        Relationships: [{ foreignKeyName: "analysis_sessions_game_id_fkey"; columns: ["game_id"]; isOneToOne: false; referencedRelation: "games"; referencedColumns: ["id"] }]
+      }
       games: {
         Row: {
           ai_level: number | null

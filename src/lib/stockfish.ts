@@ -53,6 +53,8 @@ type CloudEvaluationResponse = {
 type EngineHealth = "unknown" | "healthy" | "unavailable";
 
 type PendingRequest = {
+  multiPv: number;
+  lines: Map<number, EngineLine>;
   movetime?: number;
   cleanup?: () => void;
   fen: string;
@@ -719,6 +721,7 @@ class StockfishManager {
       this.scheduleTimeout(request.timeoutMs);
       request.started = true;
       this.worker.postMessage("ucinewgame");
+      this.worker.postMessage(`setoption name MultiPV value ${request.multiPv}`);
       this.worker.postMessage(`position fen ${request.fen}`);
       this.worker.postMessage(`go depth ${request.depth}${request.movetime ? ` movetime ${request.movetime}` : ""}`);
       return;
@@ -727,6 +730,16 @@ class StockfishManager {
     // Keep depth and score from the same completed, exact PV. Search progress
     // and aspiration bounds must not become a finished move evaluation.
     if (/\bscore (cp|mate) -?\d+/.test(line) && !/\b(lowerbound|upperbound)\b/.test(line)) {
+      const multipv = Number(line.match(/\bmultipv (\d+)/)?.[1] || 1);
+      const pv = line.match(/\bpv (.+)$/)?.[1].trim().split(/\s+/) || [];
+      if (pv.length) request.lines.set(multipv, {
+        multipv, pv,
+        scoreCp: /\bscore cp /.test(line) ? Number(line.match(/\bscore cp (-?\d+)/)![1]) : null,
+        scoreMate: /\bscore mate /.test(line) ? Number(line.match(/\bscore mate (-?\d+)/)![1]) : null,
+        depth: Number(line.match(/\bdepth (\d+)/)?.[1] || 0),
+      });
+      // Other PVs must not overwrite the primary score or best continuation.
+      if (multipv !== 1) return;
       const depthMatch = line.match(/\bdepth (\d+)/);
       if (depthMatch) {
         request.latestDepth = Number.parseInt(depthMatch[1], 10);
@@ -789,7 +802,7 @@ class StockfishManager {
       depth: request.latestDepth,
       nodes: request.latestNodes,
       timeMs: request.latestTimeMs,
-      lines: primaryLine ? [primaryLine] : undefined,
+      lines: request.lines.size ? [...request.lines.values()].sort((a, b) => a.multipv - b.multipv) : primaryLine ? [primaryLine] : undefined,
     });
   };
 
@@ -810,7 +823,7 @@ class StockfishManager {
     depth: number,
     onOutput?: (line: string) => void,
     timeoutMs = 20_000,
-    options: { signal?: AbortSignal; movetime?: number } = {},
+    options: { signal?: AbortSignal; movetime?: number; multiPv?: number } = {},
   ) {
     if (options.signal?.aborted) return Promise.reject(new DOMException("Analysis cancelled", "AbortError"));
     if (workerHealth === "unavailable") {
@@ -823,6 +836,8 @@ class StockfishManager {
 
     return new Promise<AnalyzeResult>((resolve, reject) => {
       const request: PendingRequest = {
+        multiPv: Math.max(1, Math.min(3, Math.round(options.multiPv || 1))),
+        lines: new Map(),
         movetime: options.movetime,
         fen,
         depth,
@@ -855,6 +870,7 @@ class StockfishManager {
 const stockfishManager = new StockfishManager();
 
 export function releaseIdleStockfishWorker() { stockfishManager.releaseIfIdle(); }
+export function retryStockfishWorker() { workerHealth = "unknown"; workerFailureReason = null; }
 
 export function getStockfishStatus() {
   return {
@@ -938,7 +954,7 @@ export async function analyzeFenWithStockfish(
       browserSafeDepth,
       whitePerspectiveOutput,
       options.workerOnly ? requestTimeoutMs : browserSafeTimeoutMs,
-      { signal: options.signal, movetime: options.movetime },
+      { signal: options.signal, movetime: options.movetime, multiPv: options.multiPv },
     );
     return normalizeSideToMoveResultForWhite(fen, result);
   } catch (error) {

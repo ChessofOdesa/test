@@ -11,14 +11,16 @@ function initial(pgn: string): State {
 // This hook lives only in the lazily mounted, finished-game panel.
 export function useGameReview(pgn: string) {
   const [state, setState] = useState<State>(() => initial(pgn));
+  const [sourcePgn, setSourcePgn] = useState(pgn);
   const job = useRef<AbortController | null>(null);
   useEffect(() => {
+    setSourcePgn(pgn);
     setState(initial(pgn));
     return () => { job.current?.abort(); job.current = null; };
   }, [pgn]);
-  const start = useCallback(async () => {
+  const start = useCallback(async (force = false) => {
     if (job.current) return;
-    const cached = readReview(pgn);
+    const cached = force ? null : readReview(pgn);
     if (cached) { setState({ ...initial(pgn), report: cached }); return; }
     const controller = new AbortController();
     job.current = controller;
@@ -37,5 +39,5 @@ export function useGameReview(pgn: string) {
     } finally { if (job.current === controller) job.current = null; }
   }, [pgn]);
   const cancel = () => { job.current?.abort(); job.current = null; setState(current => ({ ...current, status: "cancelled" })); };
-  return { ...state, start, cancel };
+  return { ...state, report: sourcePgn === pgn ? state.report : null, start, cancel };
 }

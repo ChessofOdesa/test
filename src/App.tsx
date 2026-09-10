@@ -46,6 +46,7 @@ function AppShell() {
       <Route path="/" element={<Navigate to="/play" replace />}/><Route path="/play" element={<PlayHub />}/><Route path="/play/computer" element={<Play />}/>
       <Route path="/online" element={<LegacyOnline />}/><Route path="/challenge/:challengeId" element={<PlayHub />}/><Route path="/game/:gameId" element={<RequireAccount><GamePage /></RequireAccount>}/>
       <Route path="/puzzles" element={<Puzzles />}/><Route path="/lessons" element={<Lessons />}/><Route path="/analysis" element={<Analysis />}/><Route path="/openings" element={<Openings />}/>
+      <Route path="/analysis/:gameId" element={<Analysis />}/>
       <Route path="/profile" element={<RequireAccount><Profile /></RequireAccount>}/><Route path="/social" element={<RequireAccount><Social /></RequireAccount>}/>
       <Route path="/login" element={<Login />}/><Route path="/register" element={<Register />}/><Route path="/reset-password" element={<ResetPassword />}/>
       <Route path="/auth" element={<Navigate to="/login" replace/>}/><Route path="/learn" element={<Navigate to="/lessons" replace/>}/>

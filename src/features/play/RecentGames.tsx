@@ -18,6 +18,6 @@ export function RecentGames() {
  const name = game.is_ai_game ? `Комп’ютер · рівень ${game.ai_level || 1}` : names.data?.find(p => p.user_id === opponentId)?.display_name || "Онлайн-суперник";
  const change = white ? game.white_rating_diff : game.black_rating_diff;
  const result = gameResult(game, user.id);
- return <tr key={game.id}><td><button className="recent-game-link" disabled={!game.pgn} onClick={() => navigate("/analysis", { state: { pgn: game.pgn } })}>{name}{game.pgn && <ArrowUpRight size={15}/>}</button></td><td><span className="game-result" data-result={result}>{result === "Перемога" ? "+" : result === "Поразка" ? "−" : "½"}<span className="sr-only">{result}</span></span></td><td>{typeof change === "number" ? `${change > 0 ? "+" : ""}${change}` : "—"}</td><td>{game.time_control || "Без часу"}</td></tr>;
+ return <tr key={game.id}><td><button className="recent-game-link" disabled={!game.pgn} onClick={() => navigate(`/analysis/${game.id}`)}>{name}{game.pgn && <ArrowUpRight size={15}/>}</button></td><td><span className="game-result" data-result={result}>{result === "Перемога" ? "+" : result === "Поразка" ? "−" : "½"}<span className="sr-only">{result}</span></span></td><td>{typeof change === "number" ? `${change > 0 ? "+" : ""}${change}` : "—"}</td><td>{game.time_control || "Без часу"}</td></tr>;
  })}</tbody></table></div>}</section>;
 }
