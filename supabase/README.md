@@ -15,6 +15,7 @@ each file, paste the complete file, and run the migrations in this exact order:
 10. `20260905000000_lichess_evaluation_cache.sql`
 11. `20260906000000_flexible_play_ratings.sql`
 12. `20260907000000_game_room_reports.sql`
+13. `20260909000000_analysis_sessions.sql`
 
 Run every file separately and wait for a successful result before continuing.
 Do not rerun files that already completed successfully. Migration 11
@@ -47,3 +48,8 @@ change ratings and requires no new secret. Reports are stored for review; there
 is no automated moderation or administrative review screen in this release.
 
 For the Game Room deployment and verification notes, see `docs/GAME_ROOM.md`.
+
+Migration 13 adds account-owned analysis sessions with private RLS policies.
+It stores PGN variations, comments and review metadata separately from games.
+PGN/FEN import, local Stockfish and export work without this migration; account
+save/reopen requires it. See `docs/ANALYSIS_CENTER.md` for behavior and validation.
