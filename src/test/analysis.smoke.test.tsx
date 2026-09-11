@@ -32,22 +32,48 @@ vi.mock("@/lib/stockfish", () => ({
 afterEach(cleanup);
 
 describe("Analysis Center", () => {
-    it("keeps global actions in the left toolbar and only one primary move navigator", async () => {
+    it("pins the only primary move navigator to the bottom of the right analysis panel", async () => {
         render(<MemoryRouter initialEntries={["/analysis"]}>
             <BoardSettingsProvider><Analysis /></BoardSettingsProvider>
         </MemoryRouter>);
 
         expect(await screen.findByTestId("analysis-board")).toBeInTheDocument();
+        const panel = screen.getByLabelText("Права панель аналізу");
+        const navigator = within(panel).getByLabelText("Навігація по партії");
+        expect(navigator).toBeInTheDocument();
+        expect(screen.getAllByLabelText("Навігація по партії")).toHaveLength(1);
+        expect(within(navigator).getByRole("button", { name: "На початок партії" })).toBeInTheDocument();
+        expect(within(navigator).getByRole("button", { name: "Попередній хід" })).toBeInTheDocument();
+        expect(within(navigator).getByRole("button", { name: "Наступний хід" })).toBeInTheDocument();
+        expect(within(navigator).getByRole("button", { name: "У кінець партії" })).toBeInTheDocument();
+        expect(within(navigator).getByText("0 / 0")).toBeInTheDocument();
+    });
+
+    it("keeps the shared move navigator available across all right-panel tabs", async () => {
+        render(<MemoryRouter initialEntries={["/analysis"]}>
+            <BoardSettingsProvider><Analysis /></BoardSettingsProvider>
+        </MemoryRouter>);
+
+        await screen.findByTestId("analysis-board");
+        for (const name of [/Ходи/i, /Движок/i, /Огляд/i, /Інфо/i]) {
+            fireEvent.click(screen.getByRole("tab", { name }));
+            expect(screen.getByLabelText("Навігація по партії")).toBeInTheDocument();
+        }
+    });
+
+    it("keeps global actions in the left toolbar and board flip out of the move navigator", async () => {
+        render(<MemoryRouter initialEntries={["/analysis"]}>
+            <BoardSettingsProvider><Analysis /></BoardSettingsProvider>
+        </MemoryRouter>);
+
+        await screen.findByTestId("analysis-board");
         const tools = screen.getByLabelText("Інструменти аналізу");
-        const toolButtons = within(tools).getAllByRole("button");
-        expect(toolButtons[0]).toHaveAccessibleName(/Stockfish/i);
+        expect(within(tools).getAllByRole("button")[0]).toHaveAccessibleName(/Stockfish/i);
         expect(within(tools).getByRole("button", { name: "Нова позиція" })).toBeInTheDocument();
         expect(within(tools).getByRole("button", { name: "Імпорт PGN" })).toBeInTheDocument();
         expect(within(tools).getByRole("button", { name: "Відкрити PGN-файл" })).toBeInTheDocument();
         expect(within(tools).getByRole("button", { name: "Вставити FEN" })).toBeInTheDocument();
-        expect(screen.getAllByLabelText("Навігація по партії")).toHaveLength(1);
-        expect(screen.queryByLabelText("Навігація по ходах")).not.toBeInTheDocument();
-        expect(screen.getByRole("tab", { name: /Ходи/i })).toHaveAttribute("aria-selected", "true");
+        expect(screen.queryByRole("button", { name: "Перевернути дошку" })).not.toBeInTheDocument();
     });
 
     it("keeps analysis settings in one popover", async () => {
