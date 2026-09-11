@@ -826,6 +826,7 @@ export default function AnalysisCenter() {
                             <DropdownMenuItem disabled={!record.mainline.length} onSelect={() => void copyText(buildPgn(record), "PGN")}><Copy size={16} className="mr-2" />Копіювати PGN</DropdownMenuItem>
                             <DropdownMenuItem disabled={!record.mainline.length} onSelect={downloadPgn}><Download size={16} className="mr-2" />Зберегти PGN</DropdownMenuItem>
                             <DropdownMenuItem onSelect={() => void copyText(currentFen, "FEN")}><Copy size={16} className="mr-2" />Копіювати FEN</DropdownMenuItem>
+                            <DropdownMenuItem onSelect={() => setFlipped(value => !value)}><FlipVertical size={16} className="mr-2" />Перевернути дошку</DropdownMenuItem>
                             <DropdownMenuSeparator />
                             <DropdownMenuItem disabled={!hasVariations} onSelect={clearVariations}><Trash2 size={16} className="mr-2" />Очистити власні варіанти</DropdownMenuItem>
                             <DropdownMenuItem disabled={!reviewedNodes.length} onSelect={clearReviewResults}><Trash2 size={16} className="mr-2" />Очистити результати аналізу</DropdownMenuItem>
@@ -889,24 +890,14 @@ export default function AnalysisCenter() {
                         </div>
                     </div>
 
-                    <div className="analysis-board-footer">
-                        <div className="analysis-playerbar analysis-playerbar-bottom">
-                            <div className="analysis-avatar analysis-avatar-light">{bottomPlayer.name.slice(0, 1).toUpperCase()}</div>
-                            <strong>{bottomPlayer.name}</strong>
-                            {bottomPlayer.rating && <span>{bottomPlayer.rating}</span>}
-                        </div>
-                        <div className="analysis-board-controls" aria-label="Навігація по партії">
-                            <NavIconButton label="На початок" icon={<ChevronsLeft size={19} />} onClick={goFirst} disabled={currentMoveIndex < 0} />
-                            <NavIconButton label="Попередній хід" icon={<ChevronLeft size={19} />} onClick={goPrevious} disabled={currentMoveIndex < 0} />
-                            <span>{currentMoveIndex >= 0 ? `${currentMoveIndex + 1} / ${renderedMoves.length}` : `0 / ${renderedMoves.length}`}</span>
-                            <NavIconButton label="Наступний хід" icon={<ChevronRight size={19} />} onClick={goNext} disabled={!renderedMoves.length || currentMoveIndex >= renderedMoves.length - 1} />
-                            <NavIconButton label="В кінець" icon={<ChevronsRight size={19} />} onClick={goLast} disabled={!renderedMoves.length || currentMoveIndex >= renderedMoves.length - 1} />
-                            <NavIconButton label="Перевернути дошку" icon={<FlipVertical size={18} />} onClick={() => setFlipped(value => !value)} />
-                        </div>
+                    <div className="analysis-playerbar analysis-playerbar-bottom">
+                        <div className="analysis-avatar analysis-avatar-light">{bottomPlayer.name.slice(0, 1).toUpperCase()}</div>
+                        <strong>{bottomPlayer.name}</strong>
+                        {bottomPlayer.rating && <span>{bottomPlayer.rating}</span>}
                     </div>
                 </section>
 
-                <aside className="analysis-panel">
+                <aside className="analysis-panel" aria-label="Права панель аналізу">
                     <div className="analysis-panel-tabs" role="tablist" aria-label="Панель аналізу" onKeyDown={handleTabKeyDown}>
                         {panelTabs.map(item => {
                             const Icon = item.icon;
@@ -1124,6 +1115,14 @@ export default function AnalysisCenter() {
                                 </div>
                             </div>
                         )}
+                    </div>
+
+                    <div className="analysis-panel-navigation" aria-label="Навігація по партії" role="group">
+                        <NavIconButton label="На початок партії" icon={<ChevronsLeft size={18} />} onClick={goFirst} disabled={currentMoveIndex < 0} />
+                        <NavIconButton label="Попередній хід" icon={<ChevronLeft size={18} />} onClick={goPrevious} disabled={currentMoveIndex < 0} />
+                        <span aria-live="polite">{currentMoveIndex >= 0 ? `${currentMoveIndex + 1} / ${renderedMoves.length}` : `0 / ${renderedMoves.length}`}</span>
+                        <NavIconButton label="Наступний хід" icon={<ChevronRight size={18} />} onClick={goNext} disabled={!renderedMoves.length || currentMoveIndex >= renderedMoves.length - 1} />
+                        <NavIconButton label="У кінець партії" icon={<ChevronsRight size={18} />} onClick={goLast} disabled={!renderedMoves.length || currentMoveIndex >= renderedMoves.length - 1} />
                     </div>
                 </aside>
             </main>
