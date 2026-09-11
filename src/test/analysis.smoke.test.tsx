@@ -64,7 +64,7 @@ describe("Analysis Center", () => {
         expect(screen.getByText("MultiPV")).toBeInTheDocument();
     });
 
-    it("shows clickable engine lines without a duplicate engine toggle or MultiPV selector in the engine tab", async () => {
+    it("shows clickable engine lines without a duplicate engine control inside the engine tab", async () => {
         render(<MemoryRouter initialEntries={["/analysis"]}>
             <BoardSettingsProvider><Analysis /></BoardSettingsProvider>
         </MemoryRouter>);
@@ -73,7 +73,7 @@ describe("Analysis Center", () => {
         const initialFen = board.getAttribute("data-fen");
         fireEvent.click(screen.getByRole("tab", { name: /Движок/i }));
 
-        expect(screen.queryByRole("button", { name: /Увімкнути Stockfish|Вимкнути Stockfish/i })).not.toBeInTheDocument();
+        expect(screen.queryByLabelText("Кількість варіантів")).not.toBeInTheDocument();
         const firstLine = await screen.findByTitle("e4 e5 Nf3");
         fireEvent.click(firstLine);
         await waitFor(() => expect(board.getAttribute("data-fen")).not.toBe(initialFen));
