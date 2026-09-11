@@ -17,7 +17,7 @@ const PlayHub = lazy(() => import("./pages/PlayHub"));
 const Play = lazy(() => import("./pages/Play"));
 const Puzzles = lazy(() => import("./pages/Puzzles"));
 const Lessons = lazy(() => import("./pages/Lessons"));
-const Analysis = lazy(() => import("./pages/Analysis"));
+const Analysis = lazy(() => import("./pages/AnalysisCenter"));
 const Openings = lazy(() => import("./pages/Openings"));
 const Profile = lazy(() => import("./pages/Profile"));
 const Social = lazy(() => import("./pages/Social"));
