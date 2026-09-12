@@ -7,7 +7,6 @@ import {
     cloneNodes,
     findOpening,
     formatCp,
-    getNodeByPath,
     isSamePath,
     removeNodeAtPath,
     updateNodeAtPath,
@@ -30,7 +29,7 @@ import {
     Search,
     Trash2,
 } from "lucide-react";
-import { useEffect, useMemo, useState, type Dispatch, type SetStateAction } from "react";
+import { useEffect, useMemo, useState, type CSSProperties, type Dispatch, type SetStateAction } from "react";
 import { toast } from "sonner";
 import "@/styles/analysis-move-tree.css";
 
@@ -194,7 +193,6 @@ export default function AnalysisMoveTree({
     const opening = useMemo(() => findOpening(record.mainline), [record.mainline]);
     const variationCount = useMemo(() => countVariations(record.mainline), [record.mainline]);
     const moveCount = Math.ceil(record.mainline.length / 2);
-    const selectedNode = useMemo(() => getNodeByPath(record.mainline, record.currentPath), [record]);
     const currentMainlineIndex = record.currentPath?.[0] ?? -1;
 
     const mainPairs = useMemo(() => {
@@ -209,8 +207,8 @@ export default function AnalysisMoveTree({
     }, [filter, record.mainline]);
 
     const nextErrorIndex = useMemo(() => {
-        const findAfter = record.mainline.findIndex((node, index) => index > currentMainlineIndex && node.classification && ERROR_CLASSIFICATIONS.has(node.classification));
-        if (findAfter >= 0) return findAfter;
+        const afterCurrent = record.mainline.findIndex((node, index) => index > currentMainlineIndex && node.classification && ERROR_CLASSIFICATIONS.has(node.classification));
+        if (afterCurrent >= 0) return afterCurrent;
         return record.mainline.findIndex(node => node.classification && ERROR_CLASSIFICATIONS.has(node.classification));
     }, [currentMainlineIndex, record.mainline]);
 
@@ -219,6 +217,10 @@ export default function AnalysisMoveTree({
         const delay = autoplaySpeed === "0.5" ? 2000 : autoplaySpeed === "2" ? 500 : 1000;
         const timer = window.setTimeout(() => {
             const index = record.currentPath?.[0] ?? -1;
+            if (record.currentPath && record.currentPath.length > 1) {
+                setAutoplay(false);
+                return;
+            }
             if (index >= record.mainline.length - 1) {
                 setAutoplay(false);
                 return;
@@ -357,6 +359,7 @@ export default function AnalysisMoveTree({
             <div className={cn("analysis-move-cell", selected && "is-selected")}>
                 <button type="button" className="analysis-move-token" onClick={() => onNavigate(entry.path)}>
                     <span>{node.san}</span>
+                    {selected && <span className="analysis-selected-dot" aria-hidden="true" />}
                     {node.nag && <em className="analysis-user-nag" title="PGN-анотація користувача">{node.nag}</em>}
                     {isBook && <BookOpen size={13} className="analysis-book-mark" aria-label="Теорія" />}
                     {node.classification && (
@@ -397,8 +400,12 @@ export default function AnalysisMoveTree({
         const line = branchPrimaryLine(root, rootPath);
         const pairs = pairEntries(line);
         return (
-            <div key={key} className="analysis-inline-variation" style={{ "--variation-depth": Math.min(depth, 3) } as React.CSSProperties}>
-                <div className="analysis-variation-label"><GitBranch size={12} />{depth === 1 ? "Ваш варіант" : "Вкладений варіант"}</div>
+            <div
+                key={key}
+                className="analysis-inline-variation"
+                aria-label={`Варіант від ходу ${root.moveNumber}`}
+                style={{ "--variation-depth": Math.min(depth, 3) } as CSSProperties}
+            >
                 {pairs.map(pair => {
                     const entries = [pair.white, pair.black].filter(Boolean) as MovePathEntry[];
                     return (
@@ -485,8 +492,8 @@ export default function AnalysisMoveTree({
                             <DropdownMenuRadioGroup value={filter} onValueChange={value => setFilter(value as MoveFilter)}>
                                 <DropdownMenuRadioItem value="all">Усі ходи</DropdownMenuRadioItem>
                                 <DropdownMenuRadioItem value="errors">Тільки помилки</DropdownMenuRadioItem>
-                                <DropdownMenuRadioItem value="variations">Ходи з варіантами</DropdownMenuRadioItem>
-                                <DropdownMenuRadioItem value="comments">Ходи з коментарями</DropdownMenuRadioItem>
+                                <DropdownMenuRadioItem value="variations">Тільки варіанти</DropdownMenuRadioItem>
+                                <DropdownMenuRadioItem value="comments">З коментарями</DropdownMenuRadioItem>
                             </DropdownMenuRadioGroup>
                         </DropdownMenuContent>
                     </DropdownMenu>
@@ -497,7 +504,13 @@ export default function AnalysisMoveTree({
                 <button type="button" className="analysis-return-mainline" onClick={returnToMainline}><CornerUpLeft size={14} />Основна лінія</button>
             )}
 
-            {opening && <div className="analysis-opening-strip"><BookOpen size={13} /><span>{opening.line?.name || opening.opening.name}</span><strong>{opening.opening.eco}</strong></div>}
+            {opening && (
+                <div className="analysis-opening-strip" title={`${opening.opening.name}${opening.line ? ` — ${opening.line.name}` : ""} · ${opening.opening.eco}`}>
+                    <BookOpen size={13} />
+                    <span>{opening.line?.name || opening.opening.name}</span>
+                    <strong>{opening.opening.eco}</strong>
+                </div>
+            )}
 
             <div className="analysis-mainline-label">Основна партія</div>
             <div className="analysis-inline-move-list" aria-label="Список ходів">
@@ -522,6 +535,10 @@ export default function AnalysisMoveTree({
                     <div className="analysis-filter-empty">Немає ходів для цього фільтра.</div>
                 )}
             </div>
+
+            {filter === "all" && record.mainline.length <= 12 && (
+                <div className="analysis-move-tree-hint">Зробіть альтернативний хід на дошці, щоб створити новий варіант.</div>
+            )}
 
             <Dialog open={Boolean(commentPath)} onOpenChange={open => { if (!open) setCommentPath(null); }}>
                 <DialogContent className="sm:max-w-md">
