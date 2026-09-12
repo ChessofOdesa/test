@@ -11,8 +11,6 @@ import AnalysisMoveTree from "@/features/analysis/AnalysisMoveTree";
 import { buildAnalysisPgn } from "@/features/analysis/pgnTree";
 import {
     START_FEN,
-    buildMovePairs,
-    buildPgn,
     buildRecordFromPgn,
     calculateAccuracy,
     classificationFromLoss,
@@ -26,6 +24,10 @@ import {
     formatCp,
     getCurrentFen,
     getLastMove,
+    getLastPath,
+    getNextPath,
+    getNodeByPath,
+    getPreviousPath,
     isSamePath,
     numericScoreFromEngine,
     renderMoves,
@@ -292,7 +294,7 @@ export default function AnalysisCenter() {
     const [showBestMoveArrow, setShowBestMoveArrow] = useState(true);
     const [showMoveBadges, setShowMoveBadges] = useState(true);
     const [moveAnimation, setMoveAnimation] = useState(true);
-    const [currentEngine, setCurrentEngine] = useState<EngineSummary | null>(null);
+    const [positionResult, setCurrentEngine] = useState<(EngineSummary & { requestKey: string }) | null>(null);
     const [positionBusy, setPositionBusy] = useState(false);
     const [positionError, setPositionError] = useState("");
     const [review, setReview] = useState<ReviewState>({ running: false, current: 0, total: 0, error: "" });
@@ -304,13 +306,16 @@ export default function AnalysisCenter() {
     const [linePreview, setLinePreview] = useState<EnginePreview | null>(null);
 
     const renderedMoves = useMemo(() => renderMoves(record.mainline), [record.mainline]);
-    const movePairs = useMemo(() => buildMovePairs(record.mainline), [record.mainline]);
     const currentNode = useMemo(() => getLastMove(record), [record]);
     const currentFen = useMemo(() => getCurrentFen(record), [record]);
-    const currentMoveIndex = useMemo(
-        () => renderedMoves.findIndex(entry => isSamePath(entry.path, record.currentPath)),
-        [record.currentPath, renderedMoves],
-    );
+    const positionKey = `${engineDepth}:${multiPv}:${currentFen}`;
+    const currentEngine = engineEnabled && positionResult?.requestKey === positionKey ? positionResult : null;
+    const nextPath = getNextPath(record, record.currentPath);
+    const lastPath = getLastPath(record);
+    const lineLength = getNodeByPath(record.mainline, lastPath)?.ply ?? 0;
+    const currentPly = currentNode?.ply ?? 0;
+    // Navigation and comments keep a review alive; replacing/promoting the game does not.
+    const gameIdentity = `${record.rootFen}:${record.mainline.map(node => node.id).join(",")}`;
     const reviewedNodes = useMemo(() => collectNodes(record.mainline).filter(node => node.evalLoss != null), [record.mainline]);
     const opening = useMemo(() => findOpening(record.mainline), [record.mainline]);
     const counts = useMemo(() => countLabels(record.mainline), [record.mainline]);
@@ -350,6 +355,24 @@ export default function AnalysisCenter() {
     const reviewAfterEval = currentNode?.engineEval ?? null;
     const badgeClassification = showMoveBadges && !linePreview && currentNode?.classification && currentNode.evalLoss != null ? currentNode.classification : null;
     const badgeSquare = badgeClassification && currentNode?.uci?.length >= 4 ? currentNode.uci.slice(2, 4) as Square : null;
+
+    const cancelReview = useCallback(() => {
+        reviewAbortRef.current?.abort();
+        reviewAbortRef.current = null;
+        setReview(current => ({ ...current, running: false }));
+    }, []);
+
+    useEffect(() => {
+        cancelReview();
+        setReview({ running: false, current: 0, total: 0, error: "" });
+        setLinePreview(null);
+    }, [cancelReview, gameIdentity]);
+
+    useEffect(() => () => {
+        reviewAbortRef.current?.abort();
+        reviewAbortRef.current = null;
+        positionAbortRef.current?.abort();
+    }, []);
 
     useEffect(() => {
         const element = boardWrapRef.current;
@@ -396,22 +419,28 @@ export default function AnalysisCenter() {
     }, [location.state, searchParams]);
 
     const analyzeCached = useCallback(async (fen: string, depth: number, requestedMultiPv: number, signal: AbortSignal) => {
+        if (signal.aborted) throw new DOMException("Analysis cancelled", "AbortError");
         const key = `${depth}:${requestedMultiPv}:${fen}`;
         const cached = engineCacheRef.current.get(key);
         if (cached) return cached;
         const result = await analyzeFenWithStockfish(fen, depth, undefined, 20_000, {
             signal,
             multiPv: requestedMultiPv,
-            preferCloud: true,
+            workerOnly: true,
+            movetime: 1500,
         });
+        if (signal.aborted) throw new DOMException("Analysis cancelled", "AbortError");
         const summary = toEngineSummary(fen, result);
+        if (engineCacheRef.current.size >= 256) {
+            engineCacheRef.current.delete(engineCacheRef.current.keys().next().value!);
+        }
         engineCacheRef.current.set(key, summary);
         return summary;
     }, []);
 
     useEffect(() => {
         positionAbortRef.current?.abort();
-        if (!engineEnabled) {
+        if (!engineEnabled || review.running) {
             setCurrentEngine(null);
             setPositionBusy(false);
             setPositionError("");
@@ -425,7 +454,7 @@ export default function AnalysisCenter() {
         const timer = window.setTimeout(() => {
             void analyzeCached(currentFen, engineDepth, multiPv, controller.signal)
                 .then(summary => {
-                    if (!controller.signal.aborted) setCurrentEngine(summary);
+                    if (!controller.signal.aborted) setCurrentEngine({ ...summary, requestKey: positionKey });
                 })
                 .catch(error => {
                     if (!controller.signal.aborted) setPositionError(formatAnalysisError(error));
@@ -438,39 +467,40 @@ export default function AnalysisCenter() {
             window.clearTimeout(timer);
             controller.abort();
         };
-    }, [analyzeCached, currentFen, engineDepth, engineEnabled, multiPv]);
+    }, [analyzeCached, currentFen, engineDepth, engineEnabled, multiPv, positionKey, review.running]);
 
     const navigateTo = useCallback((path: number[] | null) => {
         setLinePreview(null);
         setRecord(current => ({ ...current, currentPath: path ? [...path] : null }));
     }, []);
 
-    const goFirst = useCallback(() => navigateTo(null), [navigateTo]);
+    const goFirst = useCallback(() => {
+        if (linePreview) setLinePreview(current => current ? { ...current, index: 0 } : null);
+        else navigateTo(null);
+    }, [linePreview, navigateTo]);
     const goPrevious = useCallback(() => {
-        if (currentMoveIndex < 0) return;
-        navigateTo(currentMoveIndex <= 0 ? null : renderedMoves[currentMoveIndex - 1].path);
-    }, [currentMoveIndex, navigateTo, renderedMoves]);
+        if (linePreview) setLinePreview(current => current ? { ...current, index: Math.max(0, current.index - 1) } : null);
+        else navigateTo(getPreviousPath(record.currentPath));
+    }, [linePreview, navigateTo, record.currentPath]);
     const goNext = useCallback(() => {
-        if (!renderedMoves.length) return;
-        if (currentMoveIndex < 0) navigateTo(renderedMoves[0].path);
-        else if (currentMoveIndex < renderedMoves.length - 1) navigateTo(renderedMoves[currentMoveIndex + 1].path);
-    }, [currentMoveIndex, navigateTo, renderedMoves]);
+        if (linePreview) {
+            setLinePreview(current => current ? { ...current, index: Math.min(current.fens.length - 1, current.index + 1) } : null);
+            return;
+        }
+        const path = getNextPath(record, record.currentPath);
+        if (path) navigateTo(path);
+    }, [linePreview, navigateTo, record]);
     const goLast = useCallback(() => {
-        if (renderedMoves.length) navigateTo(renderedMoves[renderedMoves.length - 1].path);
-    }, [navigateTo, renderedMoves]);
+        if (linePreview) setLinePreview(current => current ? { ...current, index: current.fens.length - 1 } : null);
+        else navigateTo(getLastPath(record));
+    }, [linePreview, navigateTo, record]);
 
     useEffect(() => {
         const handleKey = (event: KeyboardEvent) => {
-            const target = event.target as HTMLElement | null;
-            if (target instanceof HTMLInputElement || target instanceof HTMLTextAreaElement || target?.isContentEditable) return;
-            if (linePreview && (event.key === "ArrowLeft" || event.key === "ArrowRight")) {
-                event.preventDefault();
-                setLinePreview(current => current ? {
-                    ...current,
-                    index: Math.max(0, Math.min(current.fens.length - 1, current.index + (event.key === "ArrowRight" ? 1 : -1))),
-                } : null);
-                return;
-            }
+            if (event.defaultPrevented || event.altKey || event.ctrlKey || event.metaKey) return;
+            const target = event.target instanceof HTMLElement ? event.target : null;
+            if (target instanceof HTMLInputElement || target instanceof HTMLTextAreaElement || target instanceof HTMLSelectElement || target?.isContentEditable || target?.closest('[role="dialog"], [role="menu"], [role="tablist"], [role="slider"]')) return;
+            if (importOpen || settingsOpen) return;
             if (event.key === "ArrowLeft") { event.preventDefault(); goPrevious(); }
             if (event.key === "ArrowRight") { event.preventDefault(); goNext(); }
             if (event.key === "Home") { event.preventDefault(); goFirst(); }
@@ -478,7 +508,7 @@ export default function AnalysisCenter() {
         };
         window.addEventListener("keydown", handleKey);
         return () => window.removeEventListener("keydown", handleKey);
-    }, [goFirst, goLast, goNext, goPrevious, linePreview]);
+    }, [goFirst, goLast, goNext, goPrevious, importOpen, linePreview, settingsOpen]);
 
     const openImport = (mode: ImportMode) => {
         setImportMode(mode);
@@ -494,12 +524,13 @@ export default function AnalysisCenter() {
             return;
         }
         try {
+            const imported = importMode === "pgn" ? buildRecordFromPgn(value) : createRecord(new Chess(value).fen());
+            cancelReview();
             if (importMode === "pgn") {
-                setRecord(buildRecordFromPgn(value));
+                setRecord(imported);
                 toast.success("PGN завантажено.");
             } else {
-                const chess = new Chess(value);
-                setRecord(createRecord(chess.fen()));
+                setRecord(imported);
                 toast.success("FEN завантажено.");
             }
             setImportOpen(false);
@@ -522,7 +553,9 @@ export default function AnalysisCenter() {
         }
         try {
             const text = await file.text();
-            setRecord(buildRecordFromPgn(text));
+            const imported = buildRecordFromPgn(text);
+            cancelReview();
+            setRecord(imported);
             setImportDraft(text);
             setCurrentEngine(null);
             setLinePreview(null);
@@ -550,6 +583,23 @@ export default function AnalysisCenter() {
                 promotion: move.promotion,
             }, currentFen, chess.fen(), (currentNode?.ply || 0) + 1);
 
+            // Follow an existing continuation instead of adding a second copy.
+            const path = record.currentPath;
+            const continuation = getNextPath(record, path);
+            if (continuation && getNodeByPath(record.mainline, continuation)?.uci === nextNode.uci) {
+                navigateTo(continuation);
+                return true;
+            }
+            const existingChild = currentNode?.children.findIndex(node => node.uci === nextNode.uci) ?? -1;
+            if (path && existingChild >= 0) {
+                navigateTo([...path, existingChild]);
+                return true;
+            }
+            if (!path && record.mainline.length) {
+                toast.info("Для іншого першого ходу відкрийте нову позицію. Поточну партію збережено.");
+                return false;
+            }
+
             setRecord(current => {
                 if (!current.currentPath) {
                     if (current.mainline.length === 0) return { ...current, mainline: [nextNode], currentPath: [0] };
@@ -572,11 +622,10 @@ export default function AnalysisCenter() {
         } catch {
             return false;
         }
-    }, [currentFen, currentNode?.ply, linePreview, renderedMoves]);
+    }, [currentFen, currentNode, linePreview, navigateTo, record, renderedMoves]);
 
     const startFullReview = async () => {
-        if (!record.mainline.length || review.running) return;
-        reviewAbortRef.current?.abort();
+        if (!record.mainline.length || reviewAbortRef.current) return;
         positionAbortRef.current?.abort();
         setLinePreview(null);
         const controller = new AbortController();
@@ -591,6 +640,7 @@ export default function AnalysisCenter() {
                 const depth = Math.min(engineDepth, 12);
                 const before = await analyzeCached(node.fenBefore, depth, 1, controller.signal);
                 const after = await analyzeCached(node.fenAfter, depth, 1, controller.signal);
+                if (controller.signal.aborted || reviewAbortRef.current !== controller) return;
                 const rawLoss = node.color === "w"
                     ? Math.max(0, before.numericScore - after.numericScore)
                     : Math.max(0, after.numericScore - before.numericScore);
@@ -600,7 +650,7 @@ export default function AnalysisCenter() {
                 const classification = classificationFromLoss(adjustedClassificationLoss, playedBestMove);
                 const bestMoveSan = before.bestMoveSan;
 
-                setRecord(current => ({
+                setRecord(current => current.mainline[index]?.id !== node.id || controller.signal.aborted ? current : ({
                     ...current,
                     mainline: updateNodeAtPath(current.mainline, [index], target => {
                         target.classification = classification;
@@ -617,6 +667,7 @@ export default function AnalysisCenter() {
             setReview({ running: false, current: total, total, error: "" });
             toast.success("Повний аналіз партії завершено.");
         } catch (error) {
+            if (reviewAbortRef.current !== controller || controller.signal.aborted) return;
             if (error instanceof DOMException && error.name === "AbortError") {
                 setReview(current => ({ ...current, running: false }));
                 toast.info("Аналіз зупинено.");
@@ -625,13 +676,15 @@ export default function AnalysisCenter() {
                 setReview(current => ({ ...current, running: false, error: message }));
                 toast.error(message);
             }
+        } finally {
+            if (reviewAbortRef.current === controller) reviewAbortRef.current = null;
         }
     };
 
-    const stopFullReview = () => reviewAbortRef.current?.abort();
+    const stopFullReview = cancelReview;
 
     const resetAnalysis = () => {
-        reviewAbortRef.current?.abort();
+        cancelReview();
         positionAbortRef.current?.abort();
         setRecord(createRecord());
         setCurrentEngine(null);
@@ -654,7 +707,7 @@ export default function AnalysisCenter() {
 
     const clearReviewResults = () => {
         if (!reviewedNodes.length) return;
-        reviewAbortRef.current?.abort();
+        cancelReview();
         setRecord(current => ({ ...current, mainline: clearReviewData(current.mainline) }));
         setReview({ running: false, current: 0, total: 0, error: "" });
         setLinePreview(null);
@@ -737,6 +790,7 @@ export default function AnalysisCenter() {
     const handleTabKeyDown = (event: ReactKeyboardEvent<HTMLDivElement>) => {
         if (event.key !== "ArrowLeft" && event.key !== "ArrowRight") return;
         event.preventDefault();
+        event.stopPropagation();
         const currentIndex = panelTabs.findIndex(item => item.id === tab);
         const direction = event.key === "ArrowRight" ? 1 : -1;
         const nextIndex = (currentIndex + direction + panelTabs.length) % panelTabs.length;
@@ -758,7 +812,10 @@ export default function AnalysisCenter() {
                         active={engineEnabled}
                         featured
                         detail={engineToolDetail}
-                        onClick={() => setEngineEnabled(value => !value)}
+                        onClick={() => {
+                            if (engineEnabled) { cancelReview(); positionAbortRef.current?.abort(); }
+                            setEngineEnabled(value => !value);
+                        }}
                     />
                     <ToolButton label="Нова позиція" shortLabel="Нова позиція" icon={<Plus size={20} />} onClick={resetAnalysis} />
                     <ToolButton label="Імпорт PGN" shortLabel="Імпорт PGN" icon={<Clipboard size={19} />} active={importOpen && importMode === "pgn"} onClick={() => openImport("pgn")} />
@@ -1093,11 +1150,11 @@ export default function AnalysisCenter() {
                     </div>
 
                     <div className="analysis-panel-navigation" aria-label="Навігація по партії" role="group">
-                        <NavIconButton label="На початок партії" icon={<ChevronsLeft size={18} />} onClick={goFirst} disabled={currentMoveIndex < 0} />
-                        <NavIconButton label="Попередній хід" icon={<ChevronLeft size={18} />} onClick={goPrevious} disabled={currentMoveIndex < 0} />
-                        <span aria-live="polite" title={currentMoveIndex >= 0 ? `Позиція ${currentMoveIndex + 1} із ${renderedMoves.length}` : "Початкова позиція"}>{currentMoveIndex >= 0 ? `${currentMoveIndex + 1} / ${renderedMoves.length}` : `0 / ${renderedMoves.length}`}</span>
-                        <NavIconButton label="Наступний хід" icon={<ChevronRight size={18} />} onClick={goNext} disabled={!renderedMoves.length || currentMoveIndex >= renderedMoves.length - 1} />
-                        <NavIconButton label="У кінець партії" icon={<ChevronsRight size={18} />} onClick={goLast} disabled={!renderedMoves.length || currentMoveIndex >= renderedMoves.length - 1} />
+                        <NavIconButton label="На початок партії" icon={<ChevronsLeft size={18} />} onClick={goFirst} disabled={linePreview ? linePreview.index === 0 : !record.currentPath} />
+                        <NavIconButton label="Попередній хід" icon={<ChevronLeft size={18} />} onClick={goPrevious} disabled={linePreview ? linePreview.index === 0 : !record.currentPath} />
+                        <span aria-live="polite" title={linePreview ? "Перегляд варіанта Stockfish" : record.currentPath && record.currentPath.length > 1 ? "Позиція в поточному варіанті" : "Позиція в основній партії"}>{linePreview ? `${linePreview.index + 1} / ${linePreview.fens.length}` : `${currentPly} / ${lineLength}`}</span>
+                        <NavIconButton label="Наступний хід" icon={<ChevronRight size={18} />} onClick={goNext} disabled={linePreview ? linePreview.index === linePreview.fens.length - 1 : !nextPath} />
+                        <NavIconButton label="У кінець партії" icon={<ChevronsRight size={18} />} onClick={goLast} disabled={linePreview ? linePreview.index === linePreview.fens.length - 1 : !nextPath} />
                     </div>
                 </aside>
             </main>

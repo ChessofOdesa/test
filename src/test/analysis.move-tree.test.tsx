@@ -1,7 +1,7 @@
 import AnalysisMoveTree from "@/features/analysis/AnalysisMoveTree";
 import { buildAnalysisPgn } from "@/features/analysis/pgnTree";
 import { createMoveNode, createRecord, type AnalysisRecord } from "@/features/analysis/model";
-import { cleanup, fireEvent, render, screen } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { Chess } from "chess.js";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
@@ -105,4 +105,17 @@ describe("Analysis move tree", () => {
         expect(pgn).toContain("Тут я перевіряв альтернативу.");
         expect(pgn).toContain("2... c6");
     });
+});
+
+it("autoplays the selected variation without jumping back to the mainline", () => {
+    vi.useFakeTimers();
+    try {
+        const record = makeRecord();
+        record.currentPath = [1, 0];
+        const navigate = vi.fn();
+        render(<AnalysisMoveTree record={record} setRecord={vi.fn()} onNavigate={navigate} onOpenEngine={vi.fn()} />);
+        fireEvent.click(screen.getByRole('button', { name: 'Auto-play партії' }));
+        act(() => vi.advanceTimersByTime(1000));
+        expect(navigate).toHaveBeenCalledWith([1, 0, 0]);
+    } finally { vi.useRealTimers(); }
 });

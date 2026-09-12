@@ -1,6 +1,5 @@
 import { type BoardTheme } from "@/contexts/BoardSettingsContext";
 import { OPENINGS, type Opening, type OpeningLine } from "@/lib/openings-data";
-import { parsePGN } from "@/lib/pgnParser";
 import { type AnalyzeResult, type EngineBackend, type EngineLine } from "@/lib/stockfish";
 import { Chess, type PieceSymbol } from "chess.js";
 import type { BoardPosition, Piece, Square } from "react-chessboard/dist/chessboard/types";
@@ -793,7 +792,7 @@ export function createMoveNode(move: {
     return {
         id: nextNodeId(),
         ply,
-        moveNumber: Math.floor((ply + 1) / 2),
+        moveNumber: Number(fenBefore.split(" ")[5]),
         color: move.color,
         san: move.san,
         uci: `${move.from}${move.to}${move.promotion || ""}`,
@@ -813,11 +812,10 @@ export function createMoveNode(move: {
     };
 }
 export function buildRecordFromPgn(pgnText: string): AnalysisRecord {
-    const parsed = parsePGN(pgnText);
-    const headers = parsed[0]?.headers ?? {};
-    const rootFen = headers.FEN || START_FEN;
     const chess = new Chess();
     chess.loadPgn(pgnText);
+    const headers = chess.getHeaders();
+    const rootFen = headers.FEN || START_FEN;
     const moveHistory = chess.history({ verbose: true }) as Array<{
         san: string;
         from: string;

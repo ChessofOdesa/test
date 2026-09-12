@@ -8,6 +8,7 @@ import {
     findOpening,
     formatCp,
     getNodeByPath,
+    getNextPath,
     isSamePath,
     removeNodeAtPath,
     updateNodeAtPath,
@@ -218,15 +219,15 @@ export default function AnalysisMoveTree({
         if (!autoplay) return;
         const delay = autoplaySpeed === "0.5" ? 2000 : autoplaySpeed === "2" ? 500 : 1000;
         const timer = window.setTimeout(() => {
-            const index = record.currentPath?.[0] ?? -1;
-            if (index >= record.mainline.length - 1) {
+            const next = getNextPath(record, record.currentPath);
+            if (!next) {
                 setAutoplay(false);
                 return;
             }
-            onNavigate([index + 1]);
+            onNavigate(next);
         }, delay);
         return () => window.clearTimeout(timer);
-    }, [autoplay, autoplaySpeed, onNavigate, record.currentPath, record.mainline.length]);
+    }, [autoplay, autoplaySpeed, onNavigate, record]);
 
     useEffect(() => {
         if (!record.mainline.length) setAutoplay(false);
@@ -334,7 +335,7 @@ export default function AnalysisMoveTree({
         const node = entry.node;
         if (!node.comment.trim() && node.engineEval == null && node.evalLoss == null && !node.bestMoveSan) return null;
         return (
-            <div className="analysis-selected-move-detail">
+            <div key={node.id} className="analysis-selected-move-detail">
                 <div>
                     <strong>{moveLabel(node)}</strong>
                     {node.engineEval != null && <span>Оцінка {formatCp(node.engineEval)}</span>}
