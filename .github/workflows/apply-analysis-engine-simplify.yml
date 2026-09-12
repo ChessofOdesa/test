@@ -19,6 +19,9 @@ jobs:
         with:
           ref: feature/analysis-engine-simplify
 
+      - name: Repair one-time patch script quoting
+        run: node scripts/fix-analysis-engine-simplify-script.mjs
+
       - name: Apply targeted simplification patch
         run: node scripts/apply-analysis-engine-simplify.mjs
 
