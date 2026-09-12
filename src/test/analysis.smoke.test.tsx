@@ -130,9 +130,9 @@ describe("Analysis Center", () => {
         fireEvent.click(await screen.findByRole("tab", { name: /Огляд/i }));
         expect(screen.queryByRole("button", { name: /Хід класифіковано як/i })).not.toBeInTheDocument();
         fireEvent.click(screen.getByRole("button", { name: /Проаналізувати партію/i }));
-        expect(await screen.findByText("Аналіз триває")).toBeInTheDocument();
         const badge = await screen.findByRole("button", { name: /Хід класифіковано як/i });
         expect(badge).toBeInTheDocument();
+        expect(screen.getByRole("button", { name: /Заново/i })).toBeInTheDocument();
         fireEvent.click(badge);
         expect(screen.getByRole("tab", { name: /Движок/i })).toHaveAttribute("aria-selected", "true");
     });
