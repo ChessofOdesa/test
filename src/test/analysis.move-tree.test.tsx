@@ -44,7 +44,7 @@ function makeRecord(): AnalysisRecord {
 afterEach(cleanup);
 
 describe("Analysis move tree", () => {
-    it("renders the main game as move pairs and inserts user variations inline", () => {
+    it("renders paired mainline moves and compact inline variations without a visible variation label", () => {
         const record = makeRecord();
         render(
             <AnalysisMoveTree
@@ -57,7 +57,8 @@ describe("Analysis move tree", () => {
 
         expect(screen.getByText("2 ходи · 1 варіант")).toBeInTheDocument();
         expect(screen.getByText("Основна партія")).toBeInTheDocument();
-        expect(screen.getByText("Ваш варіант")).toBeInTheDocument();
+        expect(screen.queryByText("Ваш варіант")).not.toBeInTheDocument();
+        expect(screen.queryByText("Вкладений варіант")).not.toBeInTheDocument();
         expect(screen.getByText("exd5")).toBeInTheDocument();
         expect(screen.getByText("c6")).toBeInTheDocument();
         expect(screen.queryByText("Власні варіанти")).not.toBeInTheDocument();
