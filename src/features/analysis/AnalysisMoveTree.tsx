@@ -190,11 +190,13 @@ export default function AnalysisMoveTree({
     setRecord,
     onNavigate,
     onOpenEngine,
+    onPreviewBestMove,
 }: {
     record: AnalysisRecord;
     setRecord: Dispatch<SetStateAction<AnalysisRecord>>;
     onNavigate: (path: number[] | null) => void;
     onOpenEngine: () => void;
+    onPreviewBestMove?: () => void;
 }) {
     const [filter, setFilter] = useState<MoveFilter>("all");
     const [variationsCollapsed, setVariationsCollapsed] = useState(false);
@@ -375,7 +377,7 @@ export default function AnalysisMoveTree({
                         {selectedNode.engineEval != null && <span><small>Оцінка</small><strong>{formatCp(selectedNode.engineEval)}</strong></span>}
                         {selectedNode.evalLoss != null && <span><small>Втрата</small><strong>{(selectedNode.evalLoss / 100).toFixed(2)}</strong></span>}
                         {selectedNode.bestMoveSan && selectedNode.classification !== "best" && (
-                            <button type="button" onClick={onOpenEngine}>Краще: {selectedNode.bestMoveSan} <ChevronRight size={13} /></button>
+                            <button type="button" onClick={onPreviewBestMove || onOpenEngine}>Краще: {selectedNode.bestMoveSan} <ChevronRight size={13} /></button>
                         )}
                     </div>
                 ) : (
