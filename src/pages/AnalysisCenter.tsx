@@ -10,6 +10,7 @@ import { BOARD_THEMES, useBoardSettings } from "@/contexts/BoardSettingsContext"
 import AnalysisMoveTree from "@/features/analysis/AnalysisMoveTree";
 import AnalysisEvaluationGraph from "@/features/analysis/AnalysisEvaluationGraph";
 import { analysisNavigationLabel, lastAnalysisPath, nextAnalysisPath, previousAnalysisPath, sameAnalysisPath } from "@/features/analysis/navigation";
+import { buildSanLinePreview } from "@/features/analysis/preview";
 import { buildAnalysisPgn } from "@/features/analysis/pgnTree";
 import {
     START_FEN,
@@ -766,6 +767,37 @@ export default function AnalysisCenter() {
         URL.revokeObjectURL(url);
     };
 
+    const previewReviewedBestMove = useCallback(() => {
+        if (!record.currentPath) {
+            setTab("engine");
+            return;
+        }
+        const node = getNodeByPath(record.mainline, record.currentPath);
+        if (!node?.bestMoveSan) {
+            setTab("engine");
+            return;
+        }
+
+        const storedLine = node.alternatives.length ? node.alternatives : [node.bestMoveSan];
+        let preview = buildSanLinePreview(node.fenBefore, storedLine);
+        if (!preview && storedLine[0] !== node.bestMoveSan) {
+            preview = buildSanLinePreview(node.fenBefore, [node.bestMoveSan]);
+        }
+        if (!preview) {
+            toast.info("Не вдалося показати збережену найкращу лінію на дошці.");
+            setTab("engine");
+            return;
+        }
+
+        setLinePreview({
+            label: `Краще: ${node.bestMoveSan}`,
+            fens: preview.fens,
+            moves: preview.moves,
+            index: 0,
+        });
+        setTab("engine");
+    }, [record.currentPath, record.mainline]);
+
     const engineLines = useMemo<EngineLineView[]>(() => {
         if (!currentEngine) return [];
         if (currentEngine.lines.length) {
@@ -1066,6 +1098,7 @@ export default function AnalysisCenter() {
                                 setRecord={setRecord}
                                 onNavigate={navigateTo}
                                 onOpenEngine={() => setTab("engine")}
+                                onPreviewBestMove={previewReviewedBestMove}
                             />
                         )}
 
