@@ -1,7 +1,7 @@
 import AnalysisMoveTree from "@/features/analysis/AnalysisMoveTree";
 import { buildAnalysisPgn } from "@/features/analysis/pgnTree";
 import { createMoveNode, createRecord, type AnalysisRecord } from "@/features/analysis/model";
-import { cleanup, fireEvent, render, screen } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, within } from "@testing-library/react";
 import { Chess } from "chess.js";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
@@ -62,6 +62,49 @@ describe("Analysis move tree", () => {
         expect(screen.getByText("exd5")).toBeInTheDocument();
         expect(screen.getByText("c6")).toBeInTheDocument();
         expect(screen.queryByText("Власні варіанти")).not.toBeInTheDocument();
+    });
+
+    it("keeps one selected-move inspector above the move list, including variation comments", () => {
+        const record = makeRecord();
+        record.currentPath = [1, 0];
+        render(
+            <AnalysisMoveTree
+                record={record}
+                setRecord={vi.fn() as never}
+                onNavigate={vi.fn()}
+                onOpenEngine={vi.fn()}
+            />,
+        );
+
+        const inspector = screen.getByLabelText("Вибраний хід");
+        expect(screen.getAllByLabelText("Вибраний хід")).toHaveLength(1);
+        expect(within(inspector).getByText("2.exd5")).toBeInTheDocument();
+        expect(within(inspector).getByText("Варіант")).toBeInTheDocument();
+        expect(within(inspector).getByText("Тут я перевіряв альтернативу.")).toBeInTheDocument();
+    });
+
+    it("keeps variation branches visible when the variations-only filter is selected", () => {
+        const record = makeRecord();
+        render(
+            <AnalysisMoveTree
+                record={record}
+                setRecord={vi.fn() as never}
+                onNavigate={vi.fn()}
+                onOpenEngine={vi.fn()}
+            />,
+        );
+
+        fireEvent.click(screen.getByRole("button", { name: "Згорнути варіанти" }));
+        expect(screen.queryByText("exd5")).not.toBeInTheDocument();
+
+        fireEvent.click(screen.getByRole("button", { name: "Фільтр ходів" }));
+        fireEvent.click(screen.getByRole("menuitemradio", { name: "Тільки варіанти" }));
+
+        const moveList = screen.getByLabelText("Список ходів");
+        expect(within(moveList).getByText("exd5")).toBeInTheDocument();
+        expect(within(moveList).getByText("c6")).toBeInTheDocument();
+        expect(within(moveList).queryByText("e5")).not.toBeInTheDocument();
+        expect(screen.getByText("Тільки варіанти")).toBeInTheDocument();
     });
 
     it("uses the same navigation callback for mainline and variation moves", () => {
