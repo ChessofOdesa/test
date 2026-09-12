@@ -7,7 +7,7 @@ describe("Analysis SAN preview", () => {
         const preview = buildSanLinePreview(new Chess().fen(), ["e4", "e5", "Nf3", "Nc6"]);
         expect(preview?.moves).toEqual(["e4", "e5", "Nf3", "Nc6"]);
         expect(preview?.fens).toHaveLength(4);
-        expect(preview?.fens.at(-1)).toContain(" b ");
+        expect(preview?.fens.at(-1)).toContain(" w ");
     });
 
     it("stops safely at the first invalid SAN instead of inventing positions", () => {
