@@ -7,6 +7,8 @@ import { Progress } from "@/components/ui/progress";
 import { Textarea } from "@/components/ui/textarea";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { BOARD_THEMES, useBoardSettings } from "@/contexts/BoardSettingsContext";
+import AnalysisMoveTree from "@/features/analysis/AnalysisMoveTree";
+import { buildAnalysisPgn } from "@/features/analysis/pgnTree";
 import {
     START_FEN,
     buildMovePairs,
@@ -481,7 +483,7 @@ export default function AnalysisCenter() {
     const openImport = (mode: ImportMode) => {
         setImportMode(mode);
         setImportError("");
-        setImportDraft(mode === "pgn" ? (record.mainline.length ? buildPgn(record) : "") : currentFen);
+        setImportDraft(mode === "pgn" ? (record.mainline.length ? buildAnalysisPgn(record) : "") : currentFen);
         setImportOpen(true);
     };
 
@@ -670,7 +672,7 @@ export default function AnalysisCenter() {
 
     const downloadPgn = () => {
         if (!record.mainline.length) return;
-        const pgn = buildPgn(record);
+        const pgn = buildAnalysisPgn(record);
         const blob = new Blob([pgn], { type: "application/x-chess-pgn;charset=utf-8" });
         const url = URL.createObjectURL(blob);
         const anchor = document.createElement("a");
@@ -823,7 +825,7 @@ export default function AnalysisCenter() {
                             <TooltipContent side="right">Додаткові дії</TooltipContent>
                         </Tooltip>
                         <DropdownMenuContent side="right" align="end" className="w-60">
-                            <DropdownMenuItem disabled={!record.mainline.length} onSelect={() => void copyText(buildPgn(record), "PGN")}><Copy size={16} className="mr-2" />Копіювати PGN</DropdownMenuItem>
+                            <DropdownMenuItem disabled={!record.mainline.length} onSelect={() => void copyText(buildAnalysisPgn(record), "PGN")}><Copy size={16} className="mr-2" />Копіювати PGN</DropdownMenuItem>
                             <DropdownMenuItem disabled={!record.mainline.length} onSelect={downloadPgn}><Download size={16} className="mr-2" />Зберегти PGN</DropdownMenuItem>
                             <DropdownMenuItem onSelect={() => void copyText(currentFen, "FEN")}><Copy size={16} className="mr-2" />Копіювати FEN</DropdownMenuItem>
                             <DropdownMenuItem onSelect={() => setFlipped(value => !value)}><FlipVertical size={16} className="mr-2" />Перевернути дошку</DropdownMenuItem>
@@ -918,39 +920,12 @@ export default function AnalysisCenter() {
 
                     <div className="analysis-panel-body">
                         {tab === "moves" && (
-                            <div className="analysis-moves-workspace">
-                                <div className="analysis-moves-header">
-                                    <div><strong>Ходи</strong><span>{record.headers.Result || "*"}</span></div>
-                                    <small>{renderedMoves.length ? `${renderedMoves.length} півходів` : "Партію ще не завантажено"}</small>
-                                </div>
-
-                                <div className="analysis-move-list" aria-label="Список ходів">
-                                    {movePairs.length ? movePairs.map(pair => (
-                                        <div key={pair.number} className="analysis-move-row">
-                                            <span>{pair.number}.</span>
-                                            {[pair.white, pair.black].map((slot, index) => slot ? (
-                                                <button key={slot.node.id} type="button" className={cn(isSamePath(slot.path, record.currentPath) && "is-current")} onClick={() => navigateTo(slot.path)}>
-                                                    <span>{slot.node.san}</span>
-                                                    {slot.node.classification && <em className={`analysis-classification analysis-classification-${slot.node.classification}`}>{CLASSIFICATION_MARKS[slot.node.classification]}</em>}
-                                                </button>
-                                            ) : <i key={`${pair.number}-${index}`} />)}
-                                        </div>
-                                    )) : (
-                                        <div className="analysis-empty-state compact"><Clipboard size={27} /><strong>Ходів ще немає</strong><p>Імпортуйте PGN, відкрийте файл або зробіть ходи на дошці.</p></div>
-                                    )}
-
-                                    {hasVariations && (
-                                        <div className="analysis-variations">
-                                            <strong>Власні варіанти</strong>
-                                            {renderedMoves.filter(entry => entry.depth > 0).map(entry => (
-                                                <button key={entry.node.id} type="button" onClick={() => navigateTo(entry.path)} style={{ paddingLeft: `${Math.min(3, entry.depth) * 14 + 10}px` }}>
-                                                    ({entry.node.moveNumber}{entry.node.color === "w" ? "." : "..."} {entry.node.san})
-                                                </button>
-                                            ))}
-                                        </div>
-                                    )}
-                                </div>
-                            </div>
+                            <AnalysisMoveTree
+                                record={record}
+                                setRecord={setRecord}
+                                onNavigate={navigateTo}
+                                onOpenEngine={() => setTab("engine")}
+                            />
                         )}
 
                         {tab === "engine" && (
@@ -1120,7 +1095,7 @@ export default function AnalysisCenter() {
                     <div className="analysis-panel-navigation" aria-label="Навігація по партії" role="group">
                         <NavIconButton label="На початок партії" icon={<ChevronsLeft size={18} />} onClick={goFirst} disabled={currentMoveIndex < 0} />
                         <NavIconButton label="Попередній хід" icon={<ChevronLeft size={18} />} onClick={goPrevious} disabled={currentMoveIndex < 0} />
-                        <span aria-live="polite">{currentMoveIndex >= 0 ? `${currentMoveIndex + 1} / ${renderedMoves.length}` : `0 / ${renderedMoves.length}`}</span>
+                        <span aria-live="polite" title={currentMoveIndex >= 0 ? `Позиція ${currentMoveIndex + 1} із ${renderedMoves.length}` : "Початкова позиція"}>{currentMoveIndex >= 0 ? `${currentMoveIndex + 1} / ${renderedMoves.length}` : `0 / ${renderedMoves.length}`}</span>
                         <NavIconButton label="Наступний хід" icon={<ChevronRight size={18} />} onClick={goNext} disabled={!renderedMoves.length || currentMoveIndex >= renderedMoves.length - 1} />
                         <NavIconButton label="У кінець партії" icon={<ChevronsRight size={18} />} onClick={goLast} disabled={!renderedMoves.length || currentMoveIndex >= renderedMoves.length - 1} />
                     </div>
