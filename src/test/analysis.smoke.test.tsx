@@ -42,10 +42,10 @@ describe("Analysis Center", () => {
         const navigator = within(panel).getByLabelText("Навігація по партії");
         expect(navigator).toBeInTheDocument();
         expect(screen.getAllByLabelText("Навігація по партії")).toHaveLength(1);
-        expect(within(navigator).getByRole("button", { name: "На початок партії" })).toBeInTheDocument();
         expect(within(navigator).getByRole("button", { name: "Попередній хід" })).toBeInTheDocument();
         expect(within(navigator).getByRole("button", { name: "Наступний хід" })).toBeInTheDocument();
-        expect(within(navigator).getByRole("button", { name: "У кінець партії" })).toBeInTheDocument();
+        expect(within(navigator).queryByRole("button", { name: /На початок/i })).not.toBeInTheDocument();
+        expect(within(navigator).queryByRole("button", { name: /У кінець/i })).not.toBeInTheDocument();
         expect(within(navigator).getByText("0 / 0")).toBeInTheDocument();
     });
 
@@ -90,7 +90,7 @@ describe("Analysis Center", () => {
         expect(screen.getByText("MultiPV")).toBeInTheDocument();
     });
 
-    it("shows clickable engine lines without a duplicate engine control inside the engine tab", async () => {
+    it("previews the best move from the simplified engine card", async () => {
         render(<MemoryRouter initialEntries={["/analysis"]}>
             <BoardSettingsProvider><Analysis /></BoardSettingsProvider>
         </MemoryRouter>);
@@ -99,15 +99,15 @@ describe("Analysis Center", () => {
         const initialFen = board.getAttribute("data-fen");
         fireEvent.click(screen.getByRole("tab", { name: /Движок/i }));
 
-        expect(screen.queryByLabelText("Кількість варіантів")).not.toBeInTheDocument();
-        const firstLine = await screen.findByTitle("e4 e5 Nf3");
-        fireEvent.click(firstLine);
+        const bestMoveCard = await screen.findByLabelText("Найкращий хід Stockfish");
+        expect(within(bestMoveCard).getByText("e4")).toBeInTheDocument();
+        fireEvent.click(within(bestMoveCard).getByRole("button", { name: /Показати на дошці/i }));
         await waitFor(() => expect(board.getAttribute("data-fen")).not.toBe(initialFen));
-        expect(screen.getByText("Варіант 1")).toBeInTheDocument();
+        expect(screen.getByText("Найкращий варіант")).toBeInTheDocument();
         expect(screen.getByRole("button", { name: /До партії/i })).toBeInTheDocument();
     });
 
-    it("presents a human engine verdict and explicit opt-in controls for saving engine lines", async () => {
+    it("keeps the Engine tab simple and hides secondary lines until requested", async () => {
         render(<MemoryRouter initialEntries={["/analysis"]}>
             <BoardSettingsProvider><Analysis /></BoardSettingsProvider>
         </MemoryRouter>);
@@ -116,9 +116,14 @@ describe("Analysis Center", () => {
         fireEvent.click(screen.getByRole("tab", { name: /Движок/i }));
 
         expect(await screen.findByText("Позиція близька до рівної")).toBeInTheDocument();
-        expect(screen.getByRole("button", { name: /Налаштувати/i })).toBeInTheDocument();
-        expect(screen.getAllByRole("button", { name: /Додати варіант Stockfish .* до дерева/i })).toHaveLength(3);
-        expect(screen.getByText(/Клік відкриває preview/)).toBeInTheDocument();
+        expect(screen.getByRole("button", { name: "Налаштувати движок" })).toBeInTheDocument();
+        expect(screen.queryByText("Глибина")).not.toBeInTheDocument();
+        expect(screen.queryByText("Варіанти Stockfish")).not.toBeInTheDocument();
+        const alternatives = screen.getByText("Інші варіанти").closest("details");
+        expect(alternatives).toBeInTheDocument();
+        expect(alternatives).not.toHaveAttribute("open");
+        fireEvent.click(within(alternatives!).getByText("Інші варіанти"));
+        expect(within(alternatives!).getAllByRole("button", { name: /Додати варіант Stockfish .* до дерева/i })).toHaveLength(2);
     });
 
     it("runs full review from Overview and adds a real classification badge", async () => {
