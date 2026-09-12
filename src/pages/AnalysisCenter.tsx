@@ -11,8 +11,6 @@ import AnalysisMoveTree from "@/features/analysis/AnalysisMoveTree";
 import { buildAnalysisPgn } from "@/features/analysis/pgnTree";
 import {
     START_FEN,
-    buildMovePairs,
-    buildPgn,
     buildRecordFromPgn,
     calculateAccuracy,
     classificationFromLoss,
@@ -20,12 +18,12 @@ import {
     countLabels,
     createMoveNode,
     createRecord,
-    explanationForMove,
     findOpening,
     formatAnalysisError,
     formatCp,
     getCurrentFen,
     getLastMove,
+    getNodeByPath,
     isSamePath,
     numericScoreFromEngine,
     renderMoves,
@@ -42,6 +40,7 @@ import { cn } from "@/lib/utils";
 import { Chess, type Square } from "chess.js";
 import {
     BarChart3,
+    BookOpen,
     BrainCircuit,
     ChevronLeft,
     ChevronRight,
@@ -50,9 +49,11 @@ import {
     Clipboard,
     Copy,
     Download,
+    FileText,
     FileUp,
     FlipVertical,
     Gauge,
+    GitBranch,
     Info,
     Loader2,
     MoreHorizontal,
@@ -61,6 +62,7 @@ import {
     Plus,
     RotateCcw,
     Settings2,
+    SlidersHorizontal,
     Star,
     Trash2,
     Zap,
@@ -78,9 +80,12 @@ import {
 import { useLocation, useSearchParams } from "react-router-dom";
 import { toast } from "sonner";
 import "@/styles/analysis-center.css";
+import "@/styles/analysis-panel-professional.css";
 
 type PanelTab = "moves" | "engine" | "overview" | "info";
 type ImportMode = "pgn" | "fen";
+type OverviewFilter = MoveClassification | "all";
+type BoardBadgeKind = MoveClassification | "book";
 
 type ReviewState = {
     running: boolean;
@@ -122,6 +127,16 @@ const CLASSIFICATION_MARKS: Record<MoveClassification, string> = {
     blunder: "??",
 };
 
+const BOARD_BADGE_LABELS: Record<BoardBadgeKind, string> = {
+    ...CLASSIFICATION_LABELS,
+    book: "Теорія",
+};
+
+const BOARD_BADGE_MARKS: Record<BoardBadgeKind, string> = {
+    ...CLASSIFICATION_MARKS,
+    book: "📖",
+};
+
 function toEngineSummary(fen: string, result: AnalyzeResult): EngineSummary {
     return {
         backend: result.backend,
@@ -148,6 +163,27 @@ function evaluationLabel(summary: EngineSummary | null) {
 
 function engineLineScore(line: EngineLine) {
     return line.scoreMate != null ? `M${Math.abs(line.scoreMate)}` : formatCp(line.scoreCp);
+}
+
+function engineVerdict(score: number | null | undefined) {
+    if (score == null) return "Оцінка позиції ще обчислюється";
+    if (score >= 250) return "Велика перевага білих";
+    if (score >= 80) return "Перевага білих";
+    if (score >= 25) return "Трохи краще у білих";
+    if (score <= -250) return "Велика перевага чорних";
+    if (score <= -80) return "Перевага чорних";
+    if (score <= -25) return "Трохи краще у чорних";
+    return "Позиція близька до рівної";
+}
+
+function ukrainianExplanationForMove(classification: MoveClassification, color: "w" | "b", bestMoveSan: string | null) {
+    const side = color === "w" ? "Білі" : "Чорні";
+    if (classification === "best") return `${side} зіграли найточніше й зберегли оцінку позиції.`;
+    if (classification === "excellent") return `${side} знайшли дуже сильне продовження, майже рівне першому вибору Stockfish.`;
+    if (classification === "good") return `${side} зіграли добре, хоча в позиції було ще точніше продовження.`;
+    if (classification === "inaccuracy") return `${side} трохи відхилилися від найсильнішої лінії.${bestMoveSan ? ` Краще було ${bestMoveSan}.` : ""}`;
+    if (classification === "mistake") return `${side} віддали помітну частину оцінки.${bestMoveSan ? ` Краще було ${bestMoveSan}.` : ""}`;
+    return `${side} різко погіршили позицію.${bestMoveSan ? ` Stockfish радив ${bestMoveSan}.` : ""}`;
 }
 
 function sideAccuracy(record: AnalysisRecord, color: "w" | "b") {
@@ -302,9 +338,9 @@ export default function AnalysisCenter() {
     const [importError, setImportError] = useState("");
     const [settingsOpen, setSettingsOpen] = useState(false);
     const [linePreview, setLinePreview] = useState<EnginePreview | null>(null);
+    const [overviewFilter, setOverviewFilter] = useState<OverviewFilter>("all");
 
     const renderedMoves = useMemo(() => renderMoves(record.mainline), [record.mainline]);
-    const movePairs = useMemo(() => buildMovePairs(record.mainline), [record.mainline]);
     const currentNode = useMemo(() => getLastMove(record), [record]);
     const currentFen = useMemo(() => getCurrentFen(record), [record]);
     const currentMoveIndex = useMemo(
@@ -349,7 +385,42 @@ export default function AnalysisCenter() {
     const reviewBeforeEval = cachedBeforeEval ?? previousMainlineEval;
     const reviewAfterEval = currentNode?.engineEval ?? null;
     const badgeClassification = showMoveBadges && !linePreview && currentNode?.classification && currentNode.evalLoss != null ? currentNode.classification : null;
-    const badgeSquare = badgeClassification && currentNode?.uci?.length >= 4 ? currentNode.uci.slice(2, 4) as Square : null;
+    const badgeIsBook = Boolean(
+        showMoveBadges
+        && !linePreview
+        && !badgeClassification
+        && currentNode
+        && opening
+        && record.currentPath?.length === 1
+        && currentNode.ply <= opening.matchedPly,
+    );
+    const boardBadgeKind: BoardBadgeKind | null = badgeClassification || (badgeIsBook ? "book" : null);
+    const badgeSquare = boardBadgeKind && currentNode?.uci?.length >= 4 ? currentNode.uci.slice(2, 4) as Square : null;
+
+    const overviewMoments = useMemo(() => {
+        const reviewed = renderedMoves.filter(entry => entry.node.classification);
+        if (overviewFilter !== "all") return reviewed.filter(entry => entry.node.classification === overviewFilter).slice(0, 10);
+        return reviewed.filter(entry => ["inaccuracy", "mistake", "blunder"].includes(entry.node.classification || "")).slice(0, 8);
+    }, [overviewFilter, renderedMoves]);
+
+    const metadataText = useMemo(() => {
+        const rows = [
+            ["White", record.headers.White],
+            ["WhiteElo", record.headers.WhiteElo],
+            ["Black", record.headers.Black],
+            ["BlackElo", record.headers.BlackElo],
+            ["Result", record.headers.Result],
+            ["TimeControl", record.headers.TimeControl],
+            ["Date", record.headers.Date],
+            ["Event", record.headers.Event],
+            ["Site", record.headers.Site],
+            ["Round", record.headers.Round],
+            ["Termination", record.headers.Termination],
+            ["Opening", opening?.opening.name],
+            ["ECO", opening?.opening.eco],
+        ];
+        return rows.filter(([, value]) => value).map(([key, value]) => `${key}: ${value}`).join("\n");
+    }, [opening, record.headers]);
 
     useEffect(() => {
         const element = boardWrapRef.current;
@@ -507,6 +578,7 @@ export default function AnalysisCenter() {
             setLinePreview(null);
             setTab("moves");
             setReview({ running: false, current: 0, total: 0, error: "" });
+            setOverviewFilter("all");
         } catch {
             setImportError(importMode === "pgn"
                 ? "Не вдалося прочитати PGN. Перевірте формат ходів або заголовки партії."
@@ -528,6 +600,7 @@ export default function AnalysisCenter() {
             setLinePreview(null);
             setTab("moves");
             setReview({ running: false, current: 0, total: 0, error: "" });
+            setOverviewFilter("all");
             toast.success("PGN-файл завантажено.");
         } catch {
             toast.error("Не вдалося прочитати PGN-файл.");
@@ -579,6 +652,7 @@ export default function AnalysisCenter() {
         reviewAbortRef.current?.abort();
         positionAbortRef.current?.abort();
         setLinePreview(null);
+        setOverviewFilter("all");
         const controller = new AbortController();
         reviewAbortRef.current = controller;
         const total = record.mainline.length;
@@ -609,7 +683,7 @@ export default function AnalysisCenter() {
                         target.engineMate = after.scoreMate;
                         target.bestMoveSan = bestMoveSan;
                         target.alternatives = before.pvSan.slice(0, 8);
-                        target.explanation = explanationForMove(classification, node.color, bestMoveSan);
+                        target.explanation = ukrainianExplanationForMove(classification, node.color, bestMoveSan);
                     }),
                 }));
                 setReview({ running: true, current: index + 1, total, error: "" });
@@ -637,6 +711,7 @@ export default function AnalysisCenter() {
         setCurrentEngine(null);
         setLinePreview(null);
         setReview({ running: false, current: 0, total: 0, error: "" });
+        setOverviewFilter("all");
         setTab("moves");
         toast.success("Відкрито нову позицію для аналізу.");
     };
@@ -657,6 +732,7 @@ export default function AnalysisCenter() {
         reviewAbortRef.current?.abort();
         setRecord(current => ({ ...current, mainline: clearReviewData(current.mainline) }));
         setReview({ running: false, current: 0, total: 0, error: "" });
+        setOverviewFilter("all");
         setLinePreview(null);
         toast.success("Результати аналізу очищено. Партію та варіанти збережено.");
     };
@@ -681,11 +757,6 @@ export default function AnalysisCenter() {
         anchor.click();
         URL.revokeObjectURL(url);
     };
-
-    const keyMoments = useMemo(
-        () => renderedMoves.filter(entry => ["inaccuracy", "mistake", "blunder"].includes(entry.node.classification || "")).slice(0, 8),
-        [renderedMoves],
-    );
 
     const engineLines = useMemo<EngineLineView[]>(() => {
         if (!currentEngine) return [];
@@ -717,11 +788,62 @@ export default function AnalysisCenter() {
         setLinePreview(preview);
     };
 
+    const addEngineLineToVariations = (line: EngineLineView) => {
+        if (!record.currentPath || !currentNode || !line.pv.length) {
+            toast.info("Оберіть хід у партії, від якого потрібно зберегти варіант.");
+            return;
+        }
+        const basePath = [...record.currentPath];
+        const parent = getNodeByPath(record.mainline, basePath);
+        if (!parent) return;
+
+        const chess = new Chess(currentFen);
+        const nodes: AnalysisMoveNode[] = [];
+        for (const uci of line.pv.slice(0, 10)) {
+            if (uci.length < 4) break;
+            const fenBefore = chess.fen();
+            try {
+                const move = chess.move({
+                    from: uci.slice(0, 2),
+                    to: uci.slice(2, 4),
+                    promotion: (uci[4] as "q" | "r" | "b" | "n" | undefined) || "q",
+                });
+                if (!move) break;
+                nodes.push(createMoveNode(move, fenBefore, chess.fen(), currentNode.ply + nodes.length + 1));
+            } catch {
+                break;
+            }
+        }
+        if (!nodes.length) {
+            toast.info("Цю лінію не вдалося додати до варіантів.");
+            return;
+        }
+        for (let index = 0; index < nodes.length - 1; index += 1) nodes[index].children = [nodes[index + 1]];
+
+        const existingIndex = parent.children.findIndex(child => child.uci === nodes[0].uci);
+        if (existingIndex >= 0) {
+            navigateTo([...basePath, existingIndex]);
+            setTab("moves");
+            toast.info("Такий варіант уже є в дереві.");
+            return;
+        }
+
+        const childIndex = parent.children.length;
+        setRecord(current => ({
+            ...current,
+            mainline: updateNodeAtPath(current.mainline, basePath, target => { target.children.push(nodes[0]); }),
+            currentPath: [...basePath, childIndex],
+        }));
+        setLinePreview(null);
+        setTab("moves");
+        toast.success("Лінію Stockfish додано до варіантів.");
+    };
+
     const bestMoveArrow = useMemo<[Square, Square, string?][]>(() => {
         const move = currentEngine?.bestMoveUci;
-        if (!showBestMoveArrow || badgeClassification || linePreview || !engineEnabled || !move || move.length < 4) return [];
+        if (!showBestMoveArrow || boardBadgeKind || linePreview || !engineEnabled || !move || move.length < 4) return [];
         return [[move.slice(0, 2) as Square, move.slice(2, 4) as Square, "#315c9a"]];
-    }, [badgeClassification, currentEngine?.bestMoveUci, engineEnabled, linePreview, showBestMoveArrow]);
+    }, [boardBadgeKind, currentEngine?.bestMoveUci, engineEnabled, linePreview, showBestMoveArrow]);
 
     const lastMoveSquares = !linePreview && currentNode?.uci?.length >= 4
         ? [currentNode.uci.slice(0, 2) as Square, currentNode.uci.slice(2, 4) as Square]
@@ -744,6 +866,10 @@ export default function AnalysisCenter() {
         const buttons = event.currentTarget.querySelectorAll<HTMLButtonElement>('[role="tab"]');
         buttons[nextIndex]?.focus();
     };
+
+    const missing = (value?: string | null) => value?.trim() || "Не вказано";
+    const resultLabel = record.headers.Result && record.headers.Result !== "*" ? record.headers.Result : "Не завершено";
+    const moveCount = Math.ceil(record.mainline.length / 2);
 
     return (
         <div className="analysis-center">
@@ -867,23 +993,30 @@ export default function AnalysisCenter() {
                                 customBoardStyle={{ borderRadius: 10, boxShadow: "0 16px 42px rgba(27,49,80,.16)" }}
                             />
 
-                            {badgeClassification && badgeSquare && currentNode && (
+                            {boardBadgeKind && badgeSquare && currentNode && (
                                 <span className="analysis-board-badge-slot" style={badgeSquareStyle(badgeSquare, flipped)}>
                                     <Tooltip>
                                         <TooltipTrigger asChild>
                                             <button
                                                 type="button"
-                                                className={`analysis-board-badge analysis-board-badge-${badgeClassification}`}
-                                                aria-label={`Хід класифіковано як ${CLASSIFICATION_LABELS[badgeClassification]}`}
-                                                onClick={() => setTab("engine")}
+                                                className={`analysis-board-badge analysis-board-badge-${boardBadgeKind}`}
+                                                aria-label={boardBadgeKind === "book" ? "Хід позначено як теорію" : `Хід класифіковано як ${BOARD_BADGE_LABELS[boardBadgeKind]}`}
+                                                onClick={() => boardBadgeKind !== "book" && setTab("engine")}
                                             >
-                                                {CLASSIFICATION_MARKS[badgeClassification]}
+                                                {BOARD_BADGE_MARKS[boardBadgeKind]}
                                             </button>
                                         </TooltipTrigger>
                                         <TooltipContent side="top">
                                             <div className="analysis-badge-tooltip">
-                                                <strong>{CLASSIFICATION_LABELS[badgeClassification]}</strong>
-                                                <span>{currentNode.evalLoss != null ? `Втрата оцінки: ${(currentNode.evalLoss / 100).toFixed(2)}` : ""}</span>
+                                                <strong>{BOARD_BADGE_LABELS[boardBadgeKind]}</strong>
+                                                {boardBadgeKind === "book" ? (
+                                                    <span>{opening?.line?.name || opening?.opening.name || "Хід із дебютної бази"}</span>
+                                                ) : (
+                                                    <>
+                                                        {reviewBeforeEval != null && reviewAfterEval != null && <span>Оцінка: {formatCp(reviewBeforeEval)} → {formatCp(reviewAfterEval)}</span>}
+                                                        {currentNode.evalLoss != null && <span>Втрата: {(currentNode.evalLoss / 100).toFixed(2)}</span>}
+                                                    </>
+                                                )}
                                             </div>
                                         </TooltipContent>
                                     </Tooltip>
@@ -934,6 +1067,11 @@ export default function AnalysisCenter() {
                                     <div className="analysis-empty-state"><Zap size={28} /><strong>Движок вимкнено</strong><p>Увімкніть Stockfish першою кнопкою в лівій панелі.</p></div>
                                 ) : (
                                     <>
+                                        <div className="analysis-engine-toolbar">
+                                            <div><strong>Движок</strong><span>Поточна позиція та найсильніші продовження</span></div>
+                                            <button type="button" className="analysis-engine-settings-link" onClick={() => setSettingsOpen(true)}><SlidersHorizontal size={14} />Налаштувати</button>
+                                        </div>
+
                                         <div className="analysis-engine-summary">
                                             <div><span>Оцінка</span><strong>{positionBusy && !currentEngine ? "…" : evaluationLabel(currentEngine)}</strong></div>
                                             <div><span>Глибина</span><strong>{currentEngine?.depth ? `D${currentEngine.depth}` : "—"}</strong></div>
@@ -947,6 +1085,8 @@ export default function AnalysisCenter() {
                                             </div>
                                             <span>{positionBusy ? "Аналізує" : currentEngine ? "Готовий" : "Очікує"}</span>
                                         </div>
+
+                                        <div className="analysis-engine-verdict"><Gauge size={15} /><span>Оцінка позиції:</span><strong>{engineVerdict(currentEngine?.numericScore)}</strong></div>
 
                                         {linePreview && (
                                             <div className="analysis-preview-bar" aria-live="polite">
@@ -968,7 +1108,7 @@ export default function AnalysisCenter() {
                                                 <div className="analysis-review-heading">
                                                     <span className={`analysis-classification analysis-classification-${currentNode.classification}`}>{CLASSIFICATION_MARKS[currentNode.classification]}</span>
                                                     <div>
-                                                        <span>Ваш хід</span>
+                                                        <span>Вибраний хід</span>
                                                         <strong>{currentNode.moveNumber}{currentNode.color === "w" ? "." : "..."} {currentNode.san}</strong>
                                                     </div>
                                                     <b>{CLASSIFICATION_LABELS[currentNode.classification]}</b>
@@ -992,23 +1132,35 @@ export default function AnalysisCenter() {
                                                     <span>{evaluationLabel(currentEngine)}</span>
                                                 </div>
                                                 <p>{currentEngine.pvSan.slice(0, 7).join(" ")}</p>
-                                                <Button variant="outline" size="sm" disabled={!engineLines.length} onClick={() => engineLines[0] && previewEngineLine(engineLines[0], "Найкращий варіант")}>Показати на дошці</Button>
+                                                <div className="analysis-best-move-actions">
+                                                    <Button variant="outline" size="sm" disabled={!engineLines.length} onClick={() => engineLines[0] && previewEngineLine(engineLines[0], "Найкращий варіант")}>Показати на дошці</Button>
+                                                    <Button variant="ghost" size="sm" disabled={!record.currentPath || !engineLines.length} onClick={() => engineLines[0] && addEngineLineToVariations(engineLines[0])}><GitBranch size={14} />Додати до варіантів</Button>
+                                                </div>
                                             </div>
                                         )}
 
                                         <div className="analysis-engine-lines-section">
-                                            <div className="analysis-section-heading"><div><span>Варіанти Stockfish</span><small>MultiPV змінюється в Налаштуваннях</small></div></div>
+                                            <div className="analysis-section-heading"><div><span>Варіанти Stockfish</span><small>Клік відкриває preview · + зберігає у дерево</small></div></div>
                                             <div className="analysis-engine-lines">
                                                 {positionBusy && !engineLines.length
                                                     ? Array.from({ length: Math.min(multiPv, 5) }, (_, index) => <div key={index} className="analysis-line-skeleton" />)
                                                     : engineLines.map(line => (
-                                                        <button key={line.id} type="button" className={cn("analysis-engine-line", line.rank === 1 && "is-best")} onClick={() => previewEngineLine(line)} title={line.moves}>
-                                                            <span className="analysis-line-rank">{line.rank}</span>
-                                                            <strong>{line.score}</strong>
-                                                            <span className="analysis-line-moves">{line.moves || "Варіант обчислюється…"}</span>
-                                                            <ChevronRight size={15} />
-                                                        </button>
+                                                        <div key={line.id} className={cn("analysis-engine-line-row", line.rank === 1 && "is-best")}>
+                                                            <button type="button" className="analysis-engine-line-preview" onClick={() => previewEngineLine(line)} title={line.moves}>
+                                                                <span className="analysis-line-rank">{line.rank}</span>
+                                                                <strong>{line.score}</strong>
+                                                                <span className="analysis-line-moves">{line.moves || "Варіант обчислюється…"}</span>
+                                                                <ChevronRight size={15} />
+                                                            </button>
+                                                            <Tooltip>
+                                                                <TooltipTrigger asChild>
+                                                                    <button type="button" className="analysis-engine-line-add" disabled={!record.currentPath} onClick={() => addEngineLineToVariations(line)} aria-label={`Додати варіант Stockfish ${line.rank} до дерева`}><GitBranch size={14} /></button>
+                                                                </TooltipTrigger>
+                                                                <TooltipContent>Додати до варіантів</TooltipContent>
+                                                            </Tooltip>
+                                                        </div>
                                                     ))}
+                                                {!positionBusy && !engineLines.length && <div className="analysis-empty-state compact"><BrainCircuit size={25} /><strong>Лінії ще не готові</strong><p>Stockfish сформує найсильніші продовження для поточної позиції.</p></div>}
                                             </div>
                                         </div>
                                     </>
@@ -1017,7 +1169,7 @@ export default function AnalysisCenter() {
                         )}
 
                         {tab === "overview" && (
-                            <div className="analysis-stack">
+                            <div className="analysis-overview-panel">
                                 {review.running && (
                                     <div className="analysis-review-progress" aria-live="polite">
                                         <div className="analysis-section-heading"><div><span>Аналіз триває</span><small>{review.current} / {review.total} ходів</small></div><Loader2 className="animate-spin" size={19} /></div>
@@ -1029,46 +1181,69 @@ export default function AnalysisCenter() {
 
                                 {reviewedNodes.length ? (
                                     <>
-                                        {!review.running && <Button variant="outline" size="sm" className="analysis-rerun-button" onClick={() => void startFullReview()}><Play size={15} />Проаналізувати заново</Button>}
+                                        <div className="analysis-overview-topbar">
+                                            <div><strong>Огляд партії</strong><span>{reviewedNodes.length} перевірених ходів · реальна оцінка Stockfish</span></div>
+                                            {!review.running && <Button variant="outline" size="sm" className="analysis-rerun-button" onClick={() => void startFullReview()}><Play size={14} />Заново</Button>}
+                                        </div>
+
                                         <div className="analysis-accuracy-grid">
                                             <div><span>Білі</span><strong>{whiteAccuracy ?? "—"}%</strong></div>
                                             <div><span>Загальна</span><strong>{overallAccuracy ?? "—"}%</strong></div>
                                             <div><span>Чорні</span><strong>{blackAccuracy ?? "—"}%</strong></div>
                                         </div>
 
-                                        <div className="analysis-summary-table">
-                                            {(["best", "excellent", "good", "inaccuracy", "mistake", "blunder"] as MoveClassification[]).map(kind => (
-                                                <button key={kind} type="button" onClick={() => {
-                                                    const target = renderedMoves.find(entry => entry.node.classification === kind);
-                                                    if (target) navigateTo(target.path);
-                                                }}>
-                                                    <span className={`analysis-classification analysis-classification-${kind}`}>{CLASSIFICATION_MARKS[kind]}</span>
-                                                    <span>{CLASSIFICATION_LABELS[kind]}</span>
-                                                    <strong>{counts[kind]}</strong>
-                                                </button>
-                                            ))}
-                                        </div>
+                                        <section className="analysis-overview-section">
+                                            <div className="analysis-overview-section-title">
+                                                <div><strong>Класифікація ходів</strong><span>Натисніть категорію, щоб перейти до першого такого ходу</span></div>
+                                                {overviewFilter !== "all" && <button type="button" className="analysis-overview-clear-filter" onClick={() => setOverviewFilter("all")}>Усі</button>}
+                                            </div>
+                                            <div className="analysis-summary-table">
+                                                {(["best", "excellent", "good", "inaccuracy", "mistake", "blunder"] as MoveClassification[]).map(kind => (
+                                                    <button
+                                                        key={kind}
+                                                        type="button"
+                                                        className={cn(overviewFilter === kind && "is-selected")}
+                                                        aria-pressed={overviewFilter === kind}
+                                                        onClick={() => {
+                                                            setOverviewFilter(kind);
+                                                            const target = renderedMoves.find(entry => entry.node.classification === kind);
+                                                            if (target) navigateTo(target.path);
+                                                        }}
+                                                    >
+                                                        <span className={`analysis-classification analysis-classification-${kind}`}>{CLASSIFICATION_MARKS[kind]}</span>
+                                                        <span>{CLASSIFICATION_LABELS[kind]}</span>
+                                                        <strong>{counts[kind]}</strong>
+                                                    </button>
+                                                ))}
+                                            </div>
+                                        </section>
 
-                                        <div className="analysis-key-moments">
-                                            <div className="analysis-section-heading"><div><span>Ключові моменти</span><small>На основі реальної оцінки Stockfish</small></div></div>
-                                            {keyMoments.length ? keyMoments.map(entry => (
-                                                <button key={entry.node.id} type="button" onClick={() => navigateTo(entry.path)}>
-                                                    <div>
-                                                        <strong>{entry.node.moveNumber}{entry.node.color === "w" ? "." : "..."} {entry.node.san}</strong>
-                                                        <span>{entry.node.explanation || CLASSIFICATION_LABELS[entry.node.classification!]}</span>
-                                                    </div>
-                                                    <span className={`analysis-classification analysis-classification-${entry.node.classification}`}>{CLASSIFICATION_MARKS[entry.node.classification!]}</span>
-                                                </button>
-                                            )) : <p className="analysis-muted">Суттєвих помилок не знайдено.</p>}
-                                        </div>
+                                        <section className="analysis-overview-section">
+                                            <div className="analysis-overview-section-title"><div><strong>Ключові моменти</strong><span>{overviewFilter === "all" ? "Неточності, помилки та грубі помилки" : CLASSIFICATION_LABELS[overviewFilter]}</span></div></div>
+                                            <div className="analysis-key-moments">
+                                                {overviewMoments.length ? overviewMoments.map(entry => {
+                                                    const node = entry.node;
+                                                    return (
+                                                        <button key={node.id} type="button" onClick={() => navigateTo(entry.path)}>
+                                                            <div className="analysis-key-moment-main">
+                                                                <div className="analysis-key-moment-head"><strong>{node.moveNumber}{node.color === "w" ? "." : "..."} {node.san}</strong></div>
+                                                                <p>{ukrainianExplanationForMove(node.classification!, node.color, node.bestMoveSan)}</p>
+                                                                {node.bestMoveSan && node.classification !== "best" && <small>Краще: {node.bestMoveSan}</small>}
+                                                            </div>
+                                                            <span className={`analysis-classification analysis-classification-${node.classification}`}>{CLASSIFICATION_MARKS[node.classification!]}</span>
+                                                        </button>
+                                                    );
+                                                }) : <p className="analysis-muted">Для цієї категорії ходів не знайдено.</p>}
+                                            </div>
+                                        </section>
 
-                                        <div className="analysis-overview-meta"><span>Дебют</span><strong>{opening?.opening.name || "Не визначено"}</strong></div>
+                                        <div className="analysis-overview-meta"><span>Дебют</span><strong>{opening?.line?.name || opening?.opening.name || "Не визначено"}</strong></div>
                                     </>
                                 ) : !review.running ? (
                                     <div className="analysis-empty-state">
                                         <Gauge size={30} />
                                         <strong>Огляд ще не готовий</strong>
-                                        <p>Запустіть повний аналіз партії, щоб отримати точність, помилки та ключові моменти.</p>
+                                        <p>Запустіть повний аналіз партії, щоб отримати точність, класифікації та ключові моменти.</p>
                                         <Button size="sm" disabled={!record.mainline.length} onClick={() => void startFullReview()}><Play size={15} />Проаналізувати партію</Button>
                                     </div>
                                 ) : null}
@@ -1076,18 +1251,42 @@ export default function AnalysisCenter() {
                         )}
 
                         {tab === "info" && (
-                            <div className="analysis-stack">
-                                <div className="analysis-info-list">
-                                    {[
-                                        ["Білі", record.headers.White ? `${record.headers.White}${record.headers.WhiteElo ? ` · ${record.headers.WhiteElo}` : ""}` : "—"],
-                                        ["Чорні", record.headers.Black ? `${record.headers.Black}${record.headers.BlackElo ? ` · ${record.headers.BlackElo}` : ""}` : "—"],
-                                        ["Результат", record.headers.Result || "—"],
-                                        ["Контроль", record.headers.TimeControl || "—"],
-                                        ["Дата", record.headers.Date || "—"],
-                                        ["Дебют", opening?.opening.name || "—"],
-                                        ["ECO", opening?.opening.eco || "—"],
-                                    ].map(([label, value]) => <div key={label}><span>{label}</span><strong>{value}</strong></div>)}
+                            <div className="analysis-info-panel">
+                                <div className="analysis-info-header">
+                                    <div><strong>Дані партії</strong><span>Метадані PGN, гравці та дебют</span></div>
+                                    <button type="button" className="analysis-info-copy" disabled={!metadataText} onClick={() => void copyText(metadataText, "Метадані PGN")}><Copy size={14} />Копіювати дані</button>
                                 </div>
+
+                                <div className="analysis-info-players">
+                                    <div className="analysis-info-player"><span>Білі</span><strong>{missing(record.headers.White)}</strong><small>{record.headers.WhiteElo ? `Рейтинг ${record.headers.WhiteElo}` : "Рейтинг не вказано"}</small></div>
+                                    <div className="analysis-info-player"><span>Чорні</span><strong>{missing(record.headers.Black)}</strong><small>{record.headers.BlackElo ? `Рейтинг ${record.headers.BlackElo}` : "Рейтинг не вказано"}</small></div>
+                                </div>
+
+                                <div className="analysis-info-grid">
+                                    {[
+                                        ["Результат", resultLabel],
+                                        ["Контроль часу", missing(record.headers.TimeControl)],
+                                        ["Дата", missing(record.headers.Date)],
+                                        ["Подія", missing(record.headers.Event)],
+                                        ["Місце", missing(record.headers.Site)],
+                                        ["Тур", missing(record.headers.Round)],
+                                        ["Ходів", moveCount ? String(moveCount) : "Немає"],
+                                        ["Завершення", missing(record.headers.Termination)],
+                                    ].map(([label, value]) => (
+                                        <div key={label} className="analysis-info-item"><span>{label}</span><strong className={value === "Не вказано" ? "is-missing" : undefined}>{value}</strong></div>
+                                    ))}
+                                </div>
+
+                                <div className="analysis-info-opening">
+                                    <div><span>Дебют</span><strong title={opening?.opening.name || undefined}>{opening?.line?.name || opening?.opening.name || "Не визначено"}</strong></div>
+                                    <b>{opening?.opening.eco || "ECO —"}</b>
+                                </div>
+
+                                {record.rootFen !== START_FEN && (
+                                    <div className="analysis-info-fen"><span>Початкова FEN</span><code>{record.rootFen}</code></div>
+                                )}
+
+                                {!metadataText && <div className="analysis-empty-state compact"><FileText size={24} /><strong>Метаданих поки немає</strong><p>Імпортуйте PGN із заголовками, щоб тут з’явилися дані партії.</p></div>}
                             </div>
                         )}
                     </div>
