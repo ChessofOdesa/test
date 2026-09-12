@@ -7,6 +7,7 @@ import {
     cloneNodes,
     findOpening,
     formatCp,
+    getNodeByPath,
     isSamePath,
     removeNodeAtPath,
     updateNodeAtPath,
@@ -53,6 +54,22 @@ const CLASSIFICATION_MARKS: Record<MoveClassification, string> = {
     inaccuracy: "?!",
     mistake: "?",
     blunder: "??",
+};
+
+const CLASSIFICATION_LABELS: Record<MoveClassification, string> = {
+    best: "Найкращий",
+    excellent: "Чудовий",
+    good: "Добрий",
+    inaccuracy: "Неточність",
+    mistake: "Помилка",
+    blunder: "Груба помилка",
+};
+
+const FILTER_LABELS: Record<MoveFilter, string> = {
+    all: "Усі ходи",
+    errors: "Тільки помилки",
+    variations: "Тільки варіанти",
+    comments: "З коментарями",
 };
 
 const ERROR_CLASSIFICATIONS = new Set<MoveClassification>(["inaccuracy", "mistake", "blunder"]);
@@ -192,8 +209,13 @@ export default function AnalysisMoveTree({
 
     const opening = useMemo(() => findOpening(record.mainline), [record.mainline]);
     const variationCount = useMemo(() => countVariations(record.mainline), [record.mainline]);
+    const selectedNode = useMemo(
+        () => record.currentPath ? getNodeByPath(record.mainline, record.currentPath) : null,
+        [record.currentPath, record.mainline],
+    );
     const moveCount = Math.ceil(record.mainline.length / 2);
     const currentMainlineIndex = record.currentPath?.[0] ?? -1;
+    const branchesCollapsed = variationsCollapsed && filter !== "variations";
 
     const mainPairs = useMemo(() => {
         const entries = record.mainline.map((node, index) => ({ node, path: [index] }));
@@ -331,22 +353,36 @@ export default function AnalysisMoveTree({
         }
     };
 
-    const renderSelectedDetail = (entry: MovePathEntry) => {
-        if (!isSamePath(entry.path, record.currentPath)) return null;
-        const node = entry.node;
-        if (!node.comment.trim() && node.engineEval == null && node.evalLoss == null && !node.bestMoveSan) return null;
+    const renderSelectedInspector = () => {
+        if (!selectedNode || !record.currentPath) return null;
+        const classification = selectedNode.classification;
+        const hasReviewData = selectedNode.engineEval != null || selectedNode.evalLoss != null || Boolean(selectedNode.bestMoveSan);
         return (
-            <div className="analysis-selected-move-detail">
-                <div>
-                    <strong>{moveLabel(node)}</strong>
-                    {node.engineEval != null && <span>Оцінка {formatCp(node.engineEval)}</span>}
-                    {node.evalLoss != null && <span>Втрата {(node.evalLoss / 100).toFixed(2)}</span>}
+            <section className="analysis-selected-inspector" aria-label="Вибраний хід">
+                <div className="analysis-selected-inspector-heading">
+                    <div>
+                        <span>{record.currentPath.length > 1 ? "Варіант" : "Основна лінія"}</span>
+                        <strong>{moveLabel(selectedNode)}</strong>
+                    </div>
+                    {classification && (
+                        <span className={`analysis-selected-classification is-${classification}`}>
+                            <b>{CLASSIFICATION_MARKS[classification]}</b>{CLASSIFICATION_LABELS[classification]}
+                        </span>
+                    )}
                 </div>
-                {node.bestMoveSan && node.classification !== "best" && (
-                    <button type="button" onClick={onOpenEngine}>Краще: {node.bestMoveSan} <ChevronRight size={13} /></button>
+                {hasReviewData ? (
+                    <div className="analysis-selected-inspector-metrics">
+                        {selectedNode.engineEval != null && <span><small>Оцінка</small><strong>{formatCp(selectedNode.engineEval)}</strong></span>}
+                        {selectedNode.evalLoss != null && <span><small>Втрата</small><strong>{(selectedNode.evalLoss / 100).toFixed(2)}</strong></span>}
+                        {selectedNode.bestMoveSan && selectedNode.classification !== "best" && (
+                            <button type="button" onClick={onOpenEngine}>Краще: {selectedNode.bestMoveSan} <ChevronRight size={13} /></button>
+                        )}
+                    </div>
+                ) : (
+                    <p className="analysis-selected-inspector-empty">Для цього ходу ще немає збереженої оцінки Stockfish.</p>
                 )}
-                {node.comment.trim() && <p><MessageSquare size={13} />{node.comment}</p>}
-            </div>
+                {selectedNode.comment.trim() && <p className="analysis-selected-inspector-comment"><MessageSquare size={13} />{selectedNode.comment}</p>}
+            </section>
         );
     };
 
@@ -415,8 +451,7 @@ export default function AnalysisMoveTree({
                                 {renderMoveCell(pair.white, false, true)}
                                 {renderMoveCell(pair.black, false, true)}
                             </div>
-                            {entries.map(entry => renderSelectedDetail(entry))}
-                            {!variationsCollapsed && entries.flatMap(entry => entry.node.children.slice(1).map((child, childIndex) => (
+                            {!branchesCollapsed && entries.flatMap(entry => entry.node.children.slice(1).map((child, childIndex) => (
                                 renderBranch(child, [...entry.path, childIndex + 1], depth + 1, `${entry.node.id}-${child.id}`)
                             )))}
                         </div>
@@ -428,7 +463,7 @@ export default function AnalysisMoveTree({
 
     const renderBranchesForEntry = (entry: MovePathEntry | null) => {
         if (!entry?.node.children.length) return null;
-        if (variationsCollapsed) {
+        if (branchesCollapsed) {
             return (
                 <button type="button" className="analysis-collapsed-variations" onClick={() => setVariationsCollapsed(false)}>
                     <GitBranch size={13} />+{entry.node.children.length} {entry.node.children.length === 1 ? "варіант" : "варіанти"}
@@ -463,7 +498,7 @@ export default function AnalysisMoveTree({
                 </div>
                 <div className="analysis-move-tree-actions">
                     {nextErrorIndex >= 0 && <button type="button" className="analysis-next-error" onClick={() => onNavigate([nextErrorIndex])}>Наступна помилка <ChevronRight size={13} /></button>}
-                    {variationCount > 0 && <button type="button" onClick={() => setVariationsCollapsed(value => !value)} aria-label={variationsCollapsed ? "Розгорнути варіанти" : "Згорнути варіанти"}>{variationsCollapsed ? <ChevronRight size={15} /> : <ChevronDown size={15} />}</button>}
+                    {variationCount > 0 && filter !== "variations" && <button type="button" onClick={() => setVariationsCollapsed(value => !value)} aria-label={variationsCollapsed ? "Розгорнути варіанти" : "Згорнути варіанти"}>{variationsCollapsed ? <ChevronRight size={15} /> : <ChevronDown size={15} />}</button>}
                     <button type="button" onClick={() => setAutoplay(value => !value)} aria-label={autoplay ? "Зупинити Auto-play" : "Auto-play партії"}>{autoplay ? <Pause size={15} /> : <Play size={15} />}</button>
                     <DropdownMenu>
                         <DropdownMenuTrigger asChild><button type="button" aria-label="Швидкість Auto-play"><span className="analysis-speed-label">{autoplaySpeed}x</span></button></DropdownMenuTrigger>
@@ -512,6 +547,15 @@ export default function AnalysisMoveTree({
                 </div>
             )}
 
+            {filter !== "all" && (
+                <div className="analysis-active-filter">
+                    <span>{FILTER_LABELS[filter]}</span>
+                    <button type="button" onClick={() => setFilter("all")}>Скинути</button>
+                </div>
+            )}
+
+            {renderSelectedInspector()}
+
             <div className="analysis-mainline-label">Основна партія</div>
             <div className="analysis-inline-move-list" aria-label="Список ходів">
                 {mainPairs.length ? mainPairs.map(pair => {
@@ -524,7 +568,6 @@ export default function AnalysisMoveTree({
                                 {renderMoveCell(pair.white, pair.white?.path[0] === lastIndex)}
                                 {renderMoveCell(pair.black, pair.black?.path[0] === lastIndex)}
                             </div>
-                            {entries.map(entry => renderSelectedDetail(entry))}
                             {entries.map(entry => <div key={`${entry.node.id}-branches`}>{renderBranchesForEntry(entry)}</div>)}
                             {entries.filter(entry => entry.node.comment.trim() && !isSamePath(entry.path, record.currentPath)).map(entry => (
                                 <button key={`${entry.node.id}-comment`} type="button" className="analysis-move-comment" onClick={() => onNavigate(entry.path)}><MessageSquare size={12} /><span>{entry.node.comment}</span></button>
