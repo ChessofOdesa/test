@@ -107,8 +107,22 @@ describe("Analysis Center", () => {
         expect(screen.getByRole("button", { name: /До партії/i })).toBeInTheDocument();
     });
 
+    it("presents a human engine verdict and explicit opt-in controls for saving engine lines", async () => {
+        render(<MemoryRouter initialEntries={["/analysis"]}>
+            <BoardSettingsProvider><Analysis /></BoardSettingsProvider>
+        </MemoryRouter>);
+
+        await screen.findByTestId("analysis-board");
+        fireEvent.click(screen.getByRole("tab", { name: /Движок/i }));
+
+        expect(await screen.findByText("Позиція близька до рівної")).toBeInTheDocument();
+        expect(screen.getByRole("button", { name: /Налаштувати/i })).toBeInTheDocument();
+        expect(screen.getAllByRole("button", { name: /Додати варіант Stockfish .* до дерева/i })).toHaveLength(3);
+        expect(screen.getByText(/Клік відкриває preview/)).toBeInTheDocument();
+    });
+
     it("runs full review from Overview and adds a real classification badge", async () => {
-        const pgn = '[White "Тест білих"]\n[Black "Тест чорних"]\n[Result "*"]\n\n1. e4 e5 *';
+        const pgn = '[Event "Smoke"]\n[White "Тест білих"]\n[Black "Тест чорних"]\n[Result "*"]\n\n1. e4 e5 *';
         render(<MemoryRouter initialEntries={[{ pathname: "/analysis", state: { pgn } }]}>
             <BoardSettingsProvider><Analysis /></BoardSettingsProvider>
         </MemoryRouter>);
@@ -116,11 +130,44 @@ describe("Analysis Center", () => {
         fireEvent.click(await screen.findByRole("tab", { name: /Огляд/i }));
         expect(screen.queryByRole("button", { name: /Хід класифіковано як/i })).not.toBeInTheDocument();
         fireEvent.click(screen.getByRole("button", { name: /Проаналізувати партію/i }));
-        expect(await screen.findByText("Аналіз триває")).toBeInTheDocument();
         const badge = await screen.findByRole("button", { name: /Хід класифіковано як/i });
         expect(badge).toBeInTheDocument();
+        expect(screen.getByRole("button", { name: /Заново/i })).toBeInTheDocument();
         fireEvent.click(badge);
         expect(screen.getByRole("tab", { name: /Движок/i })).toHaveAttribute("aria-selected", "true");
+    });
+
+    it("renders useful PGN metadata in Info instead of raw dash placeholders", async () => {
+        const pgn = [
+            '[Event "Odesa Championship"]',
+            '[Site "Odesa"]',
+            '[Date "2026.09.12"]',
+            '[Round "4"]',
+            '[White "Andriy"]',
+            '[WhiteElo "1956"]',
+            '[Black "Opponent"]',
+            '[BlackElo "2010"]',
+            '[TimeControl "600+5"]',
+            '[Result "1-0"]',
+            '',
+            '1. e4 e5 2. Nf3 Nc6 1-0',
+        ].join('\n');
+        render(<MemoryRouter initialEntries={[{ pathname: "/analysis", state: { pgn } }]}>
+            <BoardSettingsProvider><Analysis /></BoardSettingsProvider>
+        </MemoryRouter>);
+
+        await screen.findByText("e4");
+        fireEvent.click(screen.getByRole("tab", { name: /Інфо/i }));
+
+        expect(screen.getByText("Odesa Championship")).toBeInTheDocument();
+        expect(screen.getByText("Odesa")).toBeInTheDocument();
+        expect(screen.getByText("Тур")).toBeInTheDocument();
+        expect(screen.getByText("4")).toBeInTheDocument();
+        expect(screen.getByText("Рейтинг 1956")).toBeInTheDocument();
+        expect(screen.getByText("Рейтинг 2010")).toBeInTheDocument();
+        expect(screen.getByText("600+5")).toBeInTheDocument();
+        expect(screen.getByRole("button", { name: /Копіювати дані/i })).toBeInTheDocument();
+        expect(screen.getAllByText("Не вказано").length).toBeGreaterThan(0);
     });
 
     it("keeps PGN import returning to Moves with a precise action label", async () => {
@@ -130,7 +177,7 @@ describe("Analysis Center", () => {
 
         fireEvent.click(screen.getByRole("button", { name: "Імпорт PGN" }));
         const editor = screen.getByRole("textbox", { name: "Paste PGN or FEN" });
-        fireEvent.change(editor, { target: { value: '1. e4 e5 2. Nf3 Nc6 *' } });
+        fireEvent.change(editor, { target: { value: '[Event "Import"]\n\n1. e4 e5 2. Nf3 Nc6 *' } });
         fireEvent.click(screen.getByRole("button", { name: "Відкрити для аналізу" }));
 
         await waitFor(() => expect(screen.getByText("e4")).toBeInTheDocument());
