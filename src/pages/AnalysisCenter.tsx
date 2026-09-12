@@ -8,6 +8,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { BOARD_THEMES, useBoardSettings } from "@/contexts/BoardSettingsContext";
 import AnalysisMoveTree from "@/features/analysis/AnalysisMoveTree";
+import AnalysisEvaluationGraph from "@/features/analysis/AnalysisEvaluationGraph";
 import { buildAnalysisPgn } from "@/features/analysis/pgnTree";
 import {
     START_FEN,
@@ -1191,6 +1192,12 @@ export default function AnalysisCenter() {
                                             <div><span>Загальна</span><strong>{overallAccuracy ?? "—"}%</strong></div>
                                             <div><span>Чорні</span><strong>{blackAccuracy ?? "—"}%</strong></div>
                                         </div>
+
+                                        <AnalysisEvaluationGraph
+                                            record={record}
+                                            currentPath={record.currentPath}
+                                            onNavigate={navigateTo}
+                                        />
 
                                         <section className="analysis-overview-section">
                                             <div className="analysis-overview-section-title">
