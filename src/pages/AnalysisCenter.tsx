@@ -9,6 +9,7 @@ import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip
 import { BOARD_THEMES, useBoardSettings } from "@/contexts/BoardSettingsContext";
 import AnalysisMoveTree from "@/features/analysis/AnalysisMoveTree";
 import AnalysisEvaluationGraph from "@/features/analysis/AnalysisEvaluationGraph";
+import { analysisNavigationLabel, lastAnalysisPath, nextAnalysisPath, previousAnalysisPath, sameAnalysisPath } from "@/features/analysis/navigation";
 import { buildAnalysisPgn } from "@/features/analysis/pgnTree";
 import {
     START_FEN,
@@ -517,19 +518,25 @@ export default function AnalysisCenter() {
         setRecord(current => ({ ...current, currentPath: path ? [...path] : null }));
     }, []);
 
+    const previousPath = useMemo(() => previousAnalysisPath(record, record.currentPath), [record]);
+    const nextPath = useMemo(() => nextAnalysisPath(record, record.currentPath), [record]);
+    const lastPath = useMemo(() => lastAnalysisPath(record, record.currentPath), [record]);
+    const navigationLabel = useMemo(() => analysisNavigationLabel(record, record.currentPath), [record]);
+    const canGoPrevious = Boolean(record.currentPath);
+    const canGoNext = nextPath !== null;
+    const canGoLast = lastPath !== null && !sameAnalysisPath(record.currentPath, lastPath);
+
     const goFirst = useCallback(() => navigateTo(null), [navigateTo]);
     const goPrevious = useCallback(() => {
-        if (currentMoveIndex < 0) return;
-        navigateTo(currentMoveIndex <= 0 ? null : renderedMoves[currentMoveIndex - 1].path);
-    }, [currentMoveIndex, navigateTo, renderedMoves]);
+        if (!record.currentPath) return;
+        navigateTo(previousPath);
+    }, [navigateTo, previousPath, record.currentPath]);
     const goNext = useCallback(() => {
-        if (!renderedMoves.length) return;
-        if (currentMoveIndex < 0) navigateTo(renderedMoves[0].path);
-        else if (currentMoveIndex < renderedMoves.length - 1) navigateTo(renderedMoves[currentMoveIndex + 1].path);
-    }, [currentMoveIndex, navigateTo, renderedMoves]);
+        if (nextPath) navigateTo(nextPath);
+    }, [navigateTo, nextPath]);
     const goLast = useCallback(() => {
-        if (renderedMoves.length) navigateTo(renderedMoves[renderedMoves.length - 1].path);
-    }, [navigateTo, renderedMoves]);
+        if (lastPath) navigateTo(lastPath);
+    }, [lastPath, navigateTo]);
 
     useEffect(() => {
         const handleKey = (event: KeyboardEvent) => {
@@ -1299,11 +1306,11 @@ export default function AnalysisCenter() {
                     </div>
 
                     <div className="analysis-panel-navigation" aria-label="Навігація по партії" role="group">
-                        <NavIconButton label="На початок партії" icon={<ChevronsLeft size={18} />} onClick={goFirst} disabled={currentMoveIndex < 0} />
-                        <NavIconButton label="Попередній хід" icon={<ChevronLeft size={18} />} onClick={goPrevious} disabled={currentMoveIndex < 0} />
-                        <span aria-live="polite" title={currentMoveIndex >= 0 ? `Позиція ${currentMoveIndex + 1} із ${renderedMoves.length}` : "Початкова позиція"}>{currentMoveIndex >= 0 ? `${currentMoveIndex + 1} / ${renderedMoves.length}` : `0 / ${renderedMoves.length}`}</span>
-                        <NavIconButton label="Наступний хід" icon={<ChevronRight size={18} />} onClick={goNext} disabled={!renderedMoves.length || currentMoveIndex >= renderedMoves.length - 1} />
-                        <NavIconButton label="У кінець партії" icon={<ChevronsRight size={18} />} onClick={goLast} disabled={!renderedMoves.length || currentMoveIndex >= renderedMoves.length - 1} />
+                        <NavIconButton label="На початок партії" icon={<ChevronsLeft size={18} />} onClick={goFirst} disabled={!record.currentPath} />
+                        <NavIconButton label="Попередній хід" icon={<ChevronLeft size={18} />} onClick={goPrevious} disabled={!canGoPrevious} />
+                        <span aria-live="polite" title={record.currentPath?.length && record.currentPath.length > 1 ? `Активна лінія: ${navigationLabel}` : `Позиція: ${navigationLabel}`}>{navigationLabel}</span>
+                        <NavIconButton label="Наступний хід" icon={<ChevronRight size={18} />} onClick={goNext} disabled={!canGoNext} />
+                        <NavIconButton label="У кінець активної лінії" icon={<ChevronsRight size={18} />} onClick={goLast} disabled={!canGoLast} />
                     </div>
                 </aside>
             </main>
