@@ -88,6 +88,7 @@ import "@/styles/analysis-panel-professional.css";
 type PanelTab = "moves" | "engine" | "overview" | "info";
 type ImportMode = "pgn" | "fen";
 type OverviewFilter = MoveClassification | "all";
+type AnalysisUiMode = "simple" | "advanced";
 type BoardBadgeKind = MoveClassification | "book";
 
 type ReviewState = {
@@ -342,6 +343,7 @@ export default function AnalysisCenter() {
     const [settingsOpen, setSettingsOpen] = useState(false);
     const [linePreview, setLinePreview] = useState<EnginePreview | null>(null);
     const [overviewFilter, setOverviewFilter] = useState<OverviewFilter>("all");
+    const [analysisUiMode, setAnalysisUiMode] = useState<AnalysisUiMode>("simple");
 
     const renderedMoves = useMemo(() => renderMoves(record.mainline), [record.mainline]);
     const currentNode = useMemo(() => getLastMove(record), [record]);
@@ -642,7 +644,7 @@ export default function AnalysisCenter() {
                     return { ...current, mainline, currentPath: [mainline.length - 1] };
                 }
                 const path = current.currentPath;
-                const node = renderedMoves.find(entry => isSamePath(entry.path, path))?.node;
+                const node = getNodeByPath(current.mainline, path);
                 const childIndex = node?.children.length || 0;
                 return {
                     ...current,
@@ -654,7 +656,7 @@ export default function AnalysisCenter() {
         } catch {
             return false;
         }
-    }, [currentFen, currentNode?.ply, linePreview, renderedMoves]);
+    }, [currentFen, currentNode?.ply, linePreview]);
 
     const startFullReview = async () => {
         if (!record.mainline.length || review.running) return;
@@ -944,7 +946,17 @@ export default function AnalysisCenter() {
                             <TooltipContent side="right">Налаштування аналізу</TooltipContent>
                         </Tooltip>
                         <PopoverContent side="right" align="center" className="analysis-settings-popover">
-                            <div className="analysis-popover-heading"><strong>Движок</strong><span>Глибина</span></div>
+                            <div className="analysis-popover-heading"><strong>Інтерфейс</strong><span>Режим</span></div>
+                            <div className="analysis-ui-mode-options" role="group" aria-label="Режим Analysis">
+                                <button type="button" className={cn(analysisUiMode === "simple" && "is-active")} aria-pressed={analysisUiMode === "simple"} onClick={() => setAnalysisUiMode("simple")}>
+                                    <strong>Простий</strong><span>Менше деталей</span>
+                                </button>
+                                <button type="button" className={cn(analysisUiMode === "advanced" && "is-active")} aria-pressed={analysisUiMode === "advanced"} onClick={() => setAnalysisUiMode("advanced")}>
+                                    <strong>Розширений</strong><span>Depth і MultiPV</span>
+                                </button>
+                            </div>
+
+                            <div className="analysis-popover-heading analysis-popover-subheading"><strong>Движок</strong><span>Глибина</span></div>
                             <div className="analysis-setting-options">
                                 {[8, 12, 16].map(depth => (
                                     <button key={depth} type="button" className={cn(engineDepth === depth && "is-active")} onClick={() => setEngineDepth(depth)}>
@@ -1126,6 +1138,22 @@ export default function AnalysisCenter() {
                                             <span>{engineVerdict(currentEngine?.numericScore)}</span>
                                         </div>
 
+                                        {analysisUiMode === "advanced" && (
+                                            <div className="analysis-engine-advanced-meta" aria-label="Розширені дані движка">
+                                                <span><small>Глибина</small><strong>{currentEngine?.depth ? "D" + currentEngine.depth : "—"}</strong></span>
+                                                <span><small>MultiPV</small><strong>{multiPv}</strong></span>
+                                                <span><small>Джерело</small><strong>{currentEngine?.backend === "cloud" ? "Cloud" : currentEngine?.backend === "native" ? "Server" : "Browser"}</strong></span>
+                                            </div>
+                                        )}
+
+                                        {analysisUiMode === "advanced" && currentNode?.classification && currentNode.evalLoss != null && (
+                                            <div className="analysis-engine-selected-advanced" aria-label="Деталі вибраного ходу">
+                                                <div><span>Вибраний хід</span><strong>{currentNode.moveNumber}{currentNode.color === "w" ? "." : "..."} {currentNode.san}</strong></div>
+                                                <span className={"analysis-classification analysis-classification-" + currentNode.classification}>{CLASSIFICATION_MARKS[currentNode.classification]}</span>
+                                                <small>Втрата {(currentNode.evalLoss / 100).toFixed(2)}</small>
+                                            </div>
+                                        )}
+
                                         {linePreview && (
                                             <div className="analysis-preview-bar analysis-preview-bar-simple" aria-live="polite">
                                                 <div>
@@ -1150,7 +1178,7 @@ export default function AnalysisCenter() {
                                                     <b>{evaluationLabel(currentEngine)}</b>
                                                 </div>
                                                 <strong className="analysis-best-move-simple-san">{currentEngine.bestMoveSan}</strong>
-                                                {currentEngine.pvSan.length > 0 && <p>{currentEngine.pvSan.slice(0, 5).join(" ")}</p>}
+                                                {currentEngine.pvSan.length > 0 && <p>{currentEngine.pvSan.slice(0, analysisUiMode === "advanced" ? 8 : 5).join(" ")}</p>}
                                                 <div className="analysis-best-move-simple-actions">
                                                     <Button size="sm" disabled={!engineLines.length} onClick={() => engineLines[0] && previewEngineLine(engineLines[0], "Найкращий варіант")}>Показати на дошці</Button>
                                                     <Button variant="ghost" size="sm" disabled={!record.currentPath || !engineLines.length} onClick={() => engineLines[0] && addEngineLineToVariations(engineLines[0])}><GitBranch size={14} />У варіанти</Button>
