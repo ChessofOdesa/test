@@ -790,10 +790,15 @@ export function createMoveNode(move: {
     color: "w" | "b";
     promotion?: string;
 }, fenBefore: string, fenAfter: string, ply: number): AnalysisMoveNode {
+    const fenFields = fenBefore.trim().split(/\s+/);
+    const fenFullmove = Number(fenFields[5]);
+    const moveNumber = Number.isFinite(fenFullmove) && fenFullmove > 0
+        ? Math.trunc(fenFullmove)
+        : Math.floor((ply + 1) / 2);
     return {
         id: nextNodeId(),
         ply,
-        moveNumber: Math.floor((ply + 1) / 2),
+        moveNumber,
         color: move.color,
         san: move.san,
         uci: `${move.from}${move.to}${move.promotion || ""}`,
