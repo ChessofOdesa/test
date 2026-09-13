@@ -1,12 +1,11 @@
 import { BoardSettingsProvider } from "@/contexts/BoardSettingsContext";
-import AnalysisPage from "@/pages/AnalysisCenter";
 import { TooltipProvider } from "@/components/ui/tooltip";
+import Analysis from "@/pages/AnalysisCenter";
 import analyzeFenWithStockfish from "@/lib/stockfish";
 import { Chess } from "chess.js";
-function Analysis() { return <TooltipProvider><AnalysisPage /></TooltipProvider>; }
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { MemoryRouter } from "react-router-dom";
-import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 
 vi.mock("@/components/ChessBoard", () => ({
     default: ({ displayFen, initialFen, onMove }: { displayFen?: string; initialFen: string; onMove: (from: string, to: string) => boolean }) => <div data-testid="analysis-board" data-fen={displayFen || initialFen}>
@@ -35,13 +34,13 @@ vi.mock("@/lib/stockfish", () => ({
     }),
 }));
 
-beforeAll(() => vi.stubGlobal("ResizeObserver", class { observe() {} unobserve() {} disconnect() {} }));
-afterAll(() => vi.unstubAllGlobals());
+class ResizeObserverStub { observe() {} unobserve() {} disconnect() {} }
+vi.stubGlobal("ResizeObserver", ResizeObserverStub);
 afterEach(() => { cleanup(); vi.mocked(analyzeFenWithStockfish).mockClear(); });
 
 function openAnalysis(pgn = '1. e4 d5 2. e5 *') {
     return render(<MemoryRouter initialEntries={[{ pathname: "/analysis", state: { pgn } }]}>
-        <BoardSettingsProvider><Analysis /></BoardSettingsProvider>
+        <BoardSettingsProvider><TooltipProvider><Analysis /></TooltipProvider></BoardSettingsProvider>
     </MemoryRouter>);
 }
 function expectBoard(moves: string[]) {
@@ -59,7 +58,7 @@ function importGame(pgn: string) {
 describe("Analysis Center", () => {
     it("pins the only primary move navigator to the bottom of the right analysis panel", async () => {
         render(<MemoryRouter initialEntries={["/analysis"]}>
-            <BoardSettingsProvider><Analysis /></BoardSettingsProvider>
+            <BoardSettingsProvider><TooltipProvider><Analysis /></TooltipProvider></BoardSettingsProvider>
         </MemoryRouter>);
 
         expect(await screen.findByTestId("analysis-board")).toBeInTheDocument();
@@ -67,16 +66,16 @@ describe("Analysis Center", () => {
         const navigator = within(panel).getByLabelText("Навігація по партії");
         expect(navigator).toBeInTheDocument();
         expect(screen.getAllByLabelText("Навігація по партії")).toHaveLength(1);
-        expect(within(navigator).getByRole("button", { name: "На початок партії" })).toBeInTheDocument();
         expect(within(navigator).getByRole("button", { name: "Попередній хід" })).toBeInTheDocument();
         expect(within(navigator).getByRole("button", { name: "Наступний хід" })).toBeInTheDocument();
-        expect(within(navigator).getByRole("button", { name: "У кінець партії" })).toBeInTheDocument();
+        expect(within(navigator).queryByRole("button", { name: /На початок/i })).not.toBeInTheDocument();
+        expect(within(navigator).queryByRole("button", { name: /У кінець/i })).not.toBeInTheDocument();
         expect(within(navigator).getByText("0 / 0")).toBeInTheDocument();
     });
 
     it("keeps the shared move navigator available across all right-panel tabs", async () => {
         render(<MemoryRouter initialEntries={["/analysis"]}>
-            <BoardSettingsProvider><Analysis /></BoardSettingsProvider>
+            <BoardSettingsProvider><TooltipProvider><Analysis /></TooltipProvider></BoardSettingsProvider>
         </MemoryRouter>);
 
         await screen.findByTestId("analysis-board");
@@ -88,7 +87,7 @@ describe("Analysis Center", () => {
 
     it("keeps global actions in the left toolbar and board flip out of the move navigator", async () => {
         render(<MemoryRouter initialEntries={["/analysis"]}>
-            <BoardSettingsProvider><Analysis /></BoardSettingsProvider>
+            <BoardSettingsProvider><TooltipProvider><Analysis /></TooltipProvider></BoardSettingsProvider>
         </MemoryRouter>);
 
         await screen.findByTestId("analysis-board");
@@ -103,7 +102,7 @@ describe("Analysis Center", () => {
 
     it("keeps analysis settings in one popover", async () => {
         render(<MemoryRouter initialEntries={["/analysis"]}>
-            <BoardSettingsProvider><Analysis /></BoardSettingsProvider>
+            <BoardSettingsProvider><TooltipProvider><Analysis /></TooltipProvider></BoardSettingsProvider>
         </MemoryRouter>);
 
         fireEvent.click(await screen.findByRole("button", { name: "Налаштування аналізу" }));
@@ -115,47 +114,99 @@ describe("Analysis Center", () => {
         expect(screen.getByText("MultiPV")).toBeInTheDocument();
     });
 
-    it("shows clickable engine lines without a duplicate engine control inside the engine tab", async () => {
+    it("previews the best move from the simplified engine card", async () => {
         render(<MemoryRouter initialEntries={["/analysis"]}>
-            <BoardSettingsProvider><Analysis /></BoardSettingsProvider>
+            <BoardSettingsProvider><TooltipProvider><Analysis /></TooltipProvider></BoardSettingsProvider>
         </MemoryRouter>);
 
         const board = await screen.findByTestId("analysis-board");
         const initialFen = board.getAttribute("data-fen");
         fireEvent.click(screen.getByRole("tab", { name: /Движок/i }));
 
-        expect(screen.queryByLabelText("Кількість варіантів")).not.toBeInTheDocument();
-        const firstLine = await screen.findByTitle("e4 e5 Nf3");
-        fireEvent.click(firstLine);
+        const bestMoveCard = await screen.findByLabelText("Найкращий хід Stockfish");
+        expect(within(bestMoveCard).getByText("e4")).toBeInTheDocument();
+        fireEvent.click(within(bestMoveCard).getByRole("button", { name: /Показати на дошці/i }));
         await waitFor(() => expect(board.getAttribute("data-fen")).not.toBe(initialFen));
-        expect(screen.getByText("Варіант 1")).toBeInTheDocument();
+        expect(screen.getByText("Найкращий варіант")).toBeInTheDocument();
         expect(screen.getByRole("button", { name: /До партії/i })).toBeInTheDocument();
     });
 
+    it("keeps the Engine tab simple and hides secondary lines until requested", async () => {
+        render(<MemoryRouter initialEntries={["/analysis"]}>
+            <BoardSettingsProvider><TooltipProvider><Analysis /></TooltipProvider></BoardSettingsProvider>
+        </MemoryRouter>);
+
+        await screen.findByTestId("analysis-board");
+        fireEvent.click(screen.getByRole("tab", { name: /Движок/i }));
+
+        expect(await screen.findByText("Позиція близька до рівної")).toBeInTheDocument();
+        expect(screen.getByRole("button", { name: "Налаштувати движок" })).toBeInTheDocument();
+        expect(screen.queryByText("Глибина")).not.toBeInTheDocument();
+        expect(screen.queryByText("Варіанти Stockfish")).not.toBeInTheDocument();
+        const alternatives = screen.getByText("Інші варіанти").closest("details");
+        expect(alternatives).toBeInTheDocument();
+        expect(alternatives).not.toHaveAttribute("open");
+        fireEvent.click(within(alternatives!).getByText("Інші варіанти"));
+        expect(within(alternatives!).getAllByRole("button", { name: /Додати варіант Stockfish .* до дерева/i })).toHaveLength(2);
+    });
+
     it("runs full review from Overview and adds a real classification badge", async () => {
-        const pgn = '[White "Тест білих"]\n[Black "Тест чорних"]\n[Result "*"]\n\n1. e4 e5 *';
+        const pgn = '[Event "Smoke"]\n[White "Тест білих"]\n[Black "Тест чорних"]\n[Result "*"]\n\n1. e4 e5 *';
         render(<MemoryRouter initialEntries={[{ pathname: "/analysis", state: { pgn } }]}>
-            <BoardSettingsProvider><Analysis /></BoardSettingsProvider>
+            <BoardSettingsProvider><TooltipProvider><Analysis /></TooltipProvider></BoardSettingsProvider>
         </MemoryRouter>);
 
         fireEvent.click(await screen.findByRole("tab", { name: /Огляд/i }));
         expect(screen.queryByRole("button", { name: /Хід класифіковано як/i })).not.toBeInTheDocument();
         fireEvent.click(screen.getByRole("button", { name: /Проаналізувати партію/i }));
-        expect(await screen.findByText("Аналіз триває")).toBeInTheDocument();
         const badge = await screen.findByRole("button", { name: /Хід класифіковано як/i });
         expect(badge).toBeInTheDocument();
+        expect(screen.getByRole("button", { name: /Заново/i })).toBeInTheDocument();
         fireEvent.click(badge);
         expect(screen.getByRole("tab", { name: /Движок/i })).toHaveAttribute("aria-selected", "true");
     });
 
+    it("renders useful PGN metadata in Info instead of raw dash placeholders", async () => {
+        const pgn = [
+            '[Event "Odesa Championship"]',
+            '[Site "Odesa"]',
+            '[Date "2026.09.12"]',
+            '[Round "4"]',
+            '[White "Andriy"]',
+            '[WhiteElo "1956"]',
+            '[Black "Opponent"]',
+            '[BlackElo "2010"]',
+            '[TimeControl "600+5"]',
+            '[Result "1-0"]',
+            '',
+            '1. e4 e5 2. Nf3 Nc6 1-0',
+        ].join('\n');
+        render(<MemoryRouter initialEntries={[{ pathname: "/analysis", state: { pgn } }]}>
+            <BoardSettingsProvider><TooltipProvider><Analysis /></TooltipProvider></BoardSettingsProvider>
+        </MemoryRouter>);
+
+        await screen.findByText("e4");
+        fireEvent.click(screen.getByRole("tab", { name: /Інфо/i }));
+
+        expect(screen.getByText("Odesa Championship")).toBeInTheDocument();
+        expect(screen.getByText("Odesa")).toBeInTheDocument();
+        expect(screen.getByText("Тур")).toBeInTheDocument();
+        expect(screen.getByText("4")).toBeInTheDocument();
+        expect(screen.getByText("Рейтинг 1956")).toBeInTheDocument();
+        expect(screen.getByText("Рейтинг 2010")).toBeInTheDocument();
+        expect(screen.getByText("600+5")).toBeInTheDocument();
+        expect(screen.getByRole("button", { name: /Копіювати дані/i })).toBeInTheDocument();
+        expect(screen.getAllByText("Не вказано").length).toBeGreaterThan(0);
+    });
+
     it("keeps PGN import returning to Moves with a precise action label", async () => {
         render(<MemoryRouter initialEntries={["/analysis"]}>
-            <BoardSettingsProvider><Analysis/></BoardSettingsProvider>
+            <BoardSettingsProvider><TooltipProvider><Analysis/></TooltipProvider></BoardSettingsProvider>
         </MemoryRouter>);
 
         fireEvent.click(screen.getByRole("button", { name: "Імпорт PGN" }));
         const editor = screen.getByRole("textbox", { name: "Paste PGN or FEN" });
-        fireEvent.change(editor, { target: { value: '1. e4 e5 2. Nf3 Nc6 *' } });
+        fireEvent.change(editor, { target: { value: '[Event "Import"]\n\n1. e4 e5 2. Nf3 Nc6 *' } });
         fireEvent.click(screen.getByRole("button", { name: "Відкрити для аналізу" }));
 
         await waitFor(() => expect(screen.getByText("e4")).toBeInTheDocument());
@@ -172,7 +223,7 @@ describe("Analysis position synchronization", () => {
         fireEvent.click(screen.getByText("d8d5"));
         expectBoard(['e4', 'd5', 'exd5', 'Qxd5']);
         const nav = screen.getByLabelText("Навігація по партії");
-        expect(within(nav).getByText('4 / 4')).toBeInTheDocument();
+        expect(within(nav).getByText('Варіант 2 / 2')).toBeInTheDocument();
         expect(within(nav).getByRole('button', { name: 'Наступний хід' })).toBeDisabled();
         fireEvent.keyDown(window, { key: 'ArrowLeft' });
         expectBoard(['e4', 'd5', 'exd5']);
@@ -188,7 +239,7 @@ describe("Analysis position synchronization", () => {
 
     it("follows an existing move on the board without duplicating it", () => {
         openAnalysis();
-        fireEvent.click(screen.getByRole('button', { name: 'На початок партії' }));
+        fireEvent.keyDown(window, { key: 'Home' });
         fireEvent.click(screen.getByText('e2e4'));
         expectBoard(['e4']);
         expect(screen.getAllByText('e4', { exact: true })).toHaveLength(1);
@@ -211,16 +262,16 @@ describe("Analysis position synchronization", () => {
     it("hides the previous engine lines immediately after navigating", async () => {
         openAnalysis('');
         fireEvent.click(screen.getByRole('tab', { name: /Движок/i }));
-        expect(await screen.findByTitle('e4 e5 Nf3')).toBeInTheDocument();
+        expect(await screen.findByLabelText('Найкращий хід Stockfish')).toBeInTheDocument();
         fireEvent.click(screen.getByText('e2e4'));
         expectBoard(['e4']);
-        expect(screen.queryByTitle('e4 e5 Nf3')).not.toBeInTheDocument();
+        expect(screen.queryByLabelText('Найкращий хід Stockfish')).not.toBeInTheDocument();
     });
 
     it("uses the same bottom controls and keyboard for a Stockfish preview", async () => {
         openAnalysis('');
         fireEvent.click(screen.getByRole('tab', { name: /Движок/i }));
-        fireEvent.click(await screen.findByTitle('e4 e5 Nf3'));
+        fireEvent.click(within(await screen.findByLabelText('Найкращий хід Stockfish')).getByRole('button', { name: 'Показати на дошці' }));
         expectBoard(['e4']);
         fireEvent.click(screen.getByRole('button', { name: 'Наступний хід' }));
         expectBoard(['e4', 'e5']);
@@ -245,7 +296,7 @@ describe("Analysis position synchronization", () => {
         expectBoard(['d4', 'd5']);
         expect(screen.queryByRole('button', { name: /Хід класифіковано як/i })).not.toBeInTheDocument();
         fireEvent.click(screen.getByRole('tab', { name: /Огляд/i }));
-        expect(screen.getByText('Огляд ще не готовий')).toBeInTheDocument();
+        expect(screen.getByRole('button', { name: /Проаналізувати партію/i })).toBeInTheDocument();
     });
 
     it("aborts a review on unmount", async () => {
@@ -268,4 +319,18 @@ describe("Analysis position synchronization", () => {
         fireEvent.click(screen.getByRole('button', { name: 'Попередній хід' }));
         expectBoard(['e4', 'd5']);
     });
+});
+
+it("adds a Stockfish line explicitly and exports the resulting game in Info", async () => {
+    openAnalysis('');
+    fireEvent.click(screen.getByRole('tab', { name: /Движок/i }));
+    const card = await screen.findByLabelText('Найкращий хід Stockfish');
+    expectBoard([]);
+    fireEvent.click(within(card).getByRole('button', { name: 'У варіанти' }));
+    expectBoard(['e4', 'e5', 'Nf3']);
+    expect(screen.getByRole('tab', { name: /Ходи/i })).toHaveAttribute('aria-selected', 'true');
+    fireEvent.click(screen.getByRole('tab', { name: /Інфо/i }));
+    expect(screen.getByRole('button', { name: 'Копіювати PGN' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Завантажити PGN' })).toBeInTheDocument();
+    expect(document.querySelector('.analysis-pgn-details pre')?.textContent).toContain('1. e4 e5 2. Nf3');
 });

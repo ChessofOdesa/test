@@ -1,7 +1,7 @@
 import AnalysisMoveTree from "@/features/analysis/AnalysisMoveTree";
 import { buildAnalysisPgn } from "@/features/analysis/pgnTree";
 import { createMoveNode, createRecord, type AnalysisRecord } from "@/features/analysis/model";
-import { act, cleanup, fireEvent, render, screen } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, within } from "@testing-library/react";
 import { Chess } from "chess.js";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
@@ -44,7 +44,7 @@ function makeRecord(): AnalysisRecord {
 afterEach(cleanup);
 
 describe("Analysis move tree", () => {
-    it("renders the main game as move pairs and inserts user variations inline", () => {
+    it("renders paired mainline moves and compact inline variations without a visible variation label", () => {
         const record = makeRecord();
         render(
             <AnalysisMoveTree
@@ -57,10 +57,54 @@ describe("Analysis move tree", () => {
 
         expect(screen.getByText("2 ходи · 1 варіант")).toBeInTheDocument();
         expect(screen.getByText("Основна партія")).toBeInTheDocument();
-        expect(screen.getByText("Ваш варіант")).toBeInTheDocument();
+        expect(screen.queryByText("Ваш варіант")).not.toBeInTheDocument();
+        expect(screen.queryByText("Вкладений варіант")).not.toBeInTheDocument();
         expect(screen.getByText("exd5")).toBeInTheDocument();
         expect(screen.getByText("c6")).toBeInTheDocument();
         expect(screen.queryByText("Власні варіанти")).not.toBeInTheDocument();
+    });
+
+    it("keeps one selected-move inspector above the move list, including variation comments", () => {
+        const record = makeRecord();
+        record.currentPath = [1, 0];
+        render(
+            <AnalysisMoveTree
+                record={record}
+                setRecord={vi.fn() as never}
+                onNavigate={vi.fn()}
+                onOpenEngine={vi.fn()}
+            />,
+        );
+
+        const inspector = screen.getByLabelText("Вибраний хід");
+        expect(screen.getAllByLabelText("Вибраний хід")).toHaveLength(1);
+        expect(within(inspector).getByText("2.exd5")).toBeInTheDocument();
+        expect(within(inspector).getByText("Варіант")).toBeInTheDocument();
+        expect(within(inspector).getByText("Тут я перевіряв альтернативу.")).toBeInTheDocument();
+    });
+
+    it("keeps variation branches visible when the variations-only filter is selected", () => {
+        const record = makeRecord();
+        render(
+            <AnalysisMoveTree
+                record={record}
+                setRecord={vi.fn() as never}
+                onNavigate={vi.fn()}
+                onOpenEngine={vi.fn()}
+            />,
+        );
+
+        fireEvent.click(screen.getByRole("button", { name: "Згорнути варіанти" }));
+        expect(screen.queryByText("exd5")).not.toBeInTheDocument();
+
+        fireEvent.keyDown(screen.getByRole("button", { name: "Фільтр ходів" }), { key: "Enter" });
+        fireEvent.click(screen.getByRole("menuitemradio", { name: "Тільки варіанти" }));
+
+        const moveList = screen.getByLabelText("Список ходів");
+        expect(within(moveList).getByText("exd5")).toBeInTheDocument();
+        expect(within(moveList).getByText("c6")).toBeInTheDocument();
+        expect(within(moveList).queryByText("e5")).not.toBeInTheDocument();
+        expect(screen.getByText("Тільки варіанти")).toBeInTheDocument();
     });
 
     it("uses the same navigation callback for mainline and variation moves", () => {
@@ -118,4 +162,18 @@ it("autoplays the selected variation without jumping back to the mainline", () =
         act(() => vi.advanceTimersByTime(1000));
         expect(navigate).toHaveBeenCalledWith([1, 0, 0]);
     } finally { vi.useRealTimers(); }
+});
+
+it("filters moves by the explicitly selected player color", () => {
+    const record = makeRecord();
+    render(<AnalysisMoveTree record={record} setRecord={vi.fn()} onNavigate={vi.fn()} onOpenEngine={vi.fn()} />);
+    fireEvent.keyDown(screen.getByRole('button', { name: 'Фільтр ходів' }), { key: 'Enter' });
+    fireEvent.click(screen.getByRole('menuitemradio', { name: 'Тільки мої ходи' }));
+    const list = within(screen.getByLabelText('Список ходів'));
+    expect(list.getByText('e4')).toBeInTheDocument();
+    expect(list.queryByText('d5')).not.toBeInTheDocument();
+    fireEvent.change(screen.getByRole('combobox', { name: 'Мій колір' }), { target: { value: 'b' } });
+    expect(list.getByText('d5')).toBeInTheDocument();
+    expect(list.queryByText('e4')).not.toBeInTheDocument();
+    expect(list.getByText('c6')).toBeInTheDocument();
 });

@@ -1,3 +1,4 @@
+import { nextAnalysisPath } from "./navigation";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuLabel, DropdownMenuRadioGroup, DropdownMenuRadioItem, DropdownMenuSeparator, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
@@ -8,7 +9,6 @@ import {
     findOpening,
     formatCp,
     getNodeByPath,
-    getNextPath,
     isSamePath,
     removeNodeAtPath,
     updateNodeAtPath,
@@ -31,11 +31,11 @@ import {
     Search,
     Trash2,
 } from "lucide-react";
-import { useEffect, useMemo, useState, type Dispatch, type SetStateAction } from "react";
+import { useEffect, useMemo, useState, type CSSProperties, type Dispatch, type SetStateAction } from "react";
 import { toast } from "sonner";
 import "@/styles/analysis-move-tree.css";
 
-type MoveFilter = "all" | "errors" | "variations" | "comments";
+type MoveFilter = "all" | "errors" | "variations" | "comments" | "mine";
 
 type MovePathEntry = {
     path: number[];
@@ -55,6 +55,23 @@ const CLASSIFICATION_MARKS: Record<MoveClassification, string> = {
     inaccuracy: "?!",
     mistake: "?",
     blunder: "??",
+};
+
+const CLASSIFICATION_LABELS: Record<MoveClassification, string> = {
+    best: "Найкращий",
+    excellent: "Чудовий",
+    good: "Добрий",
+    inaccuracy: "Неточність",
+    mistake: "Помилка",
+    blunder: "Груба помилка",
+};
+
+const FILTER_LABELS: Record<MoveFilter, string> = {
+    all: "Усі ходи",
+    errors: "Тільки помилки",
+    variations: "Тільки варіанти",
+    comments: "З коментарями",
+    mine: "Тільки мої ходи",
 };
 
 const ERROR_CLASSIFICATIONS = new Set<MoveClassification>(["inaccuracy", "mistake", "blunder"]);
@@ -175,13 +192,16 @@ export default function AnalysisMoveTree({
     setRecord,
     onNavigate,
     onOpenEngine,
+    onPreviewBestMove,
 }: {
     record: AnalysisRecord;
     setRecord: Dispatch<SetStateAction<AnalysisRecord>>;
     onNavigate: (path: number[] | null) => void;
     onOpenEngine: () => void;
+    onPreviewBestMove?: () => void;
 }) {
     const [filter, setFilter] = useState<MoveFilter>("all");
+    const [ownColor, setOwnColor] = useState<"w" | "b">("w");
     const [variationsCollapsed, setVariationsCollapsed] = useState(false);
     const [showDeepVariations, setShowDeepVariations] = useState(false);
     const [commentPath, setCommentPath] = useState<number[] | null>(null);
@@ -192,16 +212,20 @@ export default function AnalysisMoveTree({
     const [autoplay, setAutoplay] = useState(false);
     const [autoplaySpeed, setAutoplaySpeed] = useState("1");
 
-    const opening = useMemo(() => findOpening(record.mainline), [record.mainline]);
+    const opening = useMemo(() => record.rootFen === START_FEN ? findOpening(record.mainline) : null, [record.rootFen, record.mainline]);
     const variationCount = useMemo(() => countVariations(record.mainline), [record.mainline]);
+    const selectedNode = useMemo(
+        () => record.currentPath ? getNodeByPath(record.mainline, record.currentPath) : null,
+        [record.currentPath, record.mainline],
+    );
     const moveCount = Math.ceil(record.mainline.length / 2);
-    const selectedNode = useMemo(() => getNodeByPath(record.mainline, record.currentPath), [record]);
     const currentMainlineIndex = record.currentPath?.[0] ?? -1;
+    const branchesCollapsed = variationsCollapsed && filter !== "variations";
 
     const mainPairs = useMemo(() => {
         const entries = record.mainline.map((node, index) => ({ node, path: [index] }));
         return pairEntries(entries).filter(pair => {
-            if (filter === "all") return true;
+            if (filter === "all" || filter === "mine") return true;
             const nodes = [pair.white?.node, pair.black?.node].filter(Boolean) as AnalysisMoveNode[];
             if (filter === "errors") return nodes.some(node => node.classification && ERROR_CLASSIFICATIONS.has(node.classification));
             if (filter === "variations") return nodes.some(node => node.children.length > 0);
@@ -210,8 +234,8 @@ export default function AnalysisMoveTree({
     }, [filter, record.mainline]);
 
     const nextErrorIndex = useMemo(() => {
-        const findAfter = record.mainline.findIndex((node, index) => index > currentMainlineIndex && node.classification && ERROR_CLASSIFICATIONS.has(node.classification));
-        if (findAfter >= 0) return findAfter;
+        const afterCurrent = record.mainline.findIndex((node, index) => index > currentMainlineIndex && node.classification && ERROR_CLASSIFICATIONS.has(node.classification));
+        if (afterCurrent >= 0) return afterCurrent;
         return record.mainline.findIndex(node => node.classification && ERROR_CLASSIFICATIONS.has(node.classification));
     }, [currentMainlineIndex, record.mainline]);
 
@@ -219,11 +243,8 @@ export default function AnalysisMoveTree({
         if (!autoplay) return;
         const delay = autoplaySpeed === "0.5" ? 2000 : autoplaySpeed === "2" ? 500 : 1000;
         const timer = window.setTimeout(() => {
-            const next = getNextPath(record, record.currentPath);
-            if (!next) {
-                setAutoplay(false);
-                return;
-            }
+            const next = nextAnalysisPath(record, record.currentPath);
+            if (!next) { setAutoplay(false); return; }
             onNavigate(next);
         }, delay);
         return () => window.clearTimeout(timer);
@@ -243,6 +264,7 @@ export default function AnalysisMoveTree({
     };
 
     const startComment = (path: number[], node: AnalysisMoveNode) => {
+        setAutoplay(false);
         setCommentPath(path);
         setCommentDraft(node.comment);
     };
@@ -330,34 +352,49 @@ export default function AnalysisMoveTree({
         }
     };
 
-    const renderSelectedDetail = (entry: MovePathEntry) => {
-        if (!isSamePath(entry.path, record.currentPath)) return null;
-        const node = entry.node;
-        if (!node.comment.trim() && node.engineEval == null && node.evalLoss == null && !node.bestMoveSan) return null;
+    const renderSelectedInspector = () => {
+        if (!selectedNode || !record.currentPath) return null;
+        const classification = selectedNode.classification;
+        const hasReviewData = selectedNode.engineEval != null || selectedNode.evalLoss != null || Boolean(selectedNode.bestMoveSan);
         return (
-            <div key={node.id} className="analysis-selected-move-detail">
-                <div>
-                    <strong>{moveLabel(node)}</strong>
-                    {node.engineEval != null && <span>Оцінка {formatCp(node.engineEval)}</span>}
-                    {node.evalLoss != null && <span>Втрата {(node.evalLoss / 100).toFixed(2)}</span>}
+            <section className="analysis-selected-inspector" aria-label="Вибраний хід">
+                <div className="analysis-selected-inspector-heading">
+                    <div>
+                        <span>{record.currentPath.length > 1 ? "Варіант" : "Основна лінія"}</span>
+                        <strong>{moveLabel(selectedNode)}</strong>
+                    </div>
+                    {classification && (
+                        <span className={`analysis-selected-classification is-${classification}`}>
+                            <b>{CLASSIFICATION_MARKS[classification]}</b>{CLASSIFICATION_LABELS[classification]}
+                        </span>
+                    )}
                 </div>
-                {node.bestMoveSan && node.classification !== "best" && (
-                    <button type="button" onClick={onOpenEngine}>Краще: {node.bestMoveSan} <ChevronRight size={13} /></button>
+                {hasReviewData ? (
+                    <div className="analysis-selected-inspector-metrics">
+                        {selectedNode.engineEval != null && <span><small>Оцінка</small><strong>{formatCp(selectedNode.engineEval)}</strong></span>}
+                        {selectedNode.evalLoss != null && <span><small>Втрата</small><strong>{(selectedNode.evalLoss / 100).toFixed(2)}</strong></span>}
+                        {selectedNode.bestMoveSan && selectedNode.classification !== "best" && (
+                            <button type="button" onClick={onPreviewBestMove || onOpenEngine}>Краще: {selectedNode.bestMoveSan} <ChevronRight size={13} /></button>
+                        )}
+                    </div>
+                ) : (
+                    <p className="analysis-selected-inspector-empty">Для цього ходу ще немає збереженої оцінки Stockfish.</p>
                 )}
-                {node.comment.trim() && <p><MessageSquare size={13} />{node.comment}</p>}
-            </div>
+                {selectedNode.comment.trim() && <p className="analysis-selected-inspector-comment"><MessageSquare size={13} />{selectedNode.comment}</p>}
+            </section>
         );
     };
 
     const renderMoveCell = (entry: MovePathEntry | null, isLastMainline = false, inVariation = false) => {
-        if (!entry) return <div className="analysis-move-cell is-empty" />;
+        if (!entry || filter === "mine" && entry.node.color !== ownColor) return <div className="analysis-move-cell is-empty" />;
         const node = entry.node;
         const selected = isSamePath(entry.path, record.currentPath);
-        const isBook = !inVariation && opening && node.ply <= opening.matchedPly;
+        const isBook = !node.classification && !inVariation && opening && node.ply <= opening.matchedPly;
         return (
             <div className={cn("analysis-move-cell", selected && "is-selected")}>
-                <button type="button" className="analysis-move-token" onClick={() => onNavigate(entry.path)}>
+                <button type="button" className="analysis-move-token" aria-current={selected ? "step" : undefined} onClick={() => onNavigate(entry.path)}>
                     <span>{node.san}</span>
+                    {selected && <span className="analysis-selected-dot" aria-hidden="true" />}
                     {node.nag && <em className="analysis-user-nag" title="PGN-анотація користувача">{node.nag}</em>}
                     {isBook && <BookOpen size={13} className="analysis-book-mark" aria-label="Теорія" />}
                     {node.classification && (
@@ -398,8 +435,12 @@ export default function AnalysisMoveTree({
         const line = branchPrimaryLine(root, rootPath);
         const pairs = pairEntries(line);
         return (
-            <div key={key} className="analysis-inline-variation" style={{ "--variation-depth": Math.min(depth, 3) } as React.CSSProperties}>
-                <div className="analysis-variation-label"><GitBranch size={12} />{depth === 1 ? "Ваш варіант" : "Вкладений варіант"}</div>
+            <div
+                key={key}
+                className="analysis-inline-variation"
+                aria-label={`Варіант від ходу ${root.moveNumber}`}
+                style={{ "--variation-depth": Math.min(depth, 3) } as CSSProperties}
+            >
                 {pairs.map(pair => {
                     const entries = [pair.white, pair.black].filter(Boolean) as MovePathEntry[];
                     return (
@@ -409,8 +450,7 @@ export default function AnalysisMoveTree({
                                 {renderMoveCell(pair.white, false, true)}
                                 {renderMoveCell(pair.black, false, true)}
                             </div>
-                            {entries.map(entry => renderSelectedDetail(entry))}
-                            {!variationsCollapsed && entries.flatMap(entry => entry.node.children.slice(1).map((child, childIndex) => (
+                            {!branchesCollapsed && entries.flatMap(entry => entry.node.children.slice(1).map((child, childIndex) => (
                                 renderBranch(child, [...entry.path, childIndex + 1], depth + 1, `${entry.node.id}-${child.id}`)
                             )))}
                         </div>
@@ -422,7 +462,7 @@ export default function AnalysisMoveTree({
 
     const renderBranchesForEntry = (entry: MovePathEntry | null) => {
         if (!entry?.node.children.length) return null;
-        if (variationsCollapsed) {
+        if (branchesCollapsed) {
             return (
                 <button type="button" className="analysis-collapsed-variations" onClick={() => setVariationsCollapsed(false)}>
                     <GitBranch size={13} />+{entry.node.children.length} {entry.node.children.length === 1 ? "варіант" : "варіанти"}
@@ -457,7 +497,7 @@ export default function AnalysisMoveTree({
                 </div>
                 <div className="analysis-move-tree-actions">
                     {nextErrorIndex >= 0 && <button type="button" className="analysis-next-error" onClick={() => onNavigate([nextErrorIndex])}>Наступна помилка <ChevronRight size={13} /></button>}
-                    {variationCount > 0 && <button type="button" onClick={() => setVariationsCollapsed(value => !value)} aria-label={variationsCollapsed ? "Розгорнути варіанти" : "Згорнути варіанти"}>{variationsCollapsed ? <ChevronRight size={15} /> : <ChevronDown size={15} />}</button>}
+                    {variationCount > 0 && filter !== "variations" && <button type="button" onClick={() => setVariationsCollapsed(value => !value)} aria-label={variationsCollapsed ? "Розгорнути варіанти" : "Згорнути варіанти"}>{variationsCollapsed ? <ChevronRight size={15} /> : <ChevronDown size={15} />}</button>}
                     <button type="button" onClick={() => setAutoplay(value => !value)} aria-label={autoplay ? "Зупинити Auto-play" : "Auto-play партії"}>{autoplay ? <Pause size={15} /> : <Play size={15} />}</button>
                     <DropdownMenu>
                         <DropdownMenuTrigger asChild><button type="button" aria-label="Швидкість Auto-play"><span className="analysis-speed-label">{autoplaySpeed}x</span></button></DropdownMenuTrigger>
@@ -486,8 +526,9 @@ export default function AnalysisMoveTree({
                             <DropdownMenuRadioGroup value={filter} onValueChange={value => setFilter(value as MoveFilter)}>
                                 <DropdownMenuRadioItem value="all">Усі ходи</DropdownMenuRadioItem>
                                 <DropdownMenuRadioItem value="errors">Тільки помилки</DropdownMenuRadioItem>
-                                <DropdownMenuRadioItem value="variations">Ходи з варіантами</DropdownMenuRadioItem>
-                                <DropdownMenuRadioItem value="comments">Ходи з коментарями</DropdownMenuRadioItem>
+                                <DropdownMenuRadioItem value="variations">Тільки варіанти</DropdownMenuRadioItem>
+                                <DropdownMenuRadioItem value="comments">З коментарями</DropdownMenuRadioItem>
+                                <DropdownMenuRadioItem value="mine">Тільки мої ходи</DropdownMenuRadioItem>
                             </DropdownMenuRadioGroup>
                         </DropdownMenuContent>
                     </DropdownMenu>
@@ -498,7 +539,23 @@ export default function AnalysisMoveTree({
                 <button type="button" className="analysis-return-mainline" onClick={returnToMainline}><CornerUpLeft size={14} />Основна лінія</button>
             )}
 
-            {opening && <div className="analysis-opening-strip"><BookOpen size={13} /><span>{opening.line?.name || opening.opening.name}</span><strong>{opening.opening.eco}</strong></div>}
+            {opening && (
+                <div className="analysis-opening-strip" title={`${opening.opening.name}${opening.line ? ` — ${opening.line.name}` : ""} · ${opening.opening.eco}`}>
+                    <BookOpen size={13} />
+                    <span>{opening.line?.name || opening.opening.name}</span>
+                    <strong>{opening.opening.eco}</strong>
+                </div>
+            )}
+
+            {filter !== "all" && (
+                <div className="analysis-active-filter">
+                    <span>{FILTER_LABELS[filter]}</span>
+                    {filter === "mine" && <select aria-label="Мій колір" value={ownColor} onChange={event => setOwnColor(event.target.value as "w" | "b")}><option value="w">Білі</option><option value="b">Чорні</option></select>}
+                    <button type="button" onClick={() => setFilter("all")}>Скинути</button>
+                </div>
+            )}
+
+            {renderSelectedInspector()}
 
             <div className="analysis-mainline-label">Основна партія</div>
             <div className="analysis-inline-move-list" aria-label="Список ходів">
@@ -512,9 +569,8 @@ export default function AnalysisMoveTree({
                                 {renderMoveCell(pair.white, pair.white?.path[0] === lastIndex)}
                                 {renderMoveCell(pair.black, pair.black?.path[0] === lastIndex)}
                             </div>
-                            {entries.map(entry => renderSelectedDetail(entry))}
                             {entries.map(entry => <div key={`${entry.node.id}-branches`}>{renderBranchesForEntry(entry)}</div>)}
-                            {entries.filter(entry => entry.node.comment.trim() && !isSamePath(entry.path, record.currentPath)).map(entry => (
+                            {entries.filter(entry => entry.node.comment.trim() && (filter !== "mine" || entry.node.color === ownColor) && !isSamePath(entry.path, record.currentPath)).map(entry => (
                                 <button key={`${entry.node.id}-comment`} type="button" className="analysis-move-comment" onClick={() => onNavigate(entry.path)}><MessageSquare size={12} /><span>{entry.node.comment}</span></button>
                             ))}
                         </div>
@@ -524,13 +580,17 @@ export default function AnalysisMoveTree({
                 )}
             </div>
 
+            {filter === "all" && record.mainline.length <= 12 && (
+                <div className="analysis-move-tree-hint">Зробіть альтернативний хід на дошці, щоб створити новий варіант.</div>
+            )}
+
             <Dialog open={Boolean(commentPath)} onOpenChange={open => { if (!open) setCommentPath(null); }}>
                 <DialogContent className="sm:max-w-md">
                     <DialogHeader>
                         <DialogTitle>Коментар до ходу</DialogTitle>
                         <DialogDescription>Коментар зберігається разом із цим ходом і не змішується з оцінкою Stockfish.</DialogDescription>
                     </DialogHeader>
-                    <textarea className="analysis-comment-editor" value={commentDraft} onChange={event => setCommentDraft(event.target.value)} maxLength={500} placeholder="Наприклад: Тут я розглядав 2.exd5." />
+                    <textarea aria-label="Коментар до ходу" className="analysis-comment-editor" value={commentDraft} onChange={event => setCommentDraft(event.target.value)} maxLength={500} placeholder="Наприклад: Тут я розглядав 2.exd5." />
                     <DialogFooter>
                         <Button variant="outline" onClick={() => setCommentPath(null)}>Скасувати</Button>
                         <Button onClick={saveComment}>Зберегти</Button>

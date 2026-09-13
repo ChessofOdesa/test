@@ -479,23 +479,16 @@ export function classificationClasses(classification: MoveClassification | null)
     }[classification || "good"];
 }
 export function explanationForMove(classification: MoveClassification, color: "w" | "b", bestMoveSan: string | null) {
-    const side = color === "w" ? "White" : "Black";
-    if (classification === "best") {
-        return `${side} matched the engine's first choice and kept the position under control.`;
-    }
-    if (classification === "excellent") {
-        return `${side} found a very strong continuation and stayed almost perfectly aligned with the engine.`;
-    }
-    if (classification === "good") {
-        return `${side} stayed close to the engine line, but there was still a sharper continuation available.`;
-    }
-    if (classification === "inaccuracy") {
-        return `${side} drifted from the strongest continuation. ${bestMoveSan ? `Stockfish preferred ${bestMoveSan}.` : ""}`.trim();
-    }
-    if (classification === "mistake") {
-        return `${side} gave up a meaningful chunk of the evaluation. ${bestMoveSan ? `The cleaner move was ${bestMoveSan}.` : ""}`.trim();
-    }
-    return `${side} sharply changed the evaluation. ${bestMoveSan ? `Stockfish wanted ${bestMoveSan} instead.` : ""}`.trim();
+    const side = color === "w" ? "Білі" : "Чорні";
+    const descriptions = {
+        best: `${side} обрали першу рекомендацію рушія.`,
+        excellent: `${side} зіграли майже так само сильно, як рекомендує рушій.`,
+        good: `${side} зберегли оцінку близькою до найкращого продовження.`,
+        inaccuracy: `${side} трохи погіршили оцінку позиції.`,
+        mistake: `${side} помітно погіршили оцінку позиції.`,
+        blunder: `${side} допустили різке погіршення оцінки позиції.`,
+    };
+    return descriptions[classification] + (bestMoveSan && classification !== "best" ? ` Краще було ${bestMoveSan}.` : "");
 }
 export function formatAnalysisError(error: unknown) {
     const rawMessage = error instanceof Error ? error.message : String(error || "");
@@ -816,23 +809,46 @@ export function buildRecordFromPgn(pgnText: string): AnalysisRecord {
     chess.loadPgn(pgnText);
     const headers = chess.getHeaders();
     const rootFen = headers.FEN || START_FEN;
-    const moveHistory = chess.history({ verbose: true }) as Array<{
-        san: string;
-        from: string;
-        to: string;
-        color: "w" | "b";
-        promotion?: string;
-    }>;
-    const replay = new Chess(rootFen);
-    const mainline = moveHistory.map((move, index) => {
-        const fenBefore = replay.fen();
-        replay.move({
-            from: move.from,
-            to: move.to,
-            promotion: (move.promotion as "q" | "r" | "b" | "n" | undefined) || "q",
-        });
-        return createMoveNode(move, fenBefore, replay.fen(), index + 1);
-    });
+    const mainline: AnalysisMoveNode[] = [];
+    const body = pgnText.replace(/^\s*\[\w+\s+"(?:\\.|[^"\\])*"\s*\]\s*$/gm, "");
+    const tokens = body.match(/\{[^}]*\}|;[^\r\n]*|\$\d+|[()]|\d+\.(?:\.\.)?|\.{3}|1\/2-1\/2|1-0|0-1|\*|[^\s(){}]+/g) || [];
+    const nags: Record<string, MoveNag> = { "$1": "!", "$2": "?", "$3": "!!", "$4": "??", "$5": "!?", "$6": "?!" };
+    let cursor = 0, count = 0;
+    const readLine = (fen: string, anchor: AnalysisMoveNode | null, isMainline: boolean, startPly: number, depth: number) => {
+        if (depth > 40) throw new Error("У PGN забагато вкладених варіантів.");
+        const replay = new Chess(fen);
+        let parent = anchor, previousParent = anchor, last: AnalysisMoveNode | null = null, ply = startPly;
+        while (cursor < tokens.length) {
+            const token = tokens[cursor++];
+            if (token === ")") { if (!depth) throw new Error("Зайва дужка в PGN."); return; }
+            if (token === "(") {
+                if (!last) throw new Error("Варіант без попереднього ходу.");
+                if (!previousParent) throw new Error("Альтернативи першого ходу ще не підтримуються. Відкрийте таку лінію як окрему партію.");
+                readLine(last.fenBefore, previousParent, false, last.ply - 1, depth + 1);
+                continue;
+            }
+            if (/^(\d+\.|\.\.\.)/.test(token) || ["1-0", "0-1", "1/2-1/2", "*"].includes(token)) continue;
+            if (token.startsWith("{") || token.startsWith(";")) {
+                if (last) last.comment = [last.comment, token.startsWith("{") ? token.slice(1, -1).trim() : token.slice(1).trim()].filter(Boolean).join("\n");
+                continue;
+            }
+            if (/^\$\d+$/.test(token) || /^[!?]+$/.test(token)) {
+                if (last) last.nag = nags[token] || (/^(!!|!|!\?|\?!|\?|\?\?)$/.test(token) ? token as MoveNag : last.nag);
+                continue;
+            }
+            if (++count > 4000) throw new Error("У PGN забагато ходів.");
+            const before = replay.fen();
+            const move = replay.move(token.replace(/[!?]+$/, ""));
+            const node = createMoveNode(move, before, replay.fen(), ++ply);
+            node.nag = token.match(/(!!|!\?|\?!|\?\?|!|\?)$/)?.[0] as MoveNag || null;
+            if (isMainline) mainline.push(node); else parent!.children.push(node);
+            previousParent = parent;
+            parent = node;
+            last = node;
+        }
+        if (depth) throw new Error("Не закрито варіант у PGN.");
+    };
+    readLine(rootFen, null, true, 0, 0);
     return {
         headers,
         rootFen,
@@ -841,4 +857,33 @@ export function buildRecordFromPgn(pgnText: string): AnalysisRecord {
         historyStack: [],
         futureStack: [],
     };
+}
+
+/** Add explicit board/engine moves atomically, reusing already stored continuations. */
+export function appendAnalysisLine(record: AnalysisRecord, moves: string[]): AnalysisRecord {
+    const next = { ...record, mainline: cloneNodes(record.mainline), currentPath: record.currentPath ? [...record.currentPath] : null };
+    for (const uci of moves) {
+        const fen = getCurrentFen(next);
+        const game = new Chess(fen);
+        const played = game.move(uci);
+        const path = next.currentPath;
+        const parent = getNodeByPath(next.mainline, path);
+        const continuation = getNextPath(next, path);
+        if (continuation && getNodeByPath(next.mainline, continuation)?.uci === played.lan) {
+            next.currentPath = continuation;
+            continue;
+        }
+        const child = parent?.children.findIndex(node => node.uci === played.lan) ?? -1;
+        if (path && child >= 0) { next.currentPath = [...path, child]; continue; }
+        if (!path && next.mainline.length) throw new Error('Для іншого першого ходу відкрийте нову позицію. Поточну партію збережено.');
+        const node = createMoveNode(played, fen, game.fen(), (parent?.ply ?? 0) + 1);
+        if (!path || path.length === 1 && path[0] === next.mainline.length - 1) {
+            next.mainline.push(node);
+            next.currentPath = [next.mainline.length - 1];
+        } else {
+            parent!.children.push(node);
+            next.currentPath = [...path, parent!.children.length - 1];
+        }
+    }
+    return next;
 }
