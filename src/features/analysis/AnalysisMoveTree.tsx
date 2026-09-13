@@ -15,6 +15,7 @@ import {
     type AnalysisRecord,
     type MoveClassification,
 } from "@/features/analysis/model";
+import { promoteVariationPath } from "@/features/analysis/branching";
 import { cn } from "@/lib/utils";
 import {
     BookOpen,
@@ -149,21 +150,6 @@ function formatLine(nodes: AnalysisMoveNode[]) {
     }).join(" ");
 }
 
-function tailToBranch(nodes: AnalysisMoveNode[]): AnalysisMoveNode | null {
-    if (!nodes.length) return null;
-    const tail = cloneNodes(nodes);
-    for (let index = tail.length - 2; index >= 0; index -= 1) {
-        tail[index].children = [tail[index + 1], ...tail[index].children];
-    }
-    return tail[0];
-}
-
-function detachPrimaryBranch(node: AnalysisMoveNode): AnalysisMoveNode[] {
-    const current = cloneNodes([node])[0];
-    const primary = current.children[0] || null;
-    current.children = current.children.slice(1);
-    return [current, ...(primary ? detachPrimaryBranch(primary) : [])];
-}
 
 function moveLabel(node: AnalysisMoveNode) {
     return `${node.moveNumber}${node.color === "w" ? "." : "..."}${node.san}`;
@@ -215,7 +201,7 @@ export default function AnalysisMoveTree({
         () => record.currentPath ? getNodeByPath(record.mainline, record.currentPath) : null,
         [record.currentPath, record.mainline],
     );
-    const moveCount = Math.ceil(record.mainline.length / 2);
+    const moveCount = new Set(record.mainline.map(node => node.moveNumber)).size;
     const currentMainlineIndex = record.currentPath?.[0] ?? -1;
     const branchesCollapsed = variationsCollapsed && filter !== "variations";
 
@@ -311,24 +297,14 @@ export default function AnalysisMoveTree({
     };
 
     const promoteVariation = () => {
-        if (!promotePath || promotePath.length !== 2) return;
-        const anchorIndex = promotePath[0];
-        const branchIndex = promotePath[1];
-        const branchRoot = record.mainline[anchorIndex]?.children[branchIndex];
-        if (!branchRoot) return;
-
-        const prefix = cloneNodes(record.mainline.slice(0, anchorIndex + 1));
-        const promotedLine = detachPrimaryBranch(branchRoot);
-        const oldTail = tailToBranch(record.mainline.slice(anchorIndex + 1));
-        const anchor = prefix[prefix.length - 1];
-        anchor.children = anchor.children.filter((_, index) => index !== branchIndex);
-        if (oldTail) anchor.children = [oldTail, ...anchor.children];
-        const mainline = [...prefix, ...promotedLine];
+        if (!promotePath || promotePath.length < 2) return;
+        const promoted = promoteVariationPath(record.mainline, promotePath);
+        if (!promoted) return;
 
         setRecord(current => ({
             ...current,
-            mainline,
-            currentPath: [anchorIndex + 1],
+            mainline: promoted.mainline,
+            currentPath: promoted.currentPath,
         }));
         setPromotePath(null);
         toast.success("Варіант став основною лінією. Стара лінія збережена як варіант.");
@@ -414,7 +390,7 @@ export default function AnalysisMoveTree({
                             <button type="button" className="analysis-move-menu-trigger" aria-label={`Дії для ${moveLabel(node)}`}><MoreHorizontal size={15} /></button>
                         </DropdownMenuTrigger>
                         <DropdownMenuContent align="end" className="w-56">
-                            {entry.path.length === 2 && <DropdownMenuItem onSelect={() => setPromotePath(entry.path)}><GitBranch size={15} className="mr-2" />Зробити основною лінією</DropdownMenuItem>}
+                            {entry.path.length > 1 && <DropdownMenuItem onSelect={() => setPromotePath(entry.path)}><GitBranch size={15} className="mr-2" />Зробити основною лінією</DropdownMenuItem>}
                             <DropdownMenuItem onSelect={() => startComment(entry.path, node)}><MessageSquare size={15} className="mr-2" />{node.comment ? "Редагувати коментар" : "Додати коментар"}</DropdownMenuItem>
                             <DropdownMenuItem onSelect={() => void copyText(node.fenAfter, "FEN")}><span className="mr-2 font-mono text-xs">FEN</span>Копіювати FEN</DropdownMenuItem>
                             <DropdownMenuItem onSelect={() => void copyText(formatLine(collectLineNodes(record, entry.path)), "Лінію")}><span className="mr-2 font-mono text-xs">PGN</span>Копіювати лінію</DropdownMenuItem>
