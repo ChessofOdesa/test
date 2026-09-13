@@ -90,6 +90,26 @@ describe("Analysis Center", () => {
         expect(screen.getByText("MultiPV")).toBeInTheDocument();
     });
 
+    it("switches between simple and advanced Analysis UI without cluttering the default", async () => {
+        render(<MemoryRouter initialEntries={["/analysis"]}>
+            <BoardSettingsProvider><Analysis /></BoardSettingsProvider>
+        </MemoryRouter>);
+
+        await screen.findByTestId("analysis-board");
+        fireEvent.click(screen.getByRole("tab", { name: /Движок/i }));
+        expect(screen.queryByLabelText("Розширені дані движка")).not.toBeInTheDocument();
+
+        fireEvent.click(screen.getByRole("button", { name: "Налаштування аналізу" }));
+        expect(screen.getByRole("button", { name: /Простий/i })).toHaveAttribute("aria-pressed", "true");
+        fireEvent.click(screen.getByRole("button", { name: /Розширений/i }));
+        expect(screen.getByRole("button", { name: /Розширений/i })).toHaveAttribute("aria-pressed", "true");
+        fireEvent.click(screen.getByRole("button", { name: "Налаштування аналізу" }));
+
+        const advanced = await screen.findByLabelText("Розширені дані движка");
+        expect(within(advanced).getByText("Глибина")).toBeInTheDocument();
+        expect(within(advanced).getByText("MultiPV")).toBeInTheDocument();
+    });
+
     it("previews the best move from the simplified engine card", async () => {
         render(<MemoryRouter initialEntries={["/analysis"]}>
             <BoardSettingsProvider><Analysis /></BoardSettingsProvider>

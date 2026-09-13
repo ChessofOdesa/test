@@ -56,6 +56,27 @@
 .analysis-badge-tooltip strong { font-size: .8rem; }
 .analysis-badge-tooltip span { font-size: .69rem; line-height: 1.25; }
 
+.analysis-ui-mode-options {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0,1fr));
+  gap: 6px;
+}
+.analysis-ui-mode-options button {
+  min-width: 0;
+  display: grid;
+  gap: 2px;
+  padding: 8px 9px;
+  border: 1px solid hsl(var(--border));
+  border-radius: 8px;
+  text-align: left;
+  background: white;
+}
+.analysis-ui-mode-options button:hover { background: #f8fafd; }
+.analysis-ui-mode-options button.is-active { border-color: #9fb8dc; background: #edf4fd; box-shadow: inset 3px 0 0 hsl(var(--primary)); }
+.analysis-ui-mode-options button strong { font-size: .72rem; }
+.analysis-ui-mode-options button span { color: hsl(var(--muted-foreground)); font-size: .6rem; }
+.analysis-ui-mode-options button:focus-visible { outline: 2px solid hsl(var(--primary)); outline-offset: 1px; }
+
 /* Engine — simplified hierarchy: status → evaluation → best move → optional alternatives. */
 .analysis-engine-panel-simple { display: grid; align-content: start; gap: 9px; }
 .analysis-engine-toolbar-simple {
@@ -117,6 +138,37 @@
   font-size: .72rem;
   font-weight: 680;
 }
+
+.analysis-engine-advanced-meta {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0,1fr));
+  gap: 5px;
+}
+.analysis-engine-advanced-meta > span {
+  min-width: 0;
+  display: grid;
+  gap: 1px;
+  padding: 6px 7px;
+  border: 1px solid #e1e7ef;
+  border-radius: 7px;
+  background: #fbfcfe;
+}
+.analysis-engine-advanced-meta small { color: hsl(var(--muted-foreground)); font-size: .55rem; }
+.analysis-engine-advanced-meta strong { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: #314b6d; font-size: .68rem; }
+.analysis-engine-selected-advanced {
+  display: grid;
+  grid-template-columns: minmax(0,1fr) auto auto;
+  align-items: center;
+  gap: 7px;
+  padding: 7px 8px;
+  border: 1px solid #e0e6ee;
+  border-radius: 8px;
+  background: #fafbfd;
+}
+.analysis-engine-selected-advanced > div { min-width: 0; display: grid; gap: 1px; }
+.analysis-engine-selected-advanced > div span { color: hsl(var(--muted-foreground)); font-size: .55rem; }
+.analysis-engine-selected-advanced > div strong { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: .7rem; }
+.analysis-engine-selected-advanced > small { color: #6d7b8d; font-size: .6rem; font-weight: 700; }
 
 .analysis-best-move-simple {
   display: grid;
