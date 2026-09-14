@@ -1,3 +1,9 @@
+import { useAnalysisWorkspace } from "@/features/analysis/useAnalysisWorkspace";
+import { readDraft, readSharedAnalysis, undoRecord, redoRecord } from "@/features/analysis/workspace";
+import { readPositionCache, writePositionCache, clearPositionCache } from "@/features/analysis/positionCache";
+import { ArchiveDialog, ShareDialog } from "@/features/analysis/WorkspaceDialogs";
+import PositionEditor from "@/features/analysis/PositionEditor";
+import { CompareLines, MistakeTraining } from "@/features/analysis/PracticeTools";
 import ChessBoard from "@/components/ChessBoard";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
@@ -32,6 +38,7 @@ import {
     uciPvToSan,
     uciToSan,
     updateNodeAtPath,
+    updateRecordNode,
     type AnalysisMoveNode,
     type AnalysisRecord,
     type EngineSummary,
@@ -58,6 +65,12 @@ import {
     Info,
     Loader2,
     MoreHorizontal,
+    FolderOpen,
+    Undo2,
+    Redo2,
+    Share2,
+    Pencil,
+    Bookmark,
     Pause,
     Play,
     Plus,
@@ -82,6 +95,7 @@ import { useLocation, useSearchParams } from "react-router-dom";
 import { toast } from "sonner";
 import "@/styles/analysis-center.css";
 import "@/styles/analysis-panel-professional.css";
+import "@/styles/analysis-workspace-tools.css";
 
 type PanelTab = "moves" | "engine" | "overview" | "info";
 type ImportMode = "pgn" | "fen";
@@ -91,6 +105,7 @@ type BoardBadgeKind = MoveClassification | "book";
 
 type ReviewState = {
     running: boolean;
+    paused?: boolean;
     current: number;
     total: number;
     error: string;
@@ -310,7 +325,19 @@ export default function AnalysisCenter() {
     const engineCacheRef = useRef(new Map<string, EngineSummary>());
     const loadedInputRef = useRef<string | null>(null);
 
-    const [record, setRecord] = useState<AnalysisRecord>(() => createRecord());
+    const { record, setRecord, editRecord, saveStatus } = useAnalysisWorkspace(() => readDraft() || createRecord());
+    const [workspaceDialog, setWorkspaceDialog] = useState<'archive' | 'share' | 'editor' | 'training' | 'compare' | null>(null);
+    const [activeSaveId, setActiveSaveId] = useState<string | null>(null);
+    const [economy, setEconomy] = useState(false);
+    const [pageVisible, setPageVisible] = useState(() => document.visibilityState !== 'hidden');
+    const [deepPosition, setDeepPosition] = useState<string | null>(null);
+    const [focusBranch, setFocusBranch] = useState(false);
+    const [followSelection, setFollowSelection] = useState(true);
+    const [mobileFocus, setMobileFocus] = useState(true);
+    const [panelWidth, setPanelWidth] = useState(460);
+    const [resizing, setResizing] = useState(false);
+    const panelRef = useRef<HTMLElement | null>(null);
+    const reviewProgressRef = useRef<{ identity: string; next: number } | null>(null);
     const [tab, setTab] = useState<PanelTab>("moves");
     const [boardSize, setBoardSize] = useState(650);
     const [flipped, setFlipped] = useState(false);
@@ -336,7 +363,9 @@ export default function AnalysisCenter() {
     const renderedMoves = useMemo(() => [...renderMoves(record.mainline), ...renderMoves(record.rootVariations || [], 1, [-1])], [record.mainline, record.rootVariations]);
     const currentNode = useMemo(() => getLastMove(record), [record]);
     const currentFen = useMemo(() => getCurrentFen(record), [record]);
-    const positionKey = `${engineDepth}:${multiPv}:${currentFen}`;
+    const requestedDepth = deepPosition === currentFen ? 16 : economy ? 8 : engineDepth;
+    const requestedMultiPv = economy ? 1 : multiPv;
+    const positionKey = `${requestedDepth}:${requestedMultiPv}:${currentFen}`;
     const currentEngine = engineEnabled && positionResult?.requestKey === positionKey ? positionResult : null;
     const gameIdentity = `${record.rootFen}:${record.mainline.map(node => node.id).join(",")}`;
     const reviewedNodes = useMemo(() => record.mainline.filter(node => node.evalLoss != null), [record.mainline]);
@@ -400,8 +429,26 @@ export default function AnalysisCenter() {
     const cancelReview = useCallback(() => {
         reviewAbortRef.current?.abort();
         reviewAbortRef.current = null;
-        setReview(current => ({ ...current, running: false }));
+        reviewProgressRef.current = null;
+        setReview(current => ({ ...current, running: false, paused: false }));
     }, []);
+
+    const pauseReview = useCallback(() => {
+        reviewAbortRef.current?.abort(); reviewAbortRef.current = null;
+        setReview(current => current.running ? { ...current, running: false, paused: true } : current);
+    }, []);
+    const changeHistory = useCallback((redo = false) => {
+        cancelReview(); setLinePreview(null); setRecord(current => redo ? redoRecord(current) : undoRecord(current));
+    }, [cancelReview, setRecord]);
+    const openWorkspaceDialog = (value: typeof workspaceDialog) => { pauseReview(); setLinePreview(null); setWorkspaceDialog(value); };
+    useEffect(() => { const update = () => { const visible = document.visibilityState !== 'hidden'; setPageVisible(visible); if (!visible && economy) pauseReview(); }; document.addEventListener('visibilitychange', update); return () => document.removeEventListener('visibilitychange', update); }, [economy, pauseReview]);
+    useEffect(() => {
+        if (!resizing) return;
+        const move = (event: PointerEvent) => { const right = panelRef.current?.getBoundingClientRect().right; if (right) setPanelWidth(Math.max(340, Math.min(620, right - event.clientX))); };
+        const stop = () => setResizing(false);
+        window.addEventListener('pointermove', move); window.addEventListener('pointerup', stop); window.addEventListener('pointercancel', stop);
+        return () => { window.removeEventListener('pointermove', move); window.removeEventListener('pointerup', stop); window.removeEventListener('pointercancel', stop); };
+    }, [resizing]);
 
     useEffect(() => {
         cancelReview();
@@ -420,7 +467,7 @@ export default function AnalysisCenter() {
         if (!element) return;
         const sync = () => {
             const width = element.getBoundingClientRect().width || 650;
-            const maxByHeight = Math.max(400, window.innerHeight - 128);
+            const maxByHeight = window.innerWidth <= 760 && mobileFocus ? Math.max(160, window.innerHeight * .35) : Math.max(300, window.innerHeight - 128);
             setBoardSize(Math.floor(Math.min(710, width, maxByHeight)));
         };
         sync();
@@ -431,12 +478,13 @@ export default function AnalysisCenter() {
             observer.disconnect();
             window.removeEventListener("resize", sync);
         };
-    }, []);
+    }, [mobileFocus]);
 
     useEffect(() => {
         const routePgn = typeof location.state?.pgn === "string" ? location.state.pgn : searchParams.get("pgn");
         const routeFen = searchParams.get("fen");
-        const source = routePgn || routeFen;
+        const sharedHash = location.hash.startsWith('#analysis=') ? location.hash : '';
+        const source = routePgn || routeFen || sharedHash;
         if (!source || loadedInputRef.current === source) return;
         loadedInputRef.current = source;
         try {
@@ -453,16 +501,19 @@ export default function AnalysisCenter() {
                 setTab("moves");
                 setLinePreview(null);
                 toast.success("Позицію відкрито для аналізу.");
+            } else if (sharedHash) {
+                const shared = readSharedAnalysis(sharedHash);
+                if (shared) { setRecord(shared); setTab("moves"); setLinePreview(null); toast.success("Спільний аналіз відкрито."); }
             }
         } catch {
             toast.error("Не вдалося відкрити переданий PGN або FEN.");
         }
-    }, [location.state, searchParams]);
+    }, [location.state, location.hash, searchParams, setRecord]);
 
     const analyzeCached = useCallback(async (fen: string, depth: number, requestedMultiPv: number, signal: AbortSignal) => {
         if (signal.aborted) throw new DOMException("Analysis cancelled", "AbortError");
         const key = `${depth}:${requestedMultiPv}:${fen}`;
-        const cached = engineCacheRef.current.get(key);
+        const cached = engineCacheRef.current.get(key) || readPositionCache(key);
         if (cached) return cached;
         const result = await analyzeFenWithStockfish(fen, depth, undefined, 20_000, {
             signal,
@@ -476,12 +527,13 @@ export default function AnalysisCenter() {
             engineCacheRef.current.delete(engineCacheRef.current.keys().next().value!);
         }
         engineCacheRef.current.set(key, summary);
+        writePositionCache(key, summary);
         return summary;
     }, []);
 
     useEffect(() => {
         positionAbortRef.current?.abort();
-        if (!engineEnabled || review.running) {
+        if (!engineEnabled || review.running || workspaceDialog || economy && !pageVisible) {
             setCurrentEngine(null);
             setPositionBusy(false);
             setPositionError("");
@@ -493,7 +545,7 @@ export default function AnalysisCenter() {
         setPositionBusy(true);
         setPositionError("");
         const timer = window.setTimeout(() => {
-            void analyzeCached(currentFen, engineDepth, multiPv, controller.signal)
+            void analyzeCached(currentFen, requestedDepth, requestedMultiPv, controller.signal)
                 .then(summary => {
                     if (!controller.signal.aborted) setCurrentEngine({ ...summary, requestKey: positionKey });
                 })
@@ -508,12 +560,12 @@ export default function AnalysisCenter() {
             window.clearTimeout(timer);
             controller.abort();
         };
-    }, [analyzeCached, currentFen, engineDepth, engineEnabled, multiPv, positionKey, review.running]);
+    }, [analyzeCached, currentFen, requestedDepth, engineEnabled, requestedMultiPv, positionKey, review.running, workspaceDialog, economy, pageVisible]);
 
     const navigateTo = useCallback((path: number[] | null) => {
         setLinePreview(null);
         setRecord(current => ({ ...current, currentPath: path ? [...path] : null }));
-    }, []);
+    }, [setRecord]);
 
     const previousPath = useMemo(() => previousAnalysisPath(record, record.currentPath), [record]);
     const nextPath = useMemo(() => nextAnalysisPath(record, record.currentPath), [record]);
@@ -541,10 +593,12 @@ export default function AnalysisCenter() {
 
     useEffect(() => {
         const handleKey = (event: KeyboardEvent) => {
+            const typing = event.target instanceof HTMLElement && event.target.closest('input, textarea, select, [contenteditable="true"], [role="dialog"]');
+            if (!typing && (event.ctrlKey || event.metaKey) && ['z', 'y'].includes(event.key.toLowerCase())) { event.preventDefault(); changeHistory(event.shiftKey || event.key.toLowerCase() === 'y'); return; }
             if (event.defaultPrevented || event.altKey || event.ctrlKey || event.metaKey) return;
             const target = event.target instanceof HTMLElement ? event.target : null;
             if (target instanceof HTMLInputElement || target instanceof HTMLTextAreaElement || target instanceof HTMLSelectElement || target?.isContentEditable || target?.closest('[role="dialog"], [role="menu"], [role="tablist"], [role="slider"]')) return;
-            if (importOpen || settingsOpen) return;
+            if (importOpen || settingsOpen || workspaceDialog) return;
             if (event.key === "ArrowLeft") { event.preventDefault(); goPrevious(); }
             if (event.key === "ArrowRight") { event.preventDefault(); goNext(); }
             if (event.key === "Home") { event.preventDefault(); goFirst(); }
@@ -552,7 +606,7 @@ export default function AnalysisCenter() {
         };
         window.addEventListener("keydown", handleKey);
         return () => window.removeEventListener("keydown", handleKey);
-    }, [goFirst, goLast, goNext, goPrevious, importOpen, linePreview, settingsOpen]);
+    }, [goFirst, goLast, goNext, goPrevious, importOpen, linePreview, settingsOpen, workspaceDialog, changeHistory]);
 
     const openImport = (mode: ImportMode) => {
         setImportMode(mode);
@@ -571,10 +625,10 @@ export default function AnalysisCenter() {
             const imported = importMode === "pgn" ? buildRecordFromPgn(value) : createRecord(new Chess(value).fen());
             cancelReview();
             if (importMode === "pgn") {
-                setRecord(imported);
+                editRecord(imported); setActiveSaveId(null);
                 toast.success("PGN завантажено.");
             } else {
-                setRecord(imported);
+                editRecord(imported); setActiveSaveId(null);
                 toast.success("FEN завантажено.");
             }
             setImportOpen(false);
@@ -600,7 +654,7 @@ export default function AnalysisCenter() {
             const text = await file.text();
             const imported = buildRecordFromPgn(text);
             cancelReview();
-            setRecord(imported);
+            editRecord(imported); setActiveSaveId(null);
             setImportDraft(text);
             setCurrentEngine(null);
             setLinePreview(null);
@@ -617,11 +671,11 @@ export default function AnalysisCenter() {
 
     const addVariationMove = useCallback((from: string, to: string, promotion?: "q" | "r" | "b" | "n") => {
         if (linePreview || review.running) return false;
-        try { setRecord(appendAnalysisLine(record, [`${from}${to}${promotion || ""}`])); return true; }
+        try { editRecord(appendAnalysisLine(record, [`${from}${to}${promotion || ""}`])); return true; }
         catch { return false; }
-    }, [linePreview, record, review.running]);
+    }, [linePreview, record, review.running, editRecord]);
 
-    const startFullReview = async () => {
+    const startFullReview = async (resume = false) => {
         if (!record.mainline.length || reviewAbortRef.current) return;
         positionAbortRef.current?.abort();
         setLinePreview(null);
@@ -629,13 +683,15 @@ export default function AnalysisCenter() {
         const controller = new AbortController();
         reviewAbortRef.current = controller;
         const total = record.mainline.length;
-        setReview({ running: true, current: 0, total, error: "" });
+        const start = resume && reviewProgressRef.current?.identity === gameIdentity ? reviewProgressRef.current.next : 0;
+        reviewProgressRef.current = { identity: gameIdentity, next: start };
+        setReview({ running: true, paused: false, current: start, total, error: "" });
 
         try {
-            for (let index = 0; index < total; index += 1) {
+            for (let index = start; index < total; index += 1) {
                 if (controller.signal.aborted) throw new DOMException("Analysis cancelled", "AbortError");
                 const node = record.mainline[index];
-                const depth = Math.min(engineDepth, 12);
+                const depth = economy ? 8 : Math.min(engineDepth, 12);
                 const before = await analyzeCached(node.fenBefore, depth, 1, controller.signal);
                 const after = await analyzeCached(node.fenAfter, depth, 1, controller.signal);
                 if (controller.signal.aborted || reviewAbortRef.current !== controller) return;
@@ -660,8 +716,10 @@ export default function AnalysisCenter() {
                         target.explanation = explanationForMove(classification, node.color, bestMoveSan);
                     }),
                 }));
+                reviewProgressRef.current = { identity: gameIdentity, next: index + 1 };
                 setReview({ running: true, current: index + 1, total, error: "" });
             }
+            reviewProgressRef.current = null;
             setReview({ running: false, current: total, total, error: "" });
             toast.success("Повний аналіз партії завершено.");
         } catch (error) {
@@ -684,7 +742,7 @@ export default function AnalysisCenter() {
     const resetAnalysis = () => {
         cancelReview();
         positionAbortRef.current?.abort();
-        setRecord(createRecord());
+        editRecord(createRecord()); setActiveSaveId(null);
         setCurrentEngine(null);
         setLinePreview(null);
         setReview({ running: false, current: 0, total: 0, error: "" });
@@ -695,7 +753,7 @@ export default function AnalysisCenter() {
 
     const clearVariations = () => {
         if (!hasVariations) return;
-        setRecord(current => ({
+        editRecord(current => ({
             ...current,
             mainline: stripVariations(current.mainline),
             rootVariations: [],
@@ -708,7 +766,7 @@ export default function AnalysisCenter() {
     const clearReviewResults = () => {
         if (!reviewedNodes.length) return;
         cancelReview();
-        setRecord(current => ({ ...current, mainline: clearReviewData(current.mainline), rootVariations: clearReviewData(current.rootVariations || []) }));
+        editRecord(current => ({ ...current, mainline: clearReviewData(current.mainline), rootVariations: clearReviewData(current.rootVariations || []) }));
         setReview({ running: false, current: 0, total: 0, error: "" });
         setOverviewFilter("all");
         setLinePreview(null);
@@ -799,7 +857,7 @@ export default function AnalysisCenter() {
     const addEngineLineToVariations = (line: EngineLineView) => {
         if (review.running || !line.pv.length) return;
         try {
-            setRecord(appendAnalysisLine(record, line.pv.slice(0, 20)));
+            editRecord(appendAnalysisLine(record, line.pv.slice(0, 20)));
             setLinePreview(null);
             setTab("moves");
             toast.success("Лінію Stockfish відкрито у ходах.");
@@ -842,9 +900,15 @@ export default function AnalysisCenter() {
     const moveCount = Math.ceil(record.mainline.length / 2);
 
     return (
-        <div className="analysis-center">
+        <div className={cn("analysis-center", mobileFocus && "analysis-mobile-focus")} style={{ "--analysis-panel-width": `${panelWidth}px` } as CSSProperties}>
             <input ref={fileInputRef} className="hidden" type="file" accept=".pgn" onChange={event => void handleFile(event.target.files?.[0])} />
 
+            <div className="analysis-session-bar"><span role="status">{saveStatus}</span><div>
+                <Button variant="ghost" size="sm" aria-label="Скасувати зміну" disabled={!record.historyStack.length || review.running} onClick={() => changeHistory()}><Undo2 size={16} /></Button>
+                <Button variant="ghost" size="sm" aria-label="Повторити зміну" disabled={!record.futureStack.length || review.running} onClick={() => changeHistory(true)}><Redo2 size={16} /></Button>
+                <Button variant="outline" size="sm" onClick={() => openWorkspaceDialog('archive')}><FolderOpen size={15} />Мої аналізи</Button>
+                <Button variant="ghost" size="sm" onClick={() => openWorkspaceDialog('share')}><Share2 size={15} />Поділитися</Button>
+            </div></div>
             <main className="analysis-workspace">
                 <aside className="analysis-tools" aria-label="Інструменти аналізу">
                     <ToolButton
@@ -862,6 +926,7 @@ export default function AnalysisCenter() {
                     <ToolButton label="Нова позиція" shortLabel="Нова позиція" icon={<Plus size={20} />} onClick={resetAnalysis} />
                     <ToolButton label="Імпорт PGN" shortLabel="Імпорт PGN" icon={<Clipboard size={19} />} active={importOpen && importMode === "pgn"} onClick={() => openImport("pgn")} />
                     <ToolButton label="Відкрити PGN-файл" shortLabel="PGN файл" icon={<FileUp size={19} />} onClick={() => fileInputRef.current?.click()} />
+                    <ToolButton label="Редактор позиції" shortLabel="Редактор" icon={<Pencil size={18} />} onClick={() => openWorkspaceDialog("editor")} />
                     <ToolButton label="Вставити FEN" shortLabel="FEN позиція" icon={<Copy size={18} />} active={importOpen && importMode === "fen"} onClick={() => openImport("fen")} />
 
                     <Popover open={settingsOpen} onOpenChange={setSettingsOpen}>
@@ -913,6 +978,11 @@ export default function AnalysisCenter() {
                                 </select>
                             </label>
                             <div className="analysis-setting-toggles">
+                                <button type="button" role="switch" aria-checked={economy} onClick={() => { pauseReview(); setEconomy(value => !value); setDeepPosition(null); }}><span>Економний режим</span><b>{economy ? 'ON' : 'OFF'}</b></button>
+                                <button type="button" role="switch" aria-checked={focusBranch} onClick={() => setFocusBranch(value => !value)}><span>Фокус на активному варіанті</span><b>{focusBranch ? 'ON' : 'OFF'}</b></button>
+                                <button type="button" role="switch" aria-checked={followSelection} onClick={() => setFollowSelection(value => !value)}><span>Прокручувати до вибраного ходу</span><b>{followSelection ? 'ON' : 'OFF'}</b></button>
+                                <button type="button" role="switch" aria-checked={mobileFocus} onClick={() => setMobileFocus(value => !value)}><span>Компактна дошка на телефоні</span><b>{mobileFocus ? 'ON' : 'OFF'}</b></button>
+                                <button type="button" onClick={() => { clearPositionCache(); engineCacheRef.current.clear(); toast.success('Кеш позицій очищено.'); }}>Очистити кеш Stockfish</button>
                                 <button type="button" role="switch" aria-checked={boardSettings.showCoordinates} onClick={() => boardSettings.setShowCoordinates(!boardSettings.showCoordinates)}><span>Координати</span><b>{boardSettings.showCoordinates ? "ON" : "OFF"}</b></button>
                                 <button type="button" role="switch" aria-checked={showBestMoveArrow} onClick={() => setShowBestMoveArrow(value => !value)}><span>Стрілка найкращого ходу</span><b>{showBestMoveArrow ? "ON" : "OFF"}</b></button>
                                 <button type="button" role="switch" aria-checked={showMoveBadges} onClick={() => setShowMoveBadges(value => !value)}><span>Позначки якості ходу</span><b>{showMoveBadges ? "ON" : "OFF"}</b></button>
@@ -1015,7 +1085,8 @@ export default function AnalysisCenter() {
                     </div>
                 </section>
 
-                <aside className="analysis-panel" aria-label="Права панель аналізу">
+                <aside ref={panelRef} className="analysis-panel" aria-label="Права панель аналізу">
+                    <div role="separator" aria-label="Ширина панелі аналізу" aria-orientation="vertical" aria-valuemin={340} aria-valuemax={620} aria-valuenow={panelWidth} tabIndex={0} className="analysis-panel-resizer" onPointerDown={event => { event.preventDefault(); setResizing(true); }} onKeyDown={event => { if (event.key === 'ArrowLeft' || event.key === 'ArrowRight') { event.preventDefault(); event.stopPropagation(); setPanelWidth(value => Math.max(340, Math.min(620, value + (event.key === 'ArrowLeft' ? 20 : -20)))); } }} />
                     <div className="analysis-panel-tabs" role="tablist" aria-label="Панель аналізу" onKeyDown={handleTabKeyDown}>
                         {panelTabs.map(item => {
                             const Icon = item.icon;
@@ -1041,10 +1112,13 @@ export default function AnalysisCenter() {
                             <Button variant="ghost" size="sm" onClick={() => setLinePreview(null)}><RotateCcw size={15} />До партії</Button>
                         </div>}
                     <div className="analysis-panel-body" role="tabpanel" id={`analysis-panel-${tab}`} aria-labelledby={`analysis-tab-${tab}`}>
+                        {tab === "moves" && <details className="analysis-bookmarks"><summary><Bookmark size={14} />Закладки ({renderedMoves.filter(entry => entry.node.bookmark).length})</summary>{renderedMoves.filter(entry => entry.node.bookmark).map(entry => <button type="button" key={entry.node.id} onClick={() => navigateTo(entry.path)}>{entry.node.moveNumber}{entry.node.color === 'w' ? '.' : '...'} {entry.node.san} · {entry.node.bookmark === 'important' ? 'Важливо' : entry.node.bookmark === 'check' ? 'Перевірити' : 'Дебютна ідея'}</button>)}</details>}
                         {tab === "moves" && (
                             <AnalysisMoveTree
                                 record={record}
-                                setRecord={setRecord}
+                                setRecord={editRecord}
+                                focusBranch={focusBranch}
+                                followSelection={followSelection}
                                 onNavigate={navigateTo}
                                 onOpenEngine={() => setTab("engine")}
                                 onPreviewBestMove={previewReviewedBestMove}
@@ -1057,6 +1131,8 @@ export default function AnalysisCenter() {
                                     <div className="analysis-empty-state"><Zap size={28} /><strong>Движок вимкнено</strong><p>Увімкніть Stockfish у лівій панелі.</p></div>
                                 ) : (
                                     <>
+                                        <div className="analysis-inline-actions"><Button size="sm" variant="outline" disabled={review.running || !record.currentPath} onClick={() => openWorkspaceDialog('compare')}>Порівняти лінії</Button>{economy && <Button size="sm" variant="ghost" disabled={review.running} onClick={() => setDeepPosition(currentFen)}>Глибоко цю позицію</Button>}</div>
+                                        {economy && <p className="analysis-muted">Економний режим: одна лінія, короткий пошук. У фоновій вкладці — пауза.</p>}
                                         <div className="analysis-engine-toolbar analysis-engine-toolbar-simple">
                                             <strong>Движок</strong>
                                             <button type="button" className="analysis-engine-settings-link" aria-label="Налаштувати движок" onClick={() => setSettingsOpen(true)}><SlidersHorizontal size={16} /></button>
@@ -1112,7 +1188,7 @@ export default function AnalysisCenter() {
                                             <div className="analysis-empty-state compact"><BrainCircuit size={25} /><strong>Хід ще не готовий</strong><p>Stockfish обчислює поточну позицію.</p></div>
                                         )}
 
-                                        {!positionBusy && currentEngine && engineLines.length < multiPv && <p className="analysis-muted">Рушій повернув {engineLines.length} з {multiPv} запитаних ліній.</p>}
+                                        {!positionBusy && currentEngine && engineLines.length < requestedMultiPv && <p className="analysis-muted">Рушій повернув {engineLines.length} з {requestedMultiPv} запитаних ліній.</p>}
                                         {engineLines.length > 1 && (
                                             <details className="analysis-engine-others">
                                                 <summary>
@@ -1146,11 +1222,13 @@ export default function AnalysisCenter() {
 
                         {tab === "overview" && (
                             <div className="analysis-overview-panel">
+                                <Button size="sm" variant="outline" disabled={!record.mainline.some(node => ['inaccuracy', 'mistake', 'blunder'].includes(node.classification || ''))} onClick={() => openWorkspaceDialog('training')}>Тренувати помилки</Button>
+                                {review.paused && <div className="analysis-review-progress" role="status"><span>Огляд на паузі · {review.current} / {review.total} півходів</span><Button size="sm" onClick={() => void startFullReview(true)}>Продовжити огляд</Button></div>}
                                 {review.running && (
                                     <div className="analysis-review-progress" aria-live="polite">
-                                        <div className="analysis-section-heading"><div><span>Аналіз триває</span><small>{review.current} / {review.total} ходів</small></div><Loader2 className="animate-spin" size={19} /></div>
+                                        <div className="analysis-section-heading"><div><span>Аналіз триває</span><small>{review.current} / {review.total} півходів</small></div><Loader2 className="animate-spin" size={19} /></div>
                                         <Progress value={review.total ? (review.current / review.total) * 100 : 0} />
-                                        <Button variant="outline" size="sm" onClick={stopFullReview}><Pause size={16} />Зупинити аналіз</Button>
+                                        <div className="analysis-inline-actions"><Button variant="outline" size="sm" onClick={pauseReview}><Pause size={16} />Пауза</Button><Button variant="ghost" size="sm" onClick={stopFullReview}>Зупинити аналіз</Button></div>
                                     </div>
                                 )}
                                 {review.error && <div className="analysis-error">{review.error}</div>}
@@ -1288,6 +1366,11 @@ export default function AnalysisCenter() {
                 </aside>
             </main>
 
+            {workspaceDialog === 'archive' && <ArchiveDialog record={record} activeId={activeSaveId} onSaved={setActiveSaveId} onLoad={(saved, id) => { cancelReview(); setRecord(saved); setActiveSaveId(id); setTab('moves'); }} onClose={() => setWorkspaceDialog(null)} />}
+            {workspaceDialog === 'share' && <ShareDialog record={record} onClose={() => setWorkspaceDialog(null)} />}
+            {workspaceDialog === 'editor' && <PositionEditor fen={currentFen} onApply={fen => { cancelReview(); editRecord(createRecord(fen)); setActiveSaveId(null); setTab('moves'); }} onClose={() => setWorkspaceDialog(null)} />}
+            {workspaceDialog === 'training' && <MistakeTraining record={record} analyze={analyzeCached} onClose={() => setWorkspaceDialog(null)} />}
+            {workspaceDialog === 'compare' && <CompareLines record={record} analyze={analyzeCached} onClose={() => setWorkspaceDialog(null)} />}
             <Dialog open={importOpen} onOpenChange={setImportOpen}>
                 <DialogContent className="sm:max-w-2xl">
                     <DialogHeader>

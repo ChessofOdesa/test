@@ -32,7 +32,7 @@ import {
     Search,
     Trash2,
 } from "lucide-react";
-import { useEffect, useMemo, useState, type CSSProperties, type Dispatch, type SetStateAction } from "react";
+import { useEffect, useMemo, useRef, useState, type CSSProperties, type Dispatch, type SetStateAction } from "react";
 import { toast } from "sonner";
 import "@/styles/analysis-move-tree.css";
 
@@ -179,13 +179,39 @@ export default function AnalysisMoveTree({
     onNavigate,
     onOpenEngine,
     onPreviewBestMove,
+    focusBranch = false,
+    followSelection = true,
 }: {
     record: AnalysisRecord;
     setRecord: Dispatch<SetStateAction<AnalysisRecord>>;
     onNavigate: (path: number[] | null) => void;
     onOpenEngine: () => void;
     onPreviewBestMove?: () => void;
+    focusBranch?: boolean;
+    followSelection?: boolean;
 }) {
+    const treeRef = useRef<HTMLDivElement | null>(null);
+    const manualScrollUntil = useRef(0);
+    const hasMoves = record.mainline.length > 0;
+    const selectionKey = record.currentPath?.join('.') || '';
+    const revealSelected = () => {
+        const selected = treeRef.current?.querySelector<HTMLElement>('[aria-current="step"]');
+        const container = treeRef.current?.closest<HTMLElement>('.analysis-panel-body');
+        if (!selected || !container) return;
+        const a = selected.getBoundingClientRect(), b = container.getBoundingClientRect();
+        const delta = a.top < b.top ? a.top - b.top - 12 : a.bottom > b.bottom ? a.bottom - b.bottom + 12 : 0;
+        if (delta) { if (container.scrollBy) container.scrollBy({ top: delta, behavior: window.matchMedia('(prefers-reduced-motion: reduce)').matches ? 'auto' : 'smooth' }); else container.scrollTop += delta; }
+    };
+    useEffect(() => {
+        const container = treeRef.current?.closest('.analysis-panel-body');
+        const pause = () => { manualScrollUntil.current = Date.now() + 3500; };
+        const keyPause = (event: Event) => { if (['PageUp', 'PageDown', 'Home', 'End'].includes((event as KeyboardEvent).key)) pause(); };
+        container?.addEventListener('keydown', keyPause);
+        container?.addEventListener('pointerdown', pause, { passive: true });
+        container?.addEventListener('wheel', pause, { passive: true }); container?.addEventListener('touchmove', pause, { passive: true });
+        return () => { container?.removeEventListener('keydown', keyPause); container?.removeEventListener('pointerdown', pause); container?.removeEventListener('wheel', pause); container?.removeEventListener('touchmove', pause); };
+    }, [hasMoves]);
+    useEffect(() => { if (followSelection && Date.now() >= manualScrollUntil.current) revealSelected(); }, [followSelection, selectionKey]);
     const [filter, setFilter] = useState<MoveFilter>("all");
     const [ownColor, setOwnColor] = useState<"w" | "b">("w");
     const [variationsCollapsed, setVariationsCollapsed] = useState(false);
@@ -206,7 +232,7 @@ export default function AnalysisMoveTree({
     );
     const moveCount = new Set(record.mainline.map(node => node.moveNumber)).size;
     const currentMainlineIndex = record.currentPath?.[0] ?? -1;
-    const branchesCollapsed = variationsCollapsed && filter !== "variations";
+    const branchesCollapsed = variationsCollapsed && filter !== "variations" && !focusBranch;
 
     const mainPairs = useMemo(() => {
         const entries = record.mainline.map((node, index) => ({ node, path: [index] }));
@@ -361,6 +387,7 @@ export default function AnalysisMoveTree({
                 <button type="button" className="analysis-move-token" aria-current={selected ? "step" : undefined} onClick={() => onNavigate(entry.path)}>
                     <span>{node.san}</span>
                     {selected && <span className="analysis-selected-dot" aria-hidden="true" />}
+                    {node.bookmark && <span className="analysis-bookmark-mark" aria-label="Закладка">◆</span>}
                     {node.nag && <em className="analysis-user-nag" title="PGN-анотація користувача">{node.nag}</em>}
                     {isBook && <BookOpen size={13} className="analysis-book-mark" aria-label="Теорія" />}
                     {node.classification && (
@@ -378,6 +405,10 @@ export default function AnalysisMoveTree({
                         </DropdownMenuTrigger>
                         <DropdownMenuContent align="end" className="w-56">
                             {entry.path.length > 1 && <DropdownMenuItem onSelect={() => setPromotePath(entry.path)}><GitBranch size={15} className="mr-2" />Зробити основною лінією</DropdownMenuItem>}
+                            <DropdownMenuLabel>Закладка позиції</DropdownMenuLabel>
+                            <DropdownMenuRadioGroup value={node.bookmark || 'none'} onValueChange={value => setRecord(current => updateRecordNode(current, entry.path, target => { target.bookmark = value === 'none' ? undefined : value as AnalysisMoveNode['bookmark']; }))}>
+                                <DropdownMenuRadioItem value="important">Важливо</DropdownMenuRadioItem><DropdownMenuRadioItem value="check">Перевірити</DropdownMenuRadioItem><DropdownMenuRadioItem value="opening">Дебютна ідея</DropdownMenuRadioItem><DropdownMenuRadioItem value="none">Без закладки</DropdownMenuRadioItem>
+                            </DropdownMenuRadioGroup><DropdownMenuSeparator />
                             <DropdownMenuItem onSelect={() => startComment(entry.path, node)}><MessageSquare size={15} className="mr-2" />{node.comment ? "Редагувати коментар" : "Додати коментар"}</DropdownMenuItem>
                             <DropdownMenuItem onSelect={() => void copyText(node.fenAfter, "FEN")}><span className="mr-2 font-mono text-xs">FEN</span>Копіювати FEN</DropdownMenuItem>
                             <DropdownMenuItem onSelect={() => void copyText(formatLine(collectLineNodes(record, entry.path)), "Лінію")}><span className="mr-2 font-mono text-xs">PGN</span>Копіювати лінію</DropdownMenuItem>
@@ -391,7 +422,10 @@ export default function AnalysisMoveTree({
     };
 
     const renderBranch = (root: AnalysisMoveNode, rootPath: number[], depth: number, key: string) => {
-        if (depth > 3 && !showDeepVariations) {
+        if (focusBranch && !rootPath.every((index, n) => record.currentPath?.[n] === index)) {
+            return <button key={key} type="button" className="analysis-collapsed-variations" onClick={() => onNavigate(rootPath)}>Відкрити {moveLabel(root)}</button>;
+        }
+        if (depth > 3 && !showDeepVariations && !focusBranch) {
             return (
                 <button key={key} type="button" className="analysis-show-deep-variations" onClick={() => setShowDeepVariations(true)}>
                     <GitBranch size={13} />Показати всі варіанти
@@ -455,13 +489,14 @@ export default function AnalysisMoveTree({
     }
 
     return (
-        <div className="analysis-move-tree">
+        <div ref={treeRef} className="analysis-move-tree">
             <div className="analysis-move-tree-header">
                 <div>
                     <strong>Ходи</strong>
                     <span>{pluralMoves(moveCount)}{variationCount ? ` · ${pluralVariations(variationCount)}` : ""}</span>
                 </div>
                 <div className="analysis-move-tree-actions">
+                    {followSelection && <button type="button" aria-label="Показати вибраний хід" onClick={() => { manualScrollUntil.current = 0; revealSelected(); }}>До ходу</button>}
                     {nextErrorIndex >= 0 && <button type="button" className="analysis-next-error" onClick={() => onNavigate([nextErrorIndex])}>Наступна помилка <ChevronRight size={13} /></button>}
                     {variationCount > 0 && filter !== "variations" && <button type="button" onClick={() => setVariationsCollapsed(value => !value)} aria-label={variationsCollapsed ? "Розгорнути варіанти" : "Згорнути варіанти"}>{variationsCollapsed ? <ChevronRight size={15} /> : <ChevronDown size={15} />}</button>}
                     <button type="button" onClick={() => setAutoplay(value => !value)} aria-label={autoplay ? "Зупинити Auto-play" : "Auto-play партії"}>{autoplay ? <Pause size={15} /> : <Play size={15} />}</button>

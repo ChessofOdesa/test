@@ -36,7 +36,7 @@ vi.mock("@/lib/stockfish", () => ({
 
 class ResizeObserverStub { observe() {} unobserve() {} disconnect() {} }
 vi.stubGlobal("ResizeObserver", ResizeObserverStub);
-afterEach(() => { cleanup(); vi.mocked(analyzeFenWithStockfish).mockClear(); });
+afterEach(() => { cleanup(); localStorage.clear(); vi.mocked(analyzeFenWithStockfish).mockClear(); });
 
 function openAnalysis(pgn = '1. e4 d5 2. e5 *') {
     return render(<MemoryRouter initialEntries={[{ pathname: "/analysis", state: { pgn } }]}>
@@ -56,6 +56,55 @@ function importGame(pgn: string) {
 
 
 describe("Analysis Center", () => {
+    it("restores an autosaved selected variation after remount and preserves it on invalid shared input", async () => {
+        const view = openAnalysis('1. e4 *');
+        fireEvent.keyDown(window, { key: 'Home' });
+        fireEvent.click(screen.getByRole('button', { name: 'd2d4' }));
+        expectBoard(['d4']);
+        view.unmount();
+        openAnalysis('');
+        expectBoard(['d4']);
+        cleanup();
+        render(<MemoryRouter initialEntries={['/analysis#analysis=invalid']}><BoardSettingsProvider><TooltipProvider><Analysis /></TooltipProvider></BoardSettingsProvider></MemoryRouter>);
+        expectBoard(['d4']);
+    });
+
+    it("undoes and redoes a board edit and resizes the existing panel using the keyboard", async () => {
+        openAnalysis('');
+        fireEvent.click(await screen.findByRole('button', { name: 'd2d4' }));
+        expectBoard(['d4']);
+        fireEvent.click(screen.getByRole('button', { name: 'Скасувати зміну' }));
+        expectBoard([]);
+        fireEvent.keyDown(window, { key: 'y', ctrlKey: true });
+        expectBoard(['d4']);
+        const resizer = screen.getByRole('separator', { name: 'Ширина панелі аналізу' });
+        fireEvent.keyDown(resizer, { key: 'ArrowLeft' });
+        expect(resizer).toHaveAttribute('aria-valuenow', '480');
+    });
+
+    it("saves and searches an analysis through the archive dialog", async () => {
+        openAnalysis();
+        fireEvent.click(await screen.findByRole('button', { name: 'Мої аналізи' }));
+        fireEvent.change(screen.getByLabelText('Назва'), { target: { value: 'Турнірна партія' } });
+        fireEvent.change(screen.getByLabelText('Теги через кому'), { target: { value: 'перевірити' } });
+        fireEvent.click(screen.getByRole('button', { name: 'Зберегти окремо' }));
+        fireEvent.change(screen.getByLabelText('Пошук аналізів'), { target: { value: 'перевірити' } });
+        expect(screen.getByText('Турнірна партія')).toBeInTheDocument();
+        fireEvent.change(screen.getByLabelText('Пошук аналізів'), { target: { value: 'нічоготакого' } });
+        expect(screen.getByText('Нічого не знайдено.')).toBeInTheDocument();
+    });
+
+    it("uses one short engine line in economy mode and supports an explicit deep request", async () => {
+        openAnalysis('');
+        fireEvent.click(await screen.findByRole('button', { name: 'Налаштування аналізу' }));
+        fireEvent.click(screen.getByRole('switch', { name: /Економний режим/ }));
+        fireEvent.keyDown(document.activeElement!, { key: 'Escape' });
+        fireEvent.click(screen.getByRole('tab', { name: /Движок/ }));
+        await waitFor(() => expect(vi.mocked(analyzeFenWithStockfish).mock.calls.some(call => call[1] === 8 && call[4]?.multiPv === 1 && call[4]?.movetime === 600)).toBe(true));
+        fireEvent.click(screen.getByRole('button', { name: 'Глибоко цю позицію' }));
+        await waitFor(() => expect(vi.mocked(analyzeFenWithStockfish).mock.calls.some(call => call[1] === 16 && call[4]?.multiPv === 1)).toBe(true));
+    });
+
     it("pins the only primary move navigator to the bottom of the right analysis panel", async () => {
         render(<MemoryRouter initialEntries={["/analysis"]}>
             <BoardSettingsProvider><TooltipProvider><Analysis /></TooltipProvider></BoardSettingsProvider>
@@ -299,6 +348,24 @@ describe("Analysis position synchronization", () => {
         expectBoard(['e4', 'e5', 'Nf3']);
         fireEvent.click(screen.getByRole('button', { name: /До партії/ }));
         expectBoard([]);
+    });
+
+    it("pauses a review, ignores its late result and resumes the unfinished move", async () => {
+        openAnalysis('1. e4 e5 *');
+        fireEvent.click(screen.getByRole('button', { name: 'Вимкнути Stockfish' }));
+        let finish!: (value: Awaited<ReturnType<typeof analyzeFenWithStockfish>>) => void;
+        vi.mocked(analyzeFenWithStockfish).mockImplementationOnce(() => new Promise(resolve => { finish = resolve; }));
+        fireEvent.click(screen.getByRole('tab', { name: /Огляд/i }));
+        fireEvent.click(screen.getByRole('button', { name: /Проаналізувати партію/i }));
+        await waitFor(() => expect(finish).toBeDefined());
+        const signal = vi.mocked(analyzeFenWithStockfish).mock.calls.at(-1)![4]!.signal!;
+        fireEvent.click(screen.getByRole('button', { name: 'Пауза' }));
+        expect(signal.aborted).toBe(true);
+        await act(async () => finish({ backend: 'worker', scoreCp: 800, scoreMate: null, bestmove: 'e2e4', pv: ['e2e4'], raw: [], depth: 12, lines: [] }));
+        expect(screen.getByText('Огляд на паузі · 0 / 2 півходів')).toBeInTheDocument();
+        fireEvent.click(screen.getByRole('button', { name: 'Продовжити огляд' }));
+        await waitFor(() => expect(screen.getByText(/2 перевірених ходів/)).toBeInTheDocument());
+        expect(screen.queryByRole('button', { name: 'Продовжити огляд' })).not.toBeInTheDocument();
     });
 
     it("aborts the old review on import and ignores its delayed result", async () => {

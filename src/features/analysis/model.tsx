@@ -33,6 +33,7 @@ export type AnalysisMoveNode = {
     explanation: string;
     arrows: AnalysisArrow[];
     children: AnalysisMoveNode[];
+    bookmark?: "important" | "check" | "opening";
 };
 export type AnalysisSnapshot = {
     headers: Record<string, string>;
