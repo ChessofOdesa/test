@@ -19,10 +19,11 @@ function serializeVariation(root: AnalysisMoveNode, siblings: AnalysisMoveNode[]
     }
     return parts.join(' ');
 }
-function serializeMainline(nodes: AnalysisMoveNode[]) {
+function serializeMainline(nodes: AnalysisMoveNode[], rootVariations: AnalysisMoveNode[]) {
     const parts: string[] = [];
     nodes.forEach((node, index) => {
         parts.push(moveToken(node, index === 0 || Boolean(nodes[index - 2]?.children.length)));
+        if (index === 0) rootVariations.forEach(branch => parts.push(`(${serializeVariation(branch)})`));
         if (index > 0) nodes[index - 1].children.forEach(branch => parts.push(`(${serializeVariation(branch)})`));
     });
     const continuations = nodes.at(-1)?.children;
@@ -36,6 +37,6 @@ export function buildAnalysisPgn(record: AnalysisRecord) {
     else { delete metadata.FEN; delete metadata.SetUp; }
     const headers = Object.entries(metadata).filter(([key]) => /^\w+$/.test(key))
         .map(([key, value]) => `[${key} "${value.replace(/\\/g, '\\\\').replace(/"/g, '\\"').replace(/[\r\n]/g, ' ')}"]`).join('\n');
-    const body = serializeMainline(record.mainline);
+    const body = serializeMainline(record.mainline, record.rootVariations || []);
     return `${headers}\n\n${body}${body ? ' ' : ''}${result}`.trim();
 }

@@ -39,6 +39,9 @@ export type AnalysisSnapshot = {
     rootFen: string;
     currentPath: number[] | null;
     mainline: AnalysisMoveNode[];
+    // Optional for compatibility with saved snapshots created before root branches.
+    // Paths [-1, branchIndex, ...] select an alternative from rootFen.
+    rootVariations?: AnalysisMoveNode[];
 };
 export type AnalysisRecord = AnalysisSnapshot & {
     historyStack: AnalysisSnapshot[];
@@ -177,6 +180,7 @@ export function toSnapshot(record: AnalysisRecord | AnalysisSnapshot): AnalysisS
         rootFen: record.rootFen,
         currentPath: record.currentPath ? [...record.currentPath] : null,
         mainline: cloneNodes(record.mainline),
+        rootVariations: cloneNodes(record.rootVariations || []),
     };
 }
 export function createRecord(rootFen = START_FEN): AnalysisRecord {
@@ -185,6 +189,7 @@ export function createRecord(rootFen = START_FEN): AnalysisRecord {
         rootFen,
         currentPath: null,
         mainline: [],
+        rootVariations: [],
         historyStack: [],
         futureStack: [],
     };
@@ -292,6 +297,21 @@ export function getNodeByPath(nodes: AnalysisMoveNode[], path: number[] | null):
     }
     return node ?? null;
 }
+export function getRecordNode(record: AnalysisSnapshot, path: number[] | null): AnalysisMoveNode | null {
+    return path?.[0] === -1
+        ? getNodeByPath(record.rootVariations || [], path.slice(1))
+        : getNodeByPath(record.mainline, path);
+}
+export function updateRecordNode(record: AnalysisRecord, path: number[], mutator: (node: AnalysisMoveNode) => void): AnalysisRecord {
+    return path[0] === -1
+        ? { ...record, rootVariations: updateNodeAtPath(record.rootVariations || [], path.slice(1), mutator) }
+        : { ...record, mainline: updateNodeAtPath(record.mainline, path, mutator) };
+}
+export function removeRecordNode(record: AnalysisRecord, path: number[]): AnalysisRecord {
+    return path[0] === -1
+        ? { ...record, rootVariations: removeNodeAtPath(record.rootVariations || [], path.slice(1)) }
+        : { ...record, mainline: removeNodeAtPath(record.mainline, path) };
+}
 export function updateNodeAtPath(nodes: AnalysisMoveNode[], path: number[], mutator: (node: AnalysisMoveNode) => void): AnalysisMoveNode[] {
     const nextNodes = cloneNodes(nodes);
     let node: AnalysisMoveNode | undefined = nextNodes[path[0]];
@@ -326,11 +346,11 @@ export function renderMoves(nodes: AnalysisMoveNode[], depth = 0, prefixPath: nu
     });
 }
 export function getCurrentFen(record: AnalysisRecord) {
-    const node = getNodeByPath(record.mainline, record.currentPath);
+    const node = getRecordNode(record, record.currentPath);
     return node?.fenAfter || record.rootFen;
 }
 export function getLastMove(record: AnalysisRecord) {
-    return getNodeByPath(record.mainline, record.currentPath);
+    return getRecordNode(record, record.currentPath);
 }
 export function getPreviousPath(path: number[] | null) {
     if (!path || path.length === 0) {
@@ -339,7 +359,7 @@ export function getPreviousPath(path: number[] | null) {
     if (path.length === 1) {
         return path[0] === 0 ? null : [path[0] - 1];
     }
-    return path.slice(0, -1);
+    return path[0] === -1 && path.length === 2 ? null : path.slice(0, -1);
 }
 export function getNextPath(record: AnalysisRecord, path: number[] | null): number[] | null {
     if (record.mainline.length === 0) {
@@ -355,7 +375,7 @@ export function getNextPath(record: AnalysisRecord, path: number[] | null): numb
         const current = record.mainline[path[0]];
         return current.children[0] ? [...path, 0] : null;
     }
-    const current = getNodeByPath(record.mainline, path);
+    const current = getRecordNode(record, path);
     return current?.children[0] ? [...path, 0] : null;
 }
 export function getLastPath(record: AnalysisRecord): number[] | null {
@@ -782,10 +802,15 @@ export function createMoveNode(move: {
     color: "w" | "b";
     promotion?: string;
 }, fenBefore: string, fenAfter: string, ply: number): AnalysisMoveNode {
+    const fenFields = fenBefore.trim().split(/\s+/);
+    const fenFullmove = Number(fenFields[5]);
+    const moveNumber = Number.isFinite(fenFullmove) && fenFullmove > 0
+        ? Math.trunc(fenFullmove)
+        : Math.floor((ply + 1) / 2);
     return {
         id: nextNodeId(),
         ply,
-        moveNumber: Number(fenBefore.split(" ")[5]),
+        moveNumber,
         color: move.color,
         san: move.san,
         uci: `${move.from}${move.to}${move.promotion || ""}`,
@@ -810,6 +835,7 @@ export function buildRecordFromPgn(pgnText: string): AnalysisRecord {
     const headers = chess.getHeaders();
     const rootFen = headers.FEN || START_FEN;
     const mainline: AnalysisMoveNode[] = [];
+    const rootVariations: AnalysisMoveNode[] = [];
     const body = pgnText.replace(/^\s*\[\w+\s+"(?:\\.|[^"\\])*"\s*\]\s*$/gm, "");
     const tokens = body.match(/\{[^}]*\}|;[^\r\n]*|\$\d+|[()]|\d+\.(?:\.\.)?|\.{3}|1\/2-1\/2|1-0|0-1|\*|[^\s(){}]+/g) || [];
     const nags: Record<string, MoveNag> = { "$1": "!", "$2": "?", "$3": "!!", "$4": "??", "$5": "!?", "$6": "?!" };
@@ -823,7 +849,6 @@ export function buildRecordFromPgn(pgnText: string): AnalysisRecord {
             if (token === ")") { if (!depth) throw new Error("Зайва дужка в PGN."); return; }
             if (token === "(") {
                 if (!last) throw new Error("Варіант без попереднього ходу.");
-                if (!previousParent) throw new Error("Альтернативи першого ходу ще не підтримуються. Відкрийте таку лінію як окрему партію.");
                 readLine(last.fenBefore, previousParent, false, last.ply - 1, depth + 1);
                 continue;
             }
@@ -841,7 +866,9 @@ export function buildRecordFromPgn(pgnText: string): AnalysisRecord {
             const move = replay.move(token.replace(/[!?]+$/, ""));
             const node = createMoveNode(move, before, replay.fen(), ++ply);
             node.nag = token.match(/(!!|!\?|\?!|\?\?|!|\?)$/)?.[0] as MoveNag || null;
-            if (isMainline) mainline.push(node); else parent!.children.push(node);
+            if (isMainline) mainline.push(node);
+            else if (parent) parent.children.push(node);
+            else rootVariations.push(node);
             previousParent = parent;
             parent = node;
             last = node;
@@ -854,6 +881,7 @@ export function buildRecordFromPgn(pgnText: string): AnalysisRecord {
         rootFen,
         currentPath: mainline.length > 0 ? [mainline.length - 1] : null,
         mainline,
+        rootVariations,
         historyStack: [],
         futureStack: [],
     };
@@ -861,22 +889,27 @@ export function buildRecordFromPgn(pgnText: string): AnalysisRecord {
 
 /** Add explicit board/engine moves atomically, reusing already stored continuations. */
 export function appendAnalysisLine(record: AnalysisRecord, moves: string[]): AnalysisRecord {
-    const next = { ...record, mainline: cloneNodes(record.mainline), currentPath: record.currentPath ? [...record.currentPath] : null };
+    const next = { ...record, mainline: cloneNodes(record.mainline), rootVariations: cloneNodes(record.rootVariations || []), currentPath: record.currentPath ? [...record.currentPath] : null };
     for (const uci of moves) {
         const fen = getCurrentFen(next);
         const game = new Chess(fen);
         const played = game.move(uci);
         const path = next.currentPath;
-        const parent = getNodeByPath(next.mainline, path);
+        const parent = getRecordNode(next, path);
         const continuation = getNextPath(next, path);
-        if (continuation && getNodeByPath(next.mainline, continuation)?.uci === played.lan) {
+        if (continuation && getRecordNode(next, continuation)?.uci === played.lan) {
             next.currentPath = continuation;
             continue;
         }
         const child = parent?.children.findIndex(node => node.uci === played.lan) ?? -1;
         if (path && child >= 0) { next.currentPath = [...path, child]; continue; }
-        if (!path && next.mainline.length) throw new Error('Для іншого першого ходу відкрийте нову позицію. Поточну партію збережено.');
         const node = createMoveNode(played, fen, game.fen(), (parent?.ply ?? 0) + 1);
+        if (!path && next.mainline.length) {
+            const existing = next.rootVariations.findIndex(branch => branch.uci === played.lan);
+            if (existing >= 0) next.currentPath = [-1, existing];
+            else { next.rootVariations.push(node); next.currentPath = [-1, next.rootVariations.length - 1]; }
+            continue;
+        }
         if (!path || path.length === 1 && path[0] === next.mainline.length - 1) {
             next.mainline.push(node);
             next.currentPath = [next.mainline.length - 1];

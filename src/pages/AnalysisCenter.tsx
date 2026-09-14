@@ -25,7 +25,7 @@ import {
     formatCp,
     getCurrentFen,
     getLastMove,
-    getNodeByPath,
+    getRecordNode,
     isSamePath,
     numericScoreFromEngine,
     renderMoves,
@@ -86,6 +86,7 @@ import "@/styles/analysis-panel-professional.css";
 type PanelTab = "moves" | "engine" | "overview" | "info";
 type ImportMode = "pgn" | "fen";
 type OverviewFilter = MoveClassification | "all";
+type AnalysisUiMode = "simple" | "advanced";
 type BoardBadgeKind = MoveClassification | "book";
 
 type ReviewState = {
@@ -330,8 +331,9 @@ export default function AnalysisCenter() {
     const [settingsOpen, setSettingsOpen] = useState(false);
     const [linePreview, setLinePreview] = useState<EnginePreview | null>(null);
     const [overviewFilter, setOverviewFilter] = useState<OverviewFilter>("all");
+    const [analysisUiMode, setAnalysisUiMode] = useState<AnalysisUiMode>("simple");
 
-    const renderedMoves = useMemo(() => renderMoves(record.mainline), [record.mainline]);
+    const renderedMoves = useMemo(() => [...renderMoves(record.mainline), ...renderMoves(record.rootVariations || [], 1, [-1])], [record.mainline, record.rootVariations]);
     const currentNode = useMemo(() => getLastMove(record), [record]);
     const currentFen = useMemo(() => getCurrentFen(record), [record]);
     const positionKey = `${engineDepth}:${multiPv}:${currentFen}`;
@@ -581,8 +583,7 @@ export default function AnalysisCenter() {
             setTab("moves");
             setReview({ running: false, current: 0, total: 0, error: "" });
             setOverviewFilter("all");
-        } catch (error) {
-            if (error instanceof Error && error.message.startsWith("Альтернативи першого")) { setImportError(error.message); return; }
+        } catch {
             setImportError(importMode === "pgn"
                 ? "Не вдалося прочитати PGN. Перевірте формат ходів або заголовки партії."
                 : "Не вдалося прочитати FEN. Перевірте позицію та сторону ходу.");
@@ -607,8 +608,8 @@ export default function AnalysisCenter() {
             setReview({ running: false, current: 0, total: 0, error: "" });
             setOverviewFilter("all");
             toast.success("PGN-файл завантажено.");
-        } catch (error) {
-            toast.error(error instanceof Error && error.message.startsWith("Альтернативи першого") ? error.message : "Не вдалося прочитати PGN-файл.");
+        } catch {
+            toast.error("Не вдалося прочитати PGN-файл.");
         } finally {
             if (fileInputRef.current) fileInputRef.current.value = "";
         }
@@ -617,7 +618,7 @@ export default function AnalysisCenter() {
     const addVariationMove = useCallback((from: string, to: string, promotion?: "q" | "r" | "b" | "n") => {
         if (linePreview || review.running) return false;
         try { setRecord(appendAnalysisLine(record, [`${from}${to}${promotion || ""}`])); return true; }
-        catch (error) { if (error instanceof Error && error.message.startsWith("Для іншого")) toast.info(error.message); return false; }
+        catch { return false; }
     }, [linePreview, record, review.running]);
 
     const startFullReview = async () => {
@@ -697,6 +698,7 @@ export default function AnalysisCenter() {
         setRecord(current => ({
             ...current,
             mainline: stripVariations(current.mainline),
+            rootVariations: [],
             currentPath: current.currentPath && current.currentPath.length === 1 ? current.currentPath : null,
         }));
         setLinePreview(null);
@@ -706,7 +708,7 @@ export default function AnalysisCenter() {
     const clearReviewResults = () => {
         if (!reviewedNodes.length) return;
         cancelReview();
-        setRecord(current => ({ ...current, mainline: clearReviewData(current.mainline) }));
+        setRecord(current => ({ ...current, mainline: clearReviewData(current.mainline), rootVariations: clearReviewData(current.rootVariations || []) }));
         setReview({ running: false, current: 0, total: 0, error: "" });
         setOverviewFilter("all");
         setLinePreview(null);
@@ -738,7 +740,7 @@ export default function AnalysisCenter() {
             setTab("engine");
             return;
         }
-        const node = getNodeByPath(record.mainline, record.currentPath);
+        const node = getRecordNode(record, record.currentPath);
         if (!node?.bestMoveSan) {
             setTab("engine");
             return;
@@ -762,7 +764,7 @@ export default function AnalysisCenter() {
             index: 0,
         });
         setTab("engine");
-    }, [record.currentPath, record.mainline]);
+    }, [record]);
 
     const engineLines = useMemo<EngineLineView[]>(() => {
         if (!currentEngine) return [];
@@ -801,8 +803,8 @@ export default function AnalysisCenter() {
             setLinePreview(null);
             setTab("moves");
             toast.success("Лінію Stockfish відкрито у ходах.");
-        } catch (error) {
-            toast.error(error instanceof Error && error.message.startsWith("Для іншого") ? error.message : "Не вдалося додати лінію до цієї позиції.");
+        } catch {
+            toast.error("Не вдалося додати лінію до цієї позиції.");
         }
     };
 
@@ -875,7 +877,17 @@ export default function AnalysisCenter() {
                             <TooltipContent side="right">Налаштування аналізу</TooltipContent>
                         </Tooltip>
                         <PopoverContent side="right" align="center" className="analysis-settings-popover">
-                            <div className="analysis-popover-heading"><strong>Движок</strong><span>Глибина</span></div>
+                            <div className="analysis-popover-heading"><strong>Інтерфейс</strong><span>Режим</span></div>
+                            <div className="analysis-ui-mode-options" role="group" aria-label="Режим Analysis">
+                                <button type="button" className={cn(analysisUiMode === "simple" && "is-active")} aria-pressed={analysisUiMode === "simple"} onClick={() => setAnalysisUiMode("simple")}>
+                                    <strong>Простий</strong><span>Менше деталей</span>
+                                </button>
+                                <button type="button" className={cn(analysisUiMode === "advanced" && "is-active")} aria-pressed={analysisUiMode === "advanced"} onClick={() => setAnalysisUiMode("advanced")}>
+                                    <strong>Розширений</strong><span>Depth і MultiPV</span>
+                                </button>
+                            </div>
+
+                            <div className="analysis-popover-heading analysis-popover-subheading"><strong>Движок</strong><span>Глибина</span></div>
                             <div className="analysis-setting-options">
                                 {[8, 12, 16].map(depth => (
                                     <button key={depth} type="button" className={cn(engineDepth === depth && "is-active")} onClick={() => setEngineDepth(depth)}>
@@ -1063,6 +1075,22 @@ export default function AnalysisCenter() {
                                             <span>{linePreview ? "Оцінка позиції, вибраної в ходах" : engineVerdict(currentEngine?.numericScore)}</span>
                                         </div>
 
+                                        {analysisUiMode === "advanced" && (
+                                            <div className="analysis-engine-advanced-meta" aria-label="Розширені дані движка">
+                                                <span><small>Глибина</small><strong>{currentEngine?.depth ? "D" + currentEngine.depth : "—"}</strong></span>
+                                                <span><small>MultiPV</small><strong>{multiPv}</strong></span>
+                                                <span><small>Джерело</small><strong>{currentEngine?.backend === "cloud" ? "Cloud" : currentEngine?.backend === "native" ? "Server" : "Browser"}</strong></span>
+                                            </div>
+                                        )}
+
+                                        {analysisUiMode === "advanced" && currentNode?.classification && currentNode.evalLoss != null && (
+                                            <div className="analysis-engine-selected-advanced" aria-label="Деталі вибраного ходу">
+                                                <div><span>Вибраний хід</span><strong>{currentNode.moveNumber}{currentNode.color === "w" ? "." : "..."} {currentNode.san}</strong></div>
+                                                <span className={"analysis-classification analysis-classification-" + currentNode.classification}>{CLASSIFICATION_MARKS[currentNode.classification]}</span>
+                                                <small>Втрата {(currentNode.evalLoss / 100).toFixed(2)}</small>
+                                            </div>
+                                        )}
+
                                         {positionError ? <div className="analysis-error">{positionError}</div> : null}
 
                                         {currentEngine?.bestMoveSan ? (
@@ -1072,7 +1100,7 @@ export default function AnalysisCenter() {
                                                     <b>{evaluationLabel(currentEngine)}</b>
                                                 </div>
                                                 <strong className="analysis-best-move-simple-san">{currentEngine.bestMoveSan}</strong>
-                                                {currentEngine.pvSan.length > 0 && <p>{currentEngine.pvSan.slice(0, 5).join(" ")}</p>}
+                                                {currentEngine.pvSan.length > 0 && <p>{currentEngine.pvSan.slice(0, analysisUiMode === "advanced" ? 8 : 5).join(" ")}</p>}
                                                 <div className="analysis-best-move-simple-actions">
                                                     <Button size="sm" disabled={!engineLines.length} onClick={() => engineLines[0] && previewEngineLine(engineLines[0], "Найкращий варіант")}>Показати на дошці</Button>
                                                     <Button variant="ghost" size="sm" disabled={review.running || !engineLines.length} onClick={() => engineLines[0] && addEngineLineToVariations(engineLines[0])}><GitBranch size={14} />У варіанти</Button>

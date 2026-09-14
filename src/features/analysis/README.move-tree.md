@@ -8,7 +8,8 @@
 - `record.currentPath` is the single selected-position source of truth shared by board, move tree, engine and bottom navigation.
 - Previous/Next/End use the existing path helpers, never the flattened render order. A branch returns to its parent, and Next follows its primary continuation. The footer counts half-moves in the selected line.
 - Autoplay follows the same continuation as Next. Keyboard navigation ignores text fields, dialogs, menus, sliders and tab controls.
-- Replaying a stored move selects its existing path. A different first move in a nonempty game is rejected explicitly because this model has no root variation container.
+- Replaying a stored move selects its existing path. `rootVariations` stores first-move alternatives from `rootFen`; paths `[-1, branchIndex, ...]` select them. Existing mainline/child paths are unchanged. A root alternative returns to the starting position.
+- Root-aware lookup, edits, deletion and promotion preserve the previous mainline and all sibling branches. Snapshots without `rootVariations` remain supported. PGN emits root alternatives after the first mainline move.
 - Position-engine results must match the requested FEN, depth and MultiPV before appearing. Searches use the existing Stockfish Web Worker with 600/1500/4500 ms time bounds for D8/D12/D16; its returned depth is displayed.
 - Full review owns its AbortController and suspends position searches. Import, reset, mainline replacement, stop, Engine OFF and unmount invalidate its work. A late result cannot annotate a replacement node.
 - The temporary Stockfish preview stays separate from saved moves. Its footer and keyboard use the same preview index; returning restores the selected game position.

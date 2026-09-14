@@ -1,12 +1,12 @@
-# Chess of Odesa — continuation, 13 September 2026
+# Chess of Odesa — continuation, 14 September 2026
 
 ## Verified working base
 
-Repository: `ChessofOdesa/test`, main `6329f2f`. PR #10 continues the existing
-Analysis Center. Main advanced through PRs #11–#16 while this branch was being
+Repository: `ChessofOdesa/test`, main `8c3a27e`. PR #10 continues the existing
+Analysis Center. Main advanced through PRs #11–#18 while this branch was being
 worked on; those changes were integrated, preserving the evaluation graph,
 selected-move inspector, compact variations, reviewed-best-line preview and
-simplified Engine panel. No replacement page or duplicate panel component remains.
+simplified Engine panel, Simple/Advanced modes and nested variation promotion. No replacement page or duplicate panel component remains.
 
 ## Completed
 
@@ -21,7 +21,10 @@ simplified Engine panel. No replacement page or duplicate panel component remain
   Autoplay now follows the selected branch using the existing navigation helper.
 - Explicit engine-line insertion and board moves share atomic insertion and reuse
   stored continuations. An invalid line cannot partly modify the game.
-- PGN import/export retains nested alternatives, comments, six supported symbolic
+- First-move alternatives now use optional `rootVariations` with paths `[-1, index, ...]`.
+  They work with board/engine insertion, navigation/autoplay, comments, deletion/undo,
+  nested promotion, PGN round trips and snapshots. Older snapshots remain compatible.
+- PGN import/export retains root and nested alternatives, comments, six supported symbolic
   NAGs and headers, with standards-correct RAV placement and numeric NAG export.
   FEN-based games retain their original move numbers, including Black to move.
 - Moves adds an explicit player-color filter and accessible selected-move state.
@@ -47,7 +50,7 @@ inside the destination square. This continuation preserves those sizes/styles.
 
 ## Verification
 
-- 85 frontend tests in 16 files passed, including 44 Analysis tests.
+- 99 frontend tests in 19 files passed, including 58 Analysis tests.
 - TypeScript application check, focused ESLint and production Vite build passed.
 - Existing large-chunk and Browserslist/React Router notices remain; expected
   engine-failure test logs are not runtime failures of this change.
@@ -57,9 +60,6 @@ inside the destination square. This continuation preserves those sizes/styles.
 
 ## Remaining work
 
-- Root alternatives before the first mainline move still require a compatible
-  model extension. Import/insertion rejects these explicitly instead of silently
-  dropping or replacing moves. Standard nested branches after a move are covered.
 - Consolidate full-review scoring/persistent caching with the existing Game Room
   review model. The disclosed accuracy measure remains an approximation.
 - Run live browser/responsive checks and actual worker analysis where the preview

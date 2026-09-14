@@ -8,14 +8,15 @@ import {
     cloneNodes,
     findOpening,
     formatCp,
-    getNodeByPath,
+    getRecordNode,
     isSamePath,
-    removeNodeAtPath,
-    updateNodeAtPath,
+    removeRecordNode,
+    updateRecordNode,
     type AnalysisMoveNode,
     type AnalysisRecord,
     type MoveClassification,
 } from "@/features/analysis/model";
+import { promoteRecordVariation } from "@/features/analysis/branching";
 import { cn } from "@/lib/utils";
 import {
     BookOpen,
@@ -82,6 +83,7 @@ function cloneRecord(record: AnalysisRecord): AnalysisRecord {
         headers: { ...record.headers },
         currentPath: record.currentPath ? [...record.currentPath] : null,
         mainline: cloneNodes(record.mainline),
+        rootVariations: cloneNodes(record.rootVariations || []),
         historyStack: [...record.historyStack],
         futureStack: [...record.futureStack],
     };
@@ -130,12 +132,11 @@ function countVariations(mainline: AnalysisMoveNode[]) {
 
 function collectLineNodes(record: AnalysisRecord, path: number[] | null): AnalysisMoveNode[] {
     if (!path?.length) return [];
-    const nodes = record.mainline.slice(0, path[0] + 1);
-    let current = record.mainline[path[0]];
-    for (let index = 1; index < path.length; index += 1) {
-        current = current?.children[path[index]];
-        if (!current) break;
-        nodes.push(current);
+    const nodes = path[0] === -1 ? [] : record.mainline.slice(0, path[0] + 1);
+    for (let length = 2; length <= path.length; length += 1) {
+        const node = getRecordNode(record, path.slice(0, length));
+        if (!node) break;
+        nodes.push(node);
     }
     return nodes;
 }
@@ -151,21 +152,6 @@ function formatLine(nodes: AnalysisMoveNode[]) {
     }).join(" ");
 }
 
-function tailToBranch(nodes: AnalysisMoveNode[]): AnalysisMoveNode | null {
-    if (!nodes.length) return null;
-    const tail = cloneNodes(nodes);
-    for (let index = tail.length - 2; index >= 0; index -= 1) {
-        tail[index].children = [tail[index + 1], ...tail[index].children];
-    }
-    return tail[0];
-}
-
-function detachPrimaryBranch(node: AnalysisMoveNode): AnalysisMoveNode[] {
-    const current = cloneNodes([node])[0];
-    const primary = current.children[0] || null;
-    current.children = current.children.slice(1);
-    return [current, ...(primary ? detachPrimaryBranch(primary) : [])];
-}
 
 function moveLabel(node: AnalysisMoveNode) {
     return `${node.moveNumber}${node.color === "w" ? "." : "..."}${node.san}`;
@@ -213,12 +199,12 @@ export default function AnalysisMoveTree({
     const [autoplaySpeed, setAutoplaySpeed] = useState("1");
 
     const opening = useMemo(() => record.rootFen === START_FEN ? findOpening(record.mainline) : null, [record.rootFen, record.mainline]);
-    const variationCount = useMemo(() => countVariations(record.mainline), [record.mainline]);
+    const variationCount = useMemo(() => countVariations(record.mainline) + (record.rootVariations || []).reduce((count, root) => count + 1 + countNestedVariations(root), 0), [record.mainline, record.rootVariations]);
     const selectedNode = useMemo(
-        () => record.currentPath ? getNodeByPath(record.mainline, record.currentPath) : null,
-        [record.currentPath, record.mainline],
+        () => record.currentPath ? getRecordNode(record, record.currentPath) : null,
+        [record],
     );
-    const moveCount = Math.ceil(record.mainline.length / 2);
+    const moveCount = new Set(record.mainline.map(node => node.moveNumber)).size;
     const currentMainlineIndex = record.currentPath?.[0] ?? -1;
     const branchesCollapsed = variationsCollapsed && filter !== "variations";
 
@@ -228,10 +214,10 @@ export default function AnalysisMoveTree({
             if (filter === "all" || filter === "mine") return true;
             const nodes = [pair.white?.node, pair.black?.node].filter(Boolean) as AnalysisMoveNode[];
             if (filter === "errors") return nodes.some(node => node.classification && ERROR_CLASSIFICATIONS.has(node.classification));
-            if (filter === "variations") return nodes.some(node => node.children.length > 0);
+            if (filter === "variations") return nodes.some(node => node.children.length > 0 || node === record.mainline[0] && Boolean(record.rootVariations?.length));
             return nodes.some(node => Boolean(node.comment.trim()));
         });
-    }, [filter, record.mainline]);
+    }, [filter, record.mainline, record.rootVariations]);
 
     const nextErrorIndex = useMemo(() => {
         const afterCurrent = record.mainline.findIndex((node, index) => index > currentMainlineIndex && node.classification && ERROR_CLASSIFICATIONS.has(node.classification));
@@ -272,12 +258,7 @@ export default function AnalysisMoveTree({
     const saveComment = () => {
         if (!commentPath) return;
         const draft = commentDraft.trim();
-        setRecord(current => ({
-            ...current,
-            mainline: updateNodeAtPath(current.mainline, commentPath, node => {
-                node.comment = draft;
-            }),
-        }));
+        setRecord(current => updateRecordNode(current, commentPath, node => { node.comment = draft; }));
         setCommentPath(null);
         toast.success(draft ? "Коментар збережено." : "Коментар видалено.");
     };
@@ -293,10 +274,9 @@ export default function AnalysisMoveTree({
         }
         const rootPath = path.slice(0, rootLength);
         const snapshot = cloneRecord(record);
-        const fallbackPath = rootPath.length === 2 ? [rootPath[0]] : rootPath.slice(0, -1);
+        const fallbackPath = rootPath.length === 2 ? (rootPath[0] === -1 ? null : [rootPath[0]]) : rootPath.slice(0, -1);
         setRecord(current => ({
-            ...current,
-            mainline: removeNodeAtPath(current.mainline, rootPath),
+            ...removeRecordNode(current, rootPath),
             currentPath: fallbackPath,
         }));
         toast("Варіант видалено", {
@@ -308,25 +288,11 @@ export default function AnalysisMoveTree({
     };
 
     const promoteVariation = () => {
-        if (!promotePath || promotePath.length !== 2) return;
-        const anchorIndex = promotePath[0];
-        const branchIndex = promotePath[1];
-        const branchRoot = record.mainline[anchorIndex]?.children[branchIndex];
-        if (!branchRoot) return;
+        if (!promotePath || promotePath.length < 2) return;
+        const promoted = promoteRecordVariation(record, promotePath);
+        if (!promoted) return;
 
-        const prefix = cloneNodes(record.mainline.slice(0, anchorIndex + 1));
-        const promotedLine = detachPrimaryBranch(branchRoot);
-        const oldTail = tailToBranch(record.mainline.slice(anchorIndex + 1));
-        const anchor = prefix[prefix.length - 1];
-        anchor.children = anchor.children.filter((_, index) => index !== branchIndex);
-        if (oldTail) anchor.children = [oldTail, ...anchor.children];
-        const mainline = [...prefix, ...promotedLine];
-
-        setRecord(current => ({
-            ...current,
-            mainline,
-            currentPath: [anchorIndex + 1],
-        }));
+        setRecord(promoted);
         setPromotePath(null);
         toast.success("Варіант став основною лінією. Стара лінія збережена як варіант.");
     };
@@ -411,7 +377,7 @@ export default function AnalysisMoveTree({
                             <button type="button" className="analysis-move-menu-trigger" aria-label={`Дії для ${moveLabel(node)}`}><MoreHorizontal size={15} /></button>
                         </DropdownMenuTrigger>
                         <DropdownMenuContent align="end" className="w-56">
-                            {entry.path.length === 2 && <DropdownMenuItem onSelect={() => setPromotePath(entry.path)}><GitBranch size={15} className="mr-2" />Зробити основною лінією</DropdownMenuItem>}
+                            {entry.path.length > 1 && <DropdownMenuItem onSelect={() => setPromotePath(entry.path)}><GitBranch size={15} className="mr-2" />Зробити основною лінією</DropdownMenuItem>}
                             <DropdownMenuItem onSelect={() => startComment(entry.path, node)}><MessageSquare size={15} className="mr-2" />{node.comment ? "Редагувати коментар" : "Додати коментар"}</DropdownMenuItem>
                             <DropdownMenuItem onSelect={() => void copyText(node.fenAfter, "FEN")}><span className="mr-2 font-mono text-xs">FEN</span>Копіювати FEN</DropdownMenuItem>
                             <DropdownMenuItem onSelect={() => void copyText(formatLine(collectLineNodes(record, entry.path)), "Лінію")}><span className="mr-2 font-mono text-xs">PGN</span>Копіювати лінію</DropdownMenuItem>
@@ -569,6 +535,11 @@ export default function AnalysisMoveTree({
                                 {renderMoveCell(pair.white, pair.white?.path[0] === lastIndex)}
                                 {renderMoveCell(pair.black, pair.black?.path[0] === lastIndex)}
                             </div>
+                            {pair.number === record.mainline[0]?.moveNumber && Boolean(record.rootVariations?.length) && (
+                                branchesCollapsed
+                                    ? <button type="button" className="analysis-collapsed-variations" onClick={() => setVariationsCollapsed(false)}><GitBranch size={13} />{pluralVariations(record.rootVariations!.length)}</button>
+                                    : record.rootVariations!.map((root, index) => renderBranch(root, [-1, index], 1, `root-${root.id}`))
+                            )}
                             {entries.map(entry => <div key={`${entry.node.id}-branches`}>{renderBranchesForEntry(entry)}</div>)}
                             {entries.filter(entry => entry.node.comment.trim() && (filter !== "mine" || entry.node.color === ownColor) && !isSamePath(entry.path, record.currentPath)).map(entry => (
                                 <button key={`${entry.node.id}-comment`} type="button" className="analysis-move-comment" onClick={() => onNavigate(entry.path)}><MessageSquare size={12} /><span>{entry.node.comment}</span></button>
