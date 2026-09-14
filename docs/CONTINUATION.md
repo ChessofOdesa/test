@@ -116,3 +116,22 @@ The current Simple/Advanced panels, navigator, board and PGN model are reused.
   because the available browser previously blocked localhost.
 - Keep PR #10 as a draft until live preview checks are complete. No production deployment,
   production configuration or database changes are part of this continuation.
+
+
+## Button and interaction audit — 2026-09-14
+
+- Keep one Analysis settings entry; remove the duplicate Engine-tab settings button.
+- Place file selection inside Import PGN, removing its competing toolbar entry.
+  Successful file loading now closes the import dialog.
+- During a paused review show Resume without Start/Restart controls alongside it.
+- Use the shared edit-history undo only. Remove the old deletion-toast snapshot action,
+  which could overwrite later changes. Keyboard undo now respects review/modal locks.
+- Hide global variation collapse during branch focus, where it had no effect.
+- Make the deep-position action toggle back to short analysis instead of becoming a no-op.
+- The archive primary action updates an already saved analysis; a separately labeled
+  Create copy action makes duplication explicit.
+- Suspend autoplay while a workspace/import/settings dialog, review or engine preview
+  is active, so the underlying selected position does not drift during these operations.
+
+Verification: all 118 frontend tests pass (39 targeted interaction tests), plus TypeScript and focused ESLint.
+The existing live-browser limitation still applies; this is a source/component audit.

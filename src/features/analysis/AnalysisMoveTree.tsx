@@ -5,7 +5,6 @@ import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuLabel,
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import {
     START_FEN,
-    cloneNodes,
     findOpening,
     formatCp,
     getRecordNode,
@@ -76,18 +75,6 @@ const FILTER_LABELS: Record<MoveFilter, string> = {
 };
 
 const ERROR_CLASSIFICATIONS = new Set<MoveClassification>(["inaccuracy", "mistake", "blunder"]);
-
-function cloneRecord(record: AnalysisRecord): AnalysisRecord {
-    return {
-        ...record,
-        headers: { ...record.headers },
-        currentPath: record.currentPath ? [...record.currentPath] : null,
-        mainline: cloneNodes(record.mainline),
-        rootVariations: cloneNodes(record.rootVariations || []),
-        historyStack: [...record.historyStack],
-        futureStack: [...record.futureStack],
-    };
-}
 
 function pairEntries(entries: MovePathEntry[]): MovePair[] {
     const pairs = new Map<number, MovePair>();
@@ -181,6 +168,7 @@ export default function AnalysisMoveTree({
     onPreviewBestMove,
     focusBranch = false,
     followSelection = true,
+    suspended = false,
 }: {
     record: AnalysisRecord;
     setRecord: Dispatch<SetStateAction<AnalysisRecord>>;
@@ -189,6 +177,7 @@ export default function AnalysisMoveTree({
     onPreviewBestMove?: () => void;
     focusBranch?: boolean;
     followSelection?: boolean;
+    suspended?: boolean;
 }) {
     const treeRef = useRef<HTMLDivElement | null>(null);
     const manualScrollUntil = useRef(0);
@@ -252,7 +241,7 @@ export default function AnalysisMoveTree({
     }, [currentMainlineIndex, record.mainline]);
 
     useEffect(() => {
-        if (!autoplay) return;
+        if (!autoplay || suspended) return;
         const delay = autoplaySpeed === "0.5" ? 2000 : autoplaySpeed === "2" ? 500 : 1000;
         const timer = window.setTimeout(() => {
             const next = nextAnalysisPath(record, record.currentPath);
@@ -260,7 +249,7 @@ export default function AnalysisMoveTree({
             onNavigate(next);
         }, delay);
         return () => window.clearTimeout(timer);
-    }, [autoplay, autoplaySpeed, onNavigate, record]);
+    }, [autoplay, autoplaySpeed, onNavigate, record, suspended]);
 
     useEffect(() => {
         if (!record.mainline.length) setAutoplay(false);
@@ -299,18 +288,12 @@ export default function AnalysisMoveTree({
             }
         }
         const rootPath = path.slice(0, rootLength);
-        const snapshot = cloneRecord(record);
         const fallbackPath = rootPath.length === 2 ? (rootPath[0] === -1 ? null : [rootPath[0]]) : rootPath.slice(0, -1);
         setRecord(current => ({
             ...removeRecordNode(current, rootPath),
             currentPath: fallbackPath,
         }));
-        toast("Варіант видалено", {
-            action: {
-                label: "Скасувати",
-                onClick: () => setRecord(snapshot),
-            },
-        });
+        toast("Варіант видалено. Відновити можна кнопкою «Скасувати зміну».");
     };
 
     const promoteVariation = () => {
@@ -498,7 +481,7 @@ export default function AnalysisMoveTree({
                 <div className="analysis-move-tree-actions">
                     {followSelection && <button type="button" aria-label="Показати вибраний хід" onClick={() => { manualScrollUntil.current = 0; revealSelected(); }}>До ходу</button>}
                     {nextErrorIndex >= 0 && <button type="button" className="analysis-next-error" onClick={() => onNavigate([nextErrorIndex])}>Наступна помилка <ChevronRight size={13} /></button>}
-                    {variationCount > 0 && filter !== "variations" && <button type="button" onClick={() => setVariationsCollapsed(value => !value)} aria-label={variationsCollapsed ? "Розгорнути варіанти" : "Згорнути варіанти"}>{variationsCollapsed ? <ChevronRight size={15} /> : <ChevronDown size={15} />}</button>}
+                    {variationCount > 0 && filter !== "variations" && !focusBranch && <button type="button" onClick={() => setVariationsCollapsed(value => !value)} aria-label={variationsCollapsed ? "Розгорнути варіанти" : "Згорнути варіанти"}>{variationsCollapsed ? <ChevronRight size={15} /> : <ChevronDown size={15} />}</button>}
                     <button type="button" onClick={() => setAutoplay(value => !value)} aria-label={autoplay ? "Зупинити Auto-play" : "Auto-play партії"}>{autoplay ? <Pause size={15} /> : <Play size={15} />}</button>
                     <DropdownMenu>
                         <DropdownMenuTrigger asChild><button type="button" aria-label="Швидкість Auto-play"><span className="analysis-speed-label">{autoplaySpeed}x</span></button></DropdownMenuTrigger>

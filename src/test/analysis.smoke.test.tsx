@@ -87,9 +87,12 @@ describe("Analysis Center", () => {
         fireEvent.click(await screen.findByRole('button', { name: 'Мої аналізи' }));
         fireEvent.change(screen.getByLabelText('Назва'), { target: { value: 'Турнірна партія' } });
         fireEvent.change(screen.getByLabelText('Теги через кому'), { target: { value: 'перевірити' } });
-        fireEvent.click(screen.getByRole('button', { name: 'Зберегти окремо' }));
+        fireEvent.click(screen.getByRole('button', { name: 'Зберегти аналіз' }));
         fireEvent.change(screen.getByLabelText('Пошук аналізів'), { target: { value: 'перевірити' } });
         expect(screen.getByText('Турнірна партія')).toBeInTheDocument();
+        fireEvent.click(screen.getByRole('button', { name: 'Оновити збережений' }));
+        expect(screen.getAllByText('Турнірна партія')).toHaveLength(1);
+        expect(screen.getByRole('button', { name: 'Створити копію' })).toBeInTheDocument();
         fireEvent.change(screen.getByLabelText('Пошук аналізів'), { target: { value: 'нічоготакого' } });
         expect(screen.getByText('Нічого не знайдено.')).toBeInTheDocument();
     });
@@ -103,6 +106,8 @@ describe("Analysis Center", () => {
         await waitFor(() => expect(vi.mocked(analyzeFenWithStockfish).mock.calls.some(call => call[1] === 8 && call[4]?.multiPv === 1 && call[4]?.movetime === 600)).toBe(true));
         fireEvent.click(screen.getByRole('button', { name: 'Глибоко цю позицію' }));
         await waitFor(() => expect(vi.mocked(analyzeFenWithStockfish).mock.calls.some(call => call[1] === 16 && call[4]?.multiPv === 1)).toBe(true));
+        fireEvent.click(screen.getByRole('button', { name: 'Повернути швидкий аналіз' }));
+        expect(screen.getByRole('button', { name: 'Глибоко цю позицію' })).toHaveAttribute('aria-pressed', 'false');
     });
 
     it("pins the only primary move navigator to the bottom of the right analysis panel", async () => {
@@ -144,9 +149,21 @@ describe("Analysis Center", () => {
         expect(within(tools).getAllByRole("button")[0]).toHaveAccessibleName(/Stockfish/i);
         expect(within(tools).getByRole("button", { name: "Нова позиція" })).toBeInTheDocument();
         expect(within(tools).getByRole("button", { name: "Імпорт PGN" })).toBeInTheDocument();
-        expect(within(tools).getByRole("button", { name: "Відкрити PGN-файл" })).toBeInTheDocument();
+        expect(within(tools).queryByRole("button", { name: "Відкрити PGN-файл" })).not.toBeInTheDocument();
         expect(within(tools).getByRole("button", { name: "Вставити FEN" })).toBeInTheDocument();
         expect(screen.queryByRole("button", { name: "Перевернути дошку" })).not.toBeInTheDocument();
+    });
+
+    it("opens a PGN file from the single import dialog and closes it after loading", async () => {
+        openAnalysis('');
+        fireEvent.click(screen.getByRole('button', { name: 'Імпорт PGN' }));
+        expect(screen.getAllByRole('button', { name: 'Відкрити PGN-файл' })).toHaveLength(1);
+        const input = document.querySelector<HTMLInputElement>('input[type="file"]')!;
+        const file = new File(['1. d4 d5 *'], 'game.pgn', { type: 'application/x-chess-pgn' });
+        Object.defineProperty(file, 'text', { value: async () => '1. d4 d5 *' });
+        fireEvent.change(input, { target: { files: [file] } });
+        await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument());
+        expectBoard(['d4', 'd5']);
     });
 
     it("keeps analysis settings in one popover", async () => {
@@ -209,7 +226,8 @@ describe("Analysis Center", () => {
         fireEvent.click(screen.getByRole("tab", { name: /Движок/i }));
 
         expect(await screen.findByText("Позиція близька до рівної")).toBeInTheDocument();
-        expect(screen.getByRole("button", { name: "Налаштувати движок" })).toBeInTheDocument();
+        expect(screen.queryByRole("button", { name: "Налаштувати движок" })).not.toBeInTheDocument();
+        expect(screen.getAllByRole("button", { name: "Налаштування аналізу" })).toHaveLength(1);
         expect(screen.queryByText("Глибина")).not.toBeInTheDocument();
         expect(screen.queryByText("Варіанти Stockfish")).not.toBeInTheDocument();
         const alternatives = screen.getByText("Інші варіанти").closest("details");
@@ -363,6 +381,8 @@ describe("Analysis position synchronization", () => {
         expect(signal.aborted).toBe(true);
         await act(async () => finish({ backend: 'worker', scoreCp: 800, scoreMate: null, bestmove: 'e2e4', pv: ['e2e4'], raw: [], depth: 12, lines: [] }));
         expect(screen.getByText('Огляд на паузі · 0 / 2 півходів')).toBeInTheDocument();
+        expect(screen.queryByRole('button', { name: 'Проаналізувати партію' })).not.toBeInTheDocument();
+        expect(screen.queryByRole('button', { name: 'Заново' })).not.toBeInTheDocument();
         fireEvent.click(screen.getByRole('button', { name: 'Продовжити огляд' }));
         await waitFor(() => expect(screen.getByText(/2 перевірених ходів/)).toBeInTheDocument());
         expect(screen.queryByRole('button', { name: 'Продовжити огляд' })).not.toBeInTheDocument();

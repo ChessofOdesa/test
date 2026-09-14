@@ -76,7 +76,6 @@ import {
     Plus,
     RotateCcw,
     Settings2,
-    SlidersHorizontal,
     Star,
     Trash2,
     Zap,
@@ -594,7 +593,7 @@ export default function AnalysisCenter() {
     useEffect(() => {
         const handleKey = (event: KeyboardEvent) => {
             const typing = event.target instanceof HTMLElement && event.target.closest('input, textarea, select, [contenteditable="true"], [role="dialog"]');
-            if (!typing && (event.ctrlKey || event.metaKey) && ['z', 'y'].includes(event.key.toLowerCase())) { event.preventDefault(); changeHistory(event.shiftKey || event.key.toLowerCase() === 'y'); return; }
+            if (!typing && !review.running && !importOpen && !settingsOpen && !workspaceDialog && (event.ctrlKey || event.metaKey) && ['z', 'y'].includes(event.key.toLowerCase())) { event.preventDefault(); changeHistory(event.shiftKey || event.key.toLowerCase() === 'y'); return; }
             if (event.defaultPrevented || event.altKey || event.ctrlKey || event.metaKey) return;
             const target = event.target instanceof HTMLElement ? event.target : null;
             if (target instanceof HTMLInputElement || target instanceof HTMLTextAreaElement || target instanceof HTMLSelectElement || target?.isContentEditable || target?.closest('[role="dialog"], [role="menu"], [role="tablist"], [role="slider"]')) return;
@@ -606,7 +605,7 @@ export default function AnalysisCenter() {
         };
         window.addEventListener("keydown", handleKey);
         return () => window.removeEventListener("keydown", handleKey);
-    }, [goFirst, goLast, goNext, goPrevious, importOpen, linePreview, settingsOpen, workspaceDialog, changeHistory]);
+    }, [goFirst, goLast, goNext, goPrevious, importOpen, linePreview, settingsOpen, workspaceDialog, review.running, changeHistory]);
 
     const openImport = (mode: ImportMode) => {
         setImportMode(mode);
@@ -661,6 +660,7 @@ export default function AnalysisCenter() {
             setTab("moves");
             setReview({ running: false, current: 0, total: 0, error: "" });
             setOverviewFilter("all");
+            setImportOpen(false);
             toast.success("PGN-файл завантажено.");
         } catch {
             toast.error("Не вдалося прочитати PGN-файл.");
@@ -925,7 +925,6 @@ export default function AnalysisCenter() {
                     />
                     <ToolButton label="Нова позиція" shortLabel="Нова позиція" icon={<Plus size={20} />} onClick={resetAnalysis} />
                     <ToolButton label="Імпорт PGN" shortLabel="Імпорт PGN" icon={<Clipboard size={19} />} active={importOpen && importMode === "pgn"} onClick={() => openImport("pgn")} />
-                    <ToolButton label="Відкрити PGN-файл" shortLabel="PGN файл" icon={<FileUp size={19} />} onClick={() => fileInputRef.current?.click()} />
                     <ToolButton label="Редактор позиції" shortLabel="Редактор" icon={<Pencil size={18} />} onClick={() => openWorkspaceDialog("editor")} />
                     <ToolButton label="Вставити FEN" shortLabel="FEN позиція" icon={<Copy size={18} />} active={importOpen && importMode === "fen"} onClick={() => openImport("fen")} />
 
@@ -1119,6 +1118,7 @@ export default function AnalysisCenter() {
                                 setRecord={editRecord}
                                 focusBranch={focusBranch}
                                 followSelection={followSelection}
+                                suspended={Boolean(workspaceDialog || importOpen || settingsOpen || review.running || linePreview)}
                                 onNavigate={navigateTo}
                                 onOpenEngine={() => setTab("engine")}
                                 onPreviewBestMove={previewReviewedBestMove}
@@ -1131,11 +1131,10 @@ export default function AnalysisCenter() {
                                     <div className="analysis-empty-state"><Zap size={28} /><strong>Движок вимкнено</strong><p>Увімкніть Stockfish у лівій панелі.</p></div>
                                 ) : (
                                     <>
-                                        <div className="analysis-inline-actions"><Button size="sm" variant="outline" disabled={review.running || !record.currentPath} onClick={() => openWorkspaceDialog('compare')}>Порівняти лінії</Button>{economy && <Button size="sm" variant="ghost" disabled={review.running} onClick={() => setDeepPosition(currentFen)}>Глибоко цю позицію</Button>}</div>
+                                        <div className="analysis-inline-actions"><Button size="sm" variant="outline" disabled={review.running || !record.currentPath} onClick={() => openWorkspaceDialog('compare')}>Порівняти лінії</Button>{economy && <Button size="sm" variant="ghost" disabled={review.running} aria-pressed={deepPosition === currentFen} onClick={() => setDeepPosition(value => value === currentFen ? null : currentFen)}>{deepPosition === currentFen ? 'Повернути швидкий аналіз' : 'Глибоко цю позицію'}</Button>}</div>
                                         {economy && <p className="analysis-muted">Економний режим: одна лінія, короткий пошук. У фоновій вкладці — пауза.</p>}
                                         <div className="analysis-engine-toolbar analysis-engine-toolbar-simple">
                                             <strong>Движок</strong>
-                                            <button type="button" className="analysis-engine-settings-link" aria-label="Налаштувати движок" onClick={() => setSettingsOpen(true)}><SlidersHorizontal size={16} /></button>
                                         </div>
 
                                         <div className="analysis-engine-status analysis-engine-status-simple">
@@ -1237,7 +1236,7 @@ export default function AnalysisCenter() {
                                     <>
                                         <div className="analysis-overview-topbar">
                                             <div><strong>Огляд партії</strong><span>{reviewedNodes.length} перевірених ходів · реальна оцінка Stockfish</span></div>
-                                            {!review.running && <Button variant="outline" size="sm" className="analysis-rerun-button" onClick={() => void startFullReview()}><Play size={14} />Заново</Button>}
+                                            {!review.running && !review.paused && <Button variant="outline" size="sm" className="analysis-rerun-button" onClick={() => void startFullReview()}><Play size={14} />Заново</Button>}
                                         </div>
 
                                         <details className="analysis-accuracy-method"><summary>Орієнтовна точність · як рахуємо</summary><p>100 − середня втрата оцінки в сотих пішака / 12. Спрощений показник основної партії; матові оцінки виключені. Це не Chess.com Accuracy.</p></details>
@@ -1300,7 +1299,7 @@ export default function AnalysisCenter() {
 
                                         <div className="analysis-overview-meta"><span>Дебют</span><strong>{opening?.line?.name || opening?.opening.name || "Не визначено"}</strong></div>
                                     </>
-                                ) : !review.running ? (
+                                ) : !review.running && !review.paused ? (
                                     <div className="analysis-empty-state">
                                         <Gauge size={30} />
                                         <strong>Огляд ще не готовий</strong>
@@ -1377,6 +1376,7 @@ export default function AnalysisCenter() {
                         <DialogTitle>{importMode === "pgn" ? "Імпорт PGN" : "FEN позиція"}</DialogTitle>
                         <DialogDescription>{importMode === "pgn" ? "Вставте текст PGN. Партія та метадані відкриються у вкладці «Ходи»." : "Вставте FEN, щоб відкрити конкретну позицію для аналізу."}</DialogDescription>
                     </DialogHeader>
+                    {importMode === "pgn" && <Button variant="outline" onClick={() => fileInputRef.current?.click()}><FileUp size={16} />Відкрити PGN-файл</Button>}
                     <Textarea
                         aria-label="Paste PGN or FEN"
                         value={importDraft}

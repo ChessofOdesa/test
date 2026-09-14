@@ -177,3 +177,25 @@ it("filters moves by the explicitly selected player color", () => {
     expect(list.queryByText('e4')).not.toBeInTheDocument();
     expect(list.getByText('c6')).toBeInTheDocument();
 });
+
+it("suspends autoplay while a parent dialog is open and resumes afterward", () => {
+    vi.useFakeTimers();
+    try {
+        const record = makeRecord(); record.currentPath = null;
+        const onNavigate = vi.fn(), setRecord = vi.fn(), onOpenEngine = vi.fn();
+        const view = render(<AnalysisMoveTree record={record} setRecord={setRecord} onNavigate={onNavigate} onOpenEngine={onOpenEngine} />);
+        fireEvent.click(screen.getByRole('button', { name: 'Auto-play партії' }));
+        view.rerender(<AnalysisMoveTree record={record} setRecord={setRecord} onNavigate={onNavigate} onOpenEngine={onOpenEngine} suspended />);
+        act(() => { vi.advanceTimersByTime(2000); });
+        expect(onNavigate).not.toHaveBeenCalled();
+        view.rerender(<AnalysisMoveTree record={record} setRecord={setRecord} onNavigate={onNavigate} onOpenEngine={onOpenEngine} />);
+        act(() => { vi.advanceTimersByTime(1100); });
+        expect(onNavigate).toHaveBeenCalledWith([0]);
+    } finally { vi.useRealTimers(); }
+});
+
+it("hides the ineffective global collapse action while branch focus is enabled", () => {
+    render(<AnalysisMoveTree record={makeRecord()} setRecord={vi.fn()} onNavigate={vi.fn()} onOpenEngine={vi.fn()} focusBranch />);
+    expect(screen.queryByRole('button', { name: 'Згорнути варіанти' })).not.toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /Відкрити 2.exd5/ })).toBeInTheDocument();
+});
