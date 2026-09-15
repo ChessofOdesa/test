@@ -181,6 +181,7 @@ export default function AnalysisMoveTree({
 }) {
     const treeRef = useRef<HTMLDivElement | null>(null);
     const manualScrollUntil = useRef(0);
+    const previousFollowSelection = useRef(followSelection);
     const hasMoves = record.mainline.length > 0;
     const selectionKey = record.currentPath?.join('.') || '';
     const revealSelected = () => {
@@ -196,11 +197,14 @@ export default function AnalysisMoveTree({
         const pause = () => { manualScrollUntil.current = Date.now() + 3500; };
         const keyPause = (event: Event) => { if (['PageUp', 'PageDown', 'Home', 'End'].includes((event as KeyboardEvent).key)) pause(); };
         container?.addEventListener('keydown', keyPause);
-        container?.addEventListener('pointerdown', pause, { passive: true });
         container?.addEventListener('wheel', pause, { passive: true }); container?.addEventListener('touchmove', pause, { passive: true });
-        return () => { container?.removeEventListener('keydown', keyPause); container?.removeEventListener('pointerdown', pause); container?.removeEventListener('wheel', pause); container?.removeEventListener('touchmove', pause); };
+        return () => { container?.removeEventListener('keydown', keyPause); container?.removeEventListener('wheel', pause); container?.removeEventListener('touchmove', pause); };
     }, [hasMoves]);
-    useEffect(() => { if (followSelection && Date.now() >= manualScrollUntil.current) revealSelected(); }, [followSelection, selectionKey]);
+    useEffect(() => {
+        if (followSelection && !previousFollowSelection.current) manualScrollUntil.current = 0;
+        previousFollowSelection.current = followSelection;
+        if (followSelection && Date.now() >= manualScrollUntil.current) revealSelected();
+    }, [followSelection, selectionKey]);
     const [filter, setFilter] = useState<MoveFilter>("all");
     const [ownColor, setOwnColor] = useState<"w" | "b">("w");
     const [variationsCollapsed, setVariationsCollapsed] = useState(false);

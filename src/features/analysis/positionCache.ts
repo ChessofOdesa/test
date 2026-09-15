@@ -18,4 +18,4 @@ export function writePositionCache(key: string, summary: EngineSummary) {
     localStorage.setItem(POSITION_CACHE_KEY, JSON.stringify(data));
   } catch { /* Cache availability never blocks analysis. */ }
 }
-export function clearPositionCache() { try { localStorage.removeItem(POSITION_CACHE_KEY); } catch { /* Private storage may be unavailable. */ } }
+export function clearPositionCache(): boolean { try { localStorage.removeItem(POSITION_CACHE_KEY); return true; } catch { return false; } }

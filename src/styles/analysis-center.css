@@ -50,7 +50,7 @@
 .analysis-tool-label { max-width: 88px; font-size: .68rem; line-height: 1.08; font-weight: 740; text-align: center; }
 .analysis-tool-button small { max-width: 88px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: .61rem; line-height: 1; font-weight: 800; font-variant-numeric: tabular-nums; }
 
-.analysis-settings-popover { width: 296px; max-height: min(660px, calc(100vh - 32px)); overflow-y: auto; }
+.analysis-settings-popover { width: 296px; max-height: min(660px, calc(100dvh - 32px), var(--radix-popover-content-available-height, 660px)); overflow-y: auto; overscroll-behavior: contain; }
 .analysis-popover-heading { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-bottom: 9px; }
 .analysis-popover-heading strong { font-size: .85rem; }
 .analysis-popover-heading span { color: hsl(var(--muted-foreground)); font-size: .68rem; }

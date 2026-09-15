@@ -205,3 +205,45 @@ responsive, clipboard/download and real Stockfish worker QA remain pending. The
 user's exact site URL and deployed revision have not been provided; do not claim
 that the user's current browser already contains these changes. Update this same
 PR branch; no production merge/deployment was performed.
+
+## Settings-specific audit — 2026-09-15
+
+Continued the existing settings popover in response to the user's report that some
+settings do not work. No replacement settings UI or duplicate controls were added.
+
+Fixes:
+- Persist all ten Analysis settings with validated device-local preferences. Theme
+  and coordinates retain the existing shared board preferences. Invalid/unavailable
+  storage falls back safely; inability to save is visible in the popover.
+- Best-move arrows no longer disappear merely because a book/evaluation badge exists.
+  The independent arrow and badge switches can both be on.
+- Clear cache now reports storage failure, cancels old position/review requests,
+  clears memory, invalidates the displayed result and starts a fresh current-position
+  search when allowed. The fresh search can repopulate the cache by design.
+- Effective MultiPV is used in the Advanced display and rendered line limit; the
+  economy note also reflects a temporary deep-position request.
+- Clicking a move no longer counts as manual scrolling. Wheel/touch/manual paging
+  still suspend follow temporarily; turning follow back on reveals immediately.
+- Popover scrolling is constrained by Radix available height and dynamic viewport
+  height, with overscroll containment. Live mobile visual validation is still pending.
+
+Automated settings audit (real shared ChessBoard adapter, mocked renderer/engine):
+
+| Control | Verified effect |
+| --- | --- |
+| Simple / Advanced | Engine details appear/disappear; selection persists |
+| D8 / D12 / D16 | Every depth reaches engine; selection persists |
+| MultiPV 1 / 2 / 3 / 5 | Every choice reaches engine; selection persists |
+| Economy / explicit depth override | Short/deep requests, manual override, effective display, hidden-tab cancellation and visible-tab resume |
+| All 11 board themes | Correct light/dark colors delivered to renderer |
+| Coordinates | Board notation flag switches both ways and persists |
+| Move animation | Renderer duration switches between 0 and 150 ms and persists |
+| Best-move arrow / badges | Independent visible states, including a recognized opening |
+| Branch focus | Inactive branches collapse and reopen |
+| Follow selected move | Control toggles, actual scroll request, manual-scroll pause and immediate re-enable |
+| Compact mobile board | Layout class and board size change in a simulated 500x800 viewport |
+| Clear Stockfish cache | Persistent cache removal, old request cancellation, fresh same-position search, failure feedback |
+
+Validation: 141 tests in 24 files, TypeScript, focused ESLint and production build.
+Live browser, animation rendering, touch gestures and Vercel preview remain subject
+to the previously recorded access limitation. PR #10 remains draft/unmerged.

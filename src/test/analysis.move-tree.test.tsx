@@ -199,3 +199,23 @@ it("hides the ineffective global collapse action while branch focus is enabled",
     expect(screen.queryByRole('button', { name: 'Згорнути варіанти' })).not.toBeInTheDocument();
     expect(screen.getByRole('button', { name: /Відкрити 2.exd5/ })).toBeInTheDocument();
 });
+
+it('follows a clicked move and immediately follows again when the setting is re-enabled', () => {
+    const scrollBy = vi.fn();
+    const rect = vi.spyOn(HTMLElement.prototype, 'getBoundingClientRect').mockImplementation(function (this: HTMLElement) {
+        const top = this.hasAttribute('aria-current') ? 500 : 0;
+        return { top, bottom: top + 100, left: 0, right: 300, width: 300, height: 100, x: 0, y: top, toJSON: () => {} };
+    });
+    const record = makeRecord();
+    const content = (followSelection: boolean, currentPath: number[]) => <div className="analysis-panel-body" ref={node => { if (node) node.scrollBy = scrollBy; }}><AnalysisMoveTree record={{ ...record, currentPath }} setRecord={vi.fn()} onNavigate={vi.fn()} onOpenEngine={vi.fn()} followSelection={followSelection} /></div>;
+    try {
+        const view = render(content(true, [0])); scrollBy.mockClear();
+        fireEvent.pointerDown(view.container.querySelector('[aria-current="step"]')!);
+        view.rerender(content(true, [1]));
+        expect(scrollBy).toHaveBeenCalled(); scrollBy.mockClear();
+        fireEvent.wheel(view.container.querySelector('.analysis-panel-body')!);
+        view.rerender(content(true, [2])); expect(scrollBy).not.toHaveBeenCalled();
+        view.rerender(content(false, [2])); view.rerender(content(true, [2]));
+        expect(scrollBy).toHaveBeenCalled();
+    } finally { rect.mockRestore(); }
+});

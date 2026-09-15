@@ -1,3 +1,4 @@
+import { readAnalysisPreferences, saveAnalysisPreferences } from '@/features/analysis/preferences';
 import GameMetadataDialog from '@/features/analysis/GameMetadataDialog';
 import PredictionDialog from '@/features/analysis/PredictionDialog';
 import PositionImageDialog from '@/features/analysis/PositionImageDialog';
@@ -334,12 +335,15 @@ export default function AnalysisCenter() {
     const [workspaceDialog, setWorkspaceDialog] = useState<'archive' | 'share' | 'editor' | 'training' | 'compare' | 'metadata' | 'prediction' | 'image' | null>(null);
     const [imageSource, setImageSource] = useState<PositionImageOptions | null>(null);
     const [activeSaveId, setActiveSaveId] = useState<string | null>(null);
-    const [economy, setEconomy] = useState(false);
+    const [savedPreferences] = useState(readAnalysisPreferences);
+    const [preferencesSaved, setPreferencesSaved] = useState(true);
+    const [cacheRevision, setCacheRevision] = useState(0);
+    const [economy, setEconomy] = useState(savedPreferences.economy);
     const [pageVisible, setPageVisible] = useState(() => document.visibilityState !== 'hidden');
     const [deepPosition, setDeepPosition] = useState<string | null>(null);
-    const [focusBranch, setFocusBranch] = useState(false);
-    const [followSelection, setFollowSelection] = useState(true);
-    const [mobileFocus, setMobileFocus] = useState(true);
+    const [focusBranch, setFocusBranch] = useState(savedPreferences.focusBranch);
+    const [followSelection, setFollowSelection] = useState(savedPreferences.followSelection);
+    const [mobileFocus, setMobileFocus] = useState(savedPreferences.mobileFocus);
     const [panelWidth, setPanelWidth] = useState(460);
     const [resizing, setResizing] = useState(false);
     const panelRef = useRef<HTMLElement | null>(null);
@@ -348,11 +352,11 @@ export default function AnalysisCenter() {
     const [boardSize, setBoardSize] = useState(650);
     const [flipped, setFlipped] = useState(false);
     const [engineEnabled, setEngineEnabled] = useState(true);
-    const [engineDepth, setEngineDepth] = useState(12);
-    const [multiPv, setMultiPv] = useState(3);
-    const [showBestMoveArrow, setShowBestMoveArrow] = useState(true);
-    const [showMoveBadges, setShowMoveBadges] = useState(true);
-    const [moveAnimation, setMoveAnimation] = useState(true);
+    const [engineDepth, setEngineDepth] = useState(savedPreferences.engineDepth);
+    const [multiPv, setMultiPv] = useState(savedPreferences.multiPv);
+    const [showBestMoveArrow, setShowBestMoveArrow] = useState(savedPreferences.showBestMoveArrow);
+    const [showMoveBadges, setShowMoveBadges] = useState(savedPreferences.showMoveBadges);
+    const [moveAnimation, setMoveAnimation] = useState(savedPreferences.moveAnimation);
     const [positionResult, setCurrentEngine] = useState<(EngineSummary & { requestKey: string }) | null>(null);
     const [positionBusy, setPositionBusy] = useState(false);
     const [positionError, setPositionError] = useState("");
@@ -364,14 +368,18 @@ export default function AnalysisCenter() {
     const [settingsOpen, setSettingsOpen] = useState(false);
     const [linePreview, setLinePreview] = useState<EnginePreview | null>(null);
     const [overviewFilter, setOverviewFilter] = useState<OverviewFilter>("all");
-    const [analysisUiMode, setAnalysisUiMode] = useState<AnalysisUiMode>("simple");
+    const [analysisUiMode, setAnalysisUiMode] = useState<AnalysisUiMode>(savedPreferences.analysisUiMode);
+
+    useEffect(() => {
+        setPreferencesSaved(saveAnalysisPreferences({ economy, focusBranch, followSelection, mobileFocus, engineDepth, multiPv, showBestMoveArrow, showMoveBadges, moveAnimation, analysisUiMode }));
+    }, [economy, focusBranch, followSelection, mobileFocus, engineDepth, multiPv, showBestMoveArrow, showMoveBadges, moveAnimation, analysisUiMode]);
 
     const renderedMoves = useMemo(() => [...renderMoves(record.mainline), ...renderMoves(record.rootVariations || [], 1, [-1])], [record.mainline, record.rootVariations]);
     const currentNode = useMemo(() => getLastMove(record), [record]);
     const currentFen = useMemo(() => getCurrentFen(record), [record]);
     const requestedDepth = deepPosition === currentFen ? 16 : economy ? 8 : engineDepth;
     const requestedMultiPv = economy ? 1 : multiPv;
-    const positionKey = `${requestedDepth}:${requestedMultiPv}:${currentFen}`;
+    const positionKey = `${cacheRevision}:${requestedDepth}:${requestedMultiPv}:${currentFen}`;
     const currentEngine = engineEnabled && positionResult?.requestKey === positionKey ? positionResult : null;
     const gameIdentity = `${record.rootFen}:${record.mainline.map(node => node.id).join(",")}`;
     const reviewedNodes = useMemo(() => record.mainline.filter(node => node.evalLoss != null), [record.mainline]);
@@ -834,7 +842,7 @@ export default function AnalysisCenter() {
     const engineLines = useMemo<EngineLineView[]>(() => {
         if (!currentEngine) return [];
         if (currentEngine.lines.length) {
-            return currentEngine.lines.slice(0, multiPv).map((line, index) => ({
+            return currentEngine.lines.slice(0, requestedMultiPv).map((line, index) => ({
                 id: `${line.multipv || index + 1}-${line.pv.join("-")}`,
                 rank: line.multipv || index + 1,
                 score: engineLineScore(line),
@@ -850,7 +858,7 @@ export default function AnalysisCenter() {
             moves: currentEngine.pvSan.slice(0, 10).join(" ") || currentEngine.bestMoveSan || "",
             pv: fallbackPv,
         }] : [];
-    }, [currentEngine, currentFen, multiPv]);
+    }, [currentEngine, currentFen, requestedMultiPv]);
 
     const previewEngineLine = (line: EngineLineView, label = `Варіант ${line.rank}`) => {
         const preview = buildPreview(currentFen, line.pv, label);
@@ -875,9 +883,9 @@ export default function AnalysisCenter() {
 
     const bestMoveArrow = useMemo<[Square, Square, string?][]>(() => {
         const move = currentEngine?.bestMoveUci;
-        if (!showBestMoveArrow || boardBadgeKind || linePreview || !engineEnabled || !move || move.length < 4) return [];
+        if (!showBestMoveArrow || linePreview || !engineEnabled || !move || move.length < 4) return [];
         return [[move.slice(0, 2) as Square, move.slice(2, 4) as Square, "#315c9a"]];
-    }, [boardBadgeKind, currentEngine?.bestMoveUci, engineEnabled, linePreview, showBestMoveArrow]);
+    }, [currentEngine?.bestMoveUci, engineEnabled, linePreview, showBestMoveArrow]);
 
     const lastMoveSquares = !linePreview && currentNode?.uci?.length >= 4
         ? [currentNode.uci.slice(0, 2) as Square, currentNode.uci.slice(2, 4) as Square]
@@ -967,6 +975,7 @@ export default function AnalysisCenter() {
                             <TooltipContent side="right">Налаштування аналізу</TooltipContent>
                         </Tooltip>
                         <PopoverContent side="right" align="center" className="analysis-settings-popover">
+                            <p className="analysis-muted" role="status">{preferencesSaved ? "Налаштування зберігаються на цьому пристрої." : "Налаштування діють, але не збережені: сховище недоступне."}</p>
                             <div className="analysis-popover-heading"><strong>Інтерфейс</strong><span>Режим</span></div>
                             <div className="analysis-ui-mode-options" role="group" aria-label="Режим Analysis">
                                 <button type="button" className={cn(analysisUiMode === "simple" && "is-active")} aria-pressed={analysisUiMode === "simple"} onClick={() => setAnalysisUiMode("simple")}>
@@ -991,7 +1000,7 @@ export default function AnalysisCenter() {
                             <div className="analysis-multipv-options">
                                 {[1, 2, 3, 5].map(value => <button key={value} type="button" aria-label={`Кількість варіантів: ${value}`} aria-pressed={requestedMultiPv === value} className={cn(requestedMultiPv === value && "is-active")} onClick={() => { pauseReview(); setMultiPv(value); setEconomy(false); setDeepPosition(null); }}>{value}</button>)}
                             </div>
-                            {economy && <p className="analysis-muted">Економний режим: D8 і один варіант. Вибір глибини або кількості варіантів вимкне його.</p>}
+                            {economy && <p className="analysis-muted">Економний режим: D{requestedDepth} і один варіант. Вибір глибини або кількості варіантів вимкне його.</p>}
 
                             <div className="analysis-popover-heading analysis-popover-subheading"><strong>Дошка</strong><span>Вигляд</span></div>
                             <label className="analysis-theme-select">
@@ -1008,7 +1017,7 @@ export default function AnalysisCenter() {
                                 <button type="button" role="switch" aria-checked={focusBranch} onClick={() => setFocusBranch(value => !value)}><span>Фокус на активному варіанті</span><b>{focusBranch ? 'ON' : 'OFF'}</b></button>
                                 <button type="button" role="switch" aria-checked={followSelection} onClick={() => setFollowSelection(value => !value)}><span>Прокручувати до вибраного ходу</span><b>{followSelection ? 'ON' : 'OFF'}</b></button>
                                 <button type="button" role="switch" aria-checked={mobileFocus} onClick={() => setMobileFocus(value => !value)}><span>Компактна дошка на телефоні</span><b>{mobileFocus ? 'ON' : 'OFF'}</b></button>
-                                <button type="button" onClick={() => { clearPositionCache(); engineCacheRef.current.clear(); toast.success('Кеш позицій очищено.'); }}>Очистити кеш Stockfish</button>
+                                <button type="button" onClick={() => { if (!clearPositionCache()) { toast.error('Не вдалося очистити кеш: сховище недоступне.'); return; } pauseReview(); positionAbortRef.current?.abort(); engineCacheRef.current.clear(); setCurrentEngine(null); setCacheRevision(value => value + 1); toast.success('Кеш очищено. Поточна позиція обчислюється заново, якщо Stockfish увімкнений.'); }}>Очистити кеш Stockfish</button>
                                 <button type="button" role="switch" aria-checked={boardSettings.showCoordinates} onClick={() => boardSettings.setShowCoordinates(!boardSettings.showCoordinates)}><span>Координати</span><b>{boardSettings.showCoordinates ? "ON" : "OFF"}</b></button>
                                 <button type="button" role="switch" aria-checked={showBestMoveArrow} onClick={() => setShowBestMoveArrow(value => !value)}><span>Стрілка найкращого ходу</span><b>{showBestMoveArrow ? "ON" : "OFF"}</b></button>
                                 <button type="button" role="switch" aria-checked={showMoveBadges} onClick={() => setShowMoveBadges(value => !value)}><span>Позначки якості ходу</span><b>{showMoveBadges ? "ON" : "OFF"}</b></button>
@@ -1182,7 +1191,7 @@ export default function AnalysisCenter() {
                                         {analysisUiMode === "advanced" && (
                                             <div className="analysis-engine-advanced-meta" aria-label="Розширені дані движка">
                                                 <span><small>Глибина</small><strong>{currentEngine?.depth ? "D" + currentEngine.depth : "—"}</strong></span>
-                                                <span><small>MultiPV</small><strong>{multiPv}</strong></span>
+                                                <span><small>MultiPV</small><strong>{requestedMultiPv}</strong></span>
                                                 <span><small>Джерело</small><strong>{currentEngine?.backend === "cloud" ? "Cloud" : currentEngine?.backend === "native" ? "Server" : "Browser"}</strong></span>
                                             </div>
                                         )}
