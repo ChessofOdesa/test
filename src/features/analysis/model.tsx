@@ -1,6 +1,5 @@
 import { type BoardTheme } from "@/contexts/BoardSettingsContext";
 import { OPENINGS, type Opening, type OpeningLine } from "@/lib/openings-data";
-import { parsePGN } from "@/lib/pgnParser";
 import { type AnalyzeResult, type EngineBackend, type EngineLine } from "@/lib/stockfish";
 import { Chess, type PieceSymbol } from "chess.js";
 import type { BoardPosition, Piece, Square } from "react-chessboard/dist/chessboard/types";
@@ -34,12 +33,19 @@ export type AnalysisMoveNode = {
     explanation: string;
     arrows: AnalysisArrow[];
     children: AnalysisMoveNode[];
+    bookmark?: "important" | "check" | "opening";
 };
+export type PositionPrediction = { fen: string; moveUci: string; moveSan: string; estimatedCp: number; plan: string; createdAt: string };
 export type AnalysisSnapshot = {
+    predictions?: PositionPrediction[];
+    rootArrows?: AnalysisArrow[];
     headers: Record<string, string>;
     rootFen: string;
     currentPath: number[] | null;
     mainline: AnalysisMoveNode[];
+    // Optional for compatibility with saved snapshots created before root branches.
+    // Paths [-1, branchIndex, ...] select an alternative from rootFen.
+    rootVariations?: AnalysisMoveNode[];
 };
 export type AnalysisRecord = AnalysisSnapshot & {
     historyStack: AnalysisSnapshot[];
@@ -175,9 +181,12 @@ export function cloneNodes(nodes: AnalysisMoveNode[]): AnalysisMoveNode[] {
 export function toSnapshot(record: AnalysisRecord | AnalysisSnapshot): AnalysisSnapshot {
     return {
         headers: { ...record.headers },
+        predictions: record.predictions?.map(item => ({ ...item })),
+        rootArrows: record.rootArrows?.map(arrow => [...arrow] as AnalysisArrow),
         rootFen: record.rootFen,
         currentPath: record.currentPath ? [...record.currentPath] : null,
         mainline: cloneNodes(record.mainline),
+        rootVariations: cloneNodes(record.rootVariations || []),
     };
 }
 export function createRecord(rootFen = START_FEN): AnalysisRecord {
@@ -186,6 +195,7 @@ export function createRecord(rootFen = START_FEN): AnalysisRecord {
         rootFen,
         currentPath: null,
         mainline: [],
+        rootVariations: [],
         historyStack: [],
         futureStack: [],
     };
@@ -293,6 +303,21 @@ export function getNodeByPath(nodes: AnalysisMoveNode[], path: number[] | null):
     }
     return node ?? null;
 }
+export function getRecordNode(record: AnalysisSnapshot, path: number[] | null): AnalysisMoveNode | null {
+    return path?.[0] === -1
+        ? getNodeByPath(record.rootVariations || [], path.slice(1))
+        : getNodeByPath(record.mainline, path);
+}
+export function updateRecordNode(record: AnalysisRecord, path: number[], mutator: (node: AnalysisMoveNode) => void): AnalysisRecord {
+    return path[0] === -1
+        ? { ...record, rootVariations: updateNodeAtPath(record.rootVariations || [], path.slice(1), mutator) }
+        : { ...record, mainline: updateNodeAtPath(record.mainline, path, mutator) };
+}
+export function removeRecordNode(record: AnalysisRecord, path: number[]): AnalysisRecord {
+    return path[0] === -1
+        ? { ...record, rootVariations: removeNodeAtPath(record.rootVariations || [], path.slice(1)) }
+        : { ...record, mainline: removeNodeAtPath(record.mainline, path) };
+}
 export function updateNodeAtPath(nodes: AnalysisMoveNode[], path: number[], mutator: (node: AnalysisMoveNode) => void): AnalysisMoveNode[] {
     const nextNodes = cloneNodes(nodes);
     let node: AnalysisMoveNode | undefined = nextNodes[path[0]];
@@ -327,11 +352,11 @@ export function renderMoves(nodes: AnalysisMoveNode[], depth = 0, prefixPath: nu
     });
 }
 export function getCurrentFen(record: AnalysisRecord) {
-    const node = getNodeByPath(record.mainline, record.currentPath);
+    const node = getRecordNode(record, record.currentPath);
     return node?.fenAfter || record.rootFen;
 }
 export function getLastMove(record: AnalysisRecord) {
-    return getNodeByPath(record.mainline, record.currentPath);
+    return getRecordNode(record, record.currentPath);
 }
 export function getPreviousPath(path: number[] | null) {
     if (!path || path.length === 0) {
@@ -340,7 +365,7 @@ export function getPreviousPath(path: number[] | null) {
     if (path.length === 1) {
         return path[0] === 0 ? null : [path[0] - 1];
     }
-    return path.slice(0, -1);
+    return path[0] === -1 && path.length === 2 ? null : path.slice(0, -1);
 }
 export function getNextPath(record: AnalysisRecord, path: number[] | null): number[] | null {
     if (record.mainline.length === 0) {
@@ -356,7 +381,7 @@ export function getNextPath(record: AnalysisRecord, path: number[] | null): numb
         const current = record.mainline[path[0]];
         return current.children[0] ? [...path, 0] : null;
     }
-    const current = getNodeByPath(record.mainline, path);
+    const current = getRecordNode(record, path);
     return current?.children[0] ? [...path, 0] : null;
 }
 export function getLastPath(record: AnalysisRecord): number[] | null {
@@ -480,23 +505,16 @@ export function classificationClasses(classification: MoveClassification | null)
     }[classification || "good"];
 }
 export function explanationForMove(classification: MoveClassification, color: "w" | "b", bestMoveSan: string | null) {
-    const side = color === "w" ? "White" : "Black";
-    if (classification === "best") {
-        return `${side} matched the engine's first choice and kept the position under control.`;
-    }
-    if (classification === "excellent") {
-        return `${side} found a very strong continuation and stayed almost perfectly aligned with the engine.`;
-    }
-    if (classification === "good") {
-        return `${side} stayed close to the engine line, but there was still a sharper continuation available.`;
-    }
-    if (classification === "inaccuracy") {
-        return `${side} drifted from the strongest continuation. ${bestMoveSan ? `Stockfish preferred ${bestMoveSan}.` : ""}`.trim();
-    }
-    if (classification === "mistake") {
-        return `${side} gave up a meaningful chunk of the evaluation. ${bestMoveSan ? `The cleaner move was ${bestMoveSan}.` : ""}`.trim();
-    }
-    return `${side} sharply changed the evaluation. ${bestMoveSan ? `Stockfish wanted ${bestMoveSan} instead.` : ""}`.trim();
+    const side = color === "w" ? "Білі" : "Чорні";
+    const descriptions = {
+        best: `${side} обрали першу рекомендацію рушія.`,
+        excellent: `${side} зіграли майже так само сильно, як рекомендує рушій.`,
+        good: `${side} зберегли оцінку близькою до найкращого продовження.`,
+        inaccuracy: `${side} трохи погіршили оцінку позиції.`,
+        mistake: `${side} помітно погіршили оцінку позиції.`,
+        blunder: `${side} допустили різке погіршення оцінки позиції.`,
+    };
+    return descriptions[classification] + (bestMoveSan && classification !== "best" ? ` Краще було ${bestMoveSan}.` : "");
 }
 export function formatAnalysisError(error: unknown) {
     const rawMessage = error instanceof Error ? error.message : String(error || "");
@@ -818,34 +836,93 @@ export function createMoveNode(move: {
     };
 }
 export function buildRecordFromPgn(pgnText: string): AnalysisRecord {
-    const parsed = parsePGN(pgnText);
-    const headers = parsed[0]?.headers ?? {};
-    const rootFen = headers.FEN || START_FEN;
     const chess = new Chess();
     chess.loadPgn(pgnText);
-    const moveHistory = chess.history({ verbose: true }) as Array<{
-        san: string;
-        from: string;
-        to: string;
-        color: "w" | "b";
-        promotion?: string;
-    }>;
-    const replay = new Chess(rootFen);
-    const mainline = moveHistory.map((move, index) => {
-        const fenBefore = replay.fen();
-        replay.move({
-            from: move.from,
-            to: move.to,
-            promotion: (move.promotion as "q" | "r" | "b" | "n" | undefined) || "q",
-        });
-        return createMoveNode(move, fenBefore, replay.fen(), index + 1);
-    });
+    const headers = chess.getHeaders();
+    const rootFen = headers.FEN || START_FEN;
+    const mainline: AnalysisMoveNode[] = [];
+    const rootVariations: AnalysisMoveNode[] = [];
+    const body = pgnText.replace(/^\s*\[\w+\s+"(?:\\.|[^"\\])*"\s*\]\s*$/gm, "");
+    const tokens = body.match(/\{[^}]*\}|;[^\r\n]*|\$\d+|[()]|\d+\.(?:\.\.)?|\.{3}|1\/2-1\/2|1-0|0-1|\*|[^\s(){}]+/g) || [];
+    const nags: Record<string, MoveNag> = { "$1": "!", "$2": "?", "$3": "!!", "$4": "??", "$5": "!?", "$6": "?!" };
+    let cursor = 0, count = 0;
+    const readLine = (fen: string, anchor: AnalysisMoveNode | null, isMainline: boolean, startPly: number, depth: number) => {
+        if (depth > 40) throw new Error("У PGN забагато вкладених варіантів.");
+        const replay = new Chess(fen);
+        let parent = anchor, previousParent = anchor, last: AnalysisMoveNode | null = null, ply = startPly;
+        while (cursor < tokens.length) {
+            const token = tokens[cursor++];
+            if (token === ")") { if (!depth) throw new Error("Зайва дужка в PGN."); return; }
+            if (token === "(") {
+                if (!last) throw new Error("Варіант без попереднього ходу.");
+                readLine(last.fenBefore, previousParent, false, last.ply - 1, depth + 1);
+                continue;
+            }
+            if (/^(\d+\.|\.\.\.)/.test(token) || ["1-0", "0-1", "1/2-1/2", "*"].includes(token)) continue;
+            if (token.startsWith("{") || token.startsWith(";")) {
+                if (last) last.comment = [last.comment, token.startsWith("{") ? token.slice(1, -1).trim() : token.slice(1).trim()].filter(Boolean).join("\n");
+                continue;
+            }
+            if (/^\$\d+$/.test(token) || /^[!?]+$/.test(token)) {
+                if (last) last.nag = nags[token] || (/^(!!|!|!\?|\?!|\?|\?\?)$/.test(token) ? token as MoveNag : last.nag);
+                continue;
+            }
+            if (++count > 4000) throw new Error("У PGN забагато ходів.");
+            const before = replay.fen();
+            const move = replay.move(token.replace(/[!?]+$/, ""));
+            const node = createMoveNode(move, before, replay.fen(), ++ply);
+            node.nag = token.match(/(!!|!\?|\?!|\?\?|!|\?)$/)?.[0] as MoveNag || null;
+            if (isMainline) mainline.push(node);
+            else if (parent) parent.children.push(node);
+            else rootVariations.push(node);
+            previousParent = parent;
+            parent = node;
+            last = node;
+        }
+        if (depth) throw new Error("Не закрито варіант у PGN.");
+    };
+    readLine(rootFen, null, true, 0, 0);
     return {
         headers,
         rootFen,
         currentPath: mainline.length > 0 ? [mainline.length - 1] : null,
         mainline,
+        rootVariations,
         historyStack: [],
         futureStack: [],
     };
+}
+
+/** Add explicit board/engine moves atomically, reusing already stored continuations. */
+export function appendAnalysisLine(record: AnalysisRecord, moves: string[]): AnalysisRecord {
+    const next = { ...record, mainline: cloneNodes(record.mainline), rootVariations: cloneNodes(record.rootVariations || []), currentPath: record.currentPath ? [...record.currentPath] : null };
+    for (const uci of moves) {
+        const fen = getCurrentFen(next);
+        const game = new Chess(fen);
+        const played = game.move(uci);
+        const path = next.currentPath;
+        const parent = getRecordNode(next, path);
+        const continuation = getNextPath(next, path);
+        if (continuation && getRecordNode(next, continuation)?.uci === played.lan) {
+            next.currentPath = continuation;
+            continue;
+        }
+        const child = parent?.children.findIndex(node => node.uci === played.lan) ?? -1;
+        if (path && child >= 0) { next.currentPath = [...path, child]; continue; }
+        const node = createMoveNode(played, fen, game.fen(), (parent?.ply ?? 0) + 1);
+        if (!path && next.mainline.length) {
+            const existing = next.rootVariations.findIndex(branch => branch.uci === played.lan);
+            if (existing >= 0) next.currentPath = [-1, existing];
+            else { next.rootVariations.push(node); next.currentPath = [-1, next.rootVariations.length - 1]; }
+            continue;
+        }
+        if (!path || path.length === 1 && path[0] === next.mainline.length - 1) {
+            next.mainline.push(node);
+            next.currentPath = [next.mainline.length - 1];
+        } else {
+            parent!.children.push(node);
+            next.currentPath = [...path, parent!.children.length - 1];
+        }
+    }
+    return next;
 }

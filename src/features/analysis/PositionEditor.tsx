@@ -1,0 +1,21 @@
+import { useState } from 'react';
+import { editorFen } from './editorModel';
+import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog';
+import { Button } from '@/components/ui/button';
+import { boardPositionFromFen, START_FEN } from './model';
+const SYMBOLS: Record<string, string> = { wK: '♔', wQ: '♕', wR: '♖', wB: '♗', wN: '♘', wP: '♙', bK: '♚', bQ: '♛', bR: '♜', bB: '♝', bN: '♞', bP: '♟' };
+const NAMES: Record<string, string> = { K: 'король', Q: 'ферзь', R: 'тура', B: 'слон', N: 'кінь', P: 'пішак' };
+export default function PositionEditor({ fen, onApply, onClose }: { fen: string; onApply: (fen: string) => void; onClose: () => void }) {
+  const fields = fen.split(' ');
+  const [position, setPosition] = useState<Record<string, string>>(() => ({ ...boardPositionFromFen(fen) }));
+  const [piece, setPiece] = useState('wP');
+  const [turn, setTurn] = useState(fields[1]); const [castling, setCastling] = useState(fields[2].replace('-', '')); const [ep, setEp] = useState(fields[3]);
+  const [halfmove, setHalfmove] = useState(Number(fields[4])); const [fullmove, setFullmove] = useState(Number(fields[5])); const [error, setError] = useState('');
+  return <Dialog open onOpenChange={open => !open && onClose()}><DialogContent className="analysis-workspace-dialog"><DialogHeader><DialogTitle>Редактор позиції</DialogTitle><DialogDescription>Оберіть фігуру й натисніть поле. Гумка видаляє фігуру.</DialogDescription></DialogHeader>
+    <div className="analysis-editor-layout"><div className="analysis-editor-board" role="group" aria-label="Розставлення фігур">{Array.from({ length: 64 }, (_, i) => { const square = `${String.fromCharCode(97 + i % 8)}${8 - Math.floor(i / 8)}`; return <button key={square} type="button" className={(i + Math.floor(i / 8)) % 2 ? 'is-dark' : ''} aria-label={`${square}${position[square] ? ` ${position[square]}` : ' порожнє'}`} onClick={() => setPosition(current => { const next = { ...current }; if (piece) next[square] = piece; else delete next[square]; return next; })}>{SYMBOLS[position[square]]}<small>{square}</small></button>; })}</div>
+    <div><div className="analysis-editor-pieces">{Object.entries(SYMBOLS).map(([value, glyph]) => <button type="button" key={value} aria-label={`${value[0] === 'w' ? 'Білі' : 'Чорні'} ${NAMES[value[1]]}`} aria-pressed={piece === value} onClick={() => setPiece(value)}>{glyph}</button>)}<button type="button" aria-pressed={!piece} onClick={() => setPiece('')}>Гумка</button></div><div className="analysis-inline-actions"><Button size="sm" variant="outline" onClick={() => { setPosition({}); setCastling(''); setEp('-'); }}>Очистити дошку</Button><Button size="sm" variant="outline" onClick={() => { setPosition({ ...boardPositionFromFen(START_FEN) }); setTurn('w'); setCastling('KQkq'); setEp('-'); setHalfmove(0); setFullmove(1); }}>Початкова</Button></div></div></div>
+    <div className="analysis-form-grid"><label>Сторона ходу<select value={turn} onChange={e => setTurn(e.target.value)}><option value="w">Білі</option><option value="b">Чорні</option></select></label><label>Номер ходу<input type="number" min={1} value={fullmove} onChange={e => setFullmove(Number(e.target.value))} /></label><label>Півходів без взяття або ходу пішака<input type="number" min={0} value={halfmove} onChange={e => setHalfmove(Number(e.target.value))} /></label><label>Поле взяття на проході<input value={ep} maxLength={2} onChange={e => setEp(e.target.value)} /></label></div>
+    <fieldset><legend>Права рокіровки</legend><div className="analysis-inline-actions">{['K', 'Q', 'k', 'q'].map(right => <label key={right}><input type="checkbox" checked={castling.includes(right)} onChange={e => setCastling(current => 'KQkq'.split('').filter(r => r === right ? e.target.checked : current.includes(r)).join(''))} />{right === 'K' ? 'Білі O-O' : right === 'Q' ? 'Білі O-O-O' : right === 'k' ? 'Чорні O-O' : 'Чорні O-O-O'}</label>)}</div></fieldset>
+    {error && <p role="alert">{error}</p>}<Button onClick={() => { try { onApply(editorFen(position, turn, castling, ep, halfmove, fullmove)); onClose(); } catch (e) { setError(e instanceof Error ? e.message : 'Неправильна позиція.'); } }}>Відкрити позицію</Button>
+  </DialogContent></Dialog>;
+}

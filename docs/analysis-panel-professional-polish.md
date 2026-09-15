@@ -11,9 +11,9 @@ The right Analysis panel keeps one shared structure across all tabs:
 - **Ходи**: mainline, inline user variations, comments, move selection, autoplay, jump/filter tools.
 - **Движок**: current-position evaluation, Stockfish status, best move, MultiPV previews and explicit opt-in saving of an engine line into the move tree.
 - **Огляд**: full-review progress, accuracy, classification summary, category filtering and key moments.
-- **Інфо**: PGN metadata, players/ratings, event details, opening/ECO and initial FEN for non-standard positions.
+- **Інфо**: PGN metadata, players/ratings, event details, opening/ECO, initial FEN, full PGN preview and PGN copy/download.
 - **Left toolbar / Settings**: engine ON/OFF, engine depth, MultiPV and board appearance settings.
-- **Global More menu**: PGN copy/download, FEN copy, board flip and destructive cleanup actions.
+- **Global More menu**: FEN copy for a root position, board flip and destructive cleanup actions. Selected-move FEN copy is in its context menu.
 
 ## Invariants
 

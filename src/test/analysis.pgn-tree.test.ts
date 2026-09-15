@@ -1,5 +1,5 @@
 import { buildAnalysisPgn } from "@/features/analysis/pgnTree";
-import { createMoveNode, createRecord } from "@/features/analysis/model";
+import { buildRecordFromPgn, createMoveNode, createRecord } from "@/features/analysis/model";
 import { Chess } from "chess.js";
 import { describe, expect, it } from "vitest";
 
@@ -31,4 +31,23 @@ describe("Analysis PGN tree export", () => {
         expect(pgn).toContain("(2. exd5 {Альтернативний план})");
         expect(pgn).toContain("2. e5");
     });
+});
+
+it("preserves the FEN move number when a game starts with Black", () => {
+    const record = buildRecordFromPgn('[SetUp "1"]\n[FEN "rnbqkbnr/pppppppp/8/8/4P3/8/PPPP1PPP/RNBQKBNR b KQkq - 0 17"]\n\n17... d5 18. exd5 *');
+    expect(record.mainline.map(node => [node.moveNumber, node.color, node.ply])).toEqual([[17, 'b', 1], [18, 'w', 2]]);
+    expect(buildAnalysisPgn(record)).toContain('17... d5 18. exd5');
+});
+
+it('round-trips nested alternatives, comments and annotations with legal positions', () => {
+    const source = '[Event "Клуб"]\n[Round "3"]\n[TimeControl "300+2"]\n\n1.e4 d5 2.e5 (2.exd5! {План} Qxd5 (2...c6) 3.Nc3) *';
+    const first = buildRecordFromPgn(source);
+    const pgn = buildAnalysisPgn(first);
+    expect(pgn).toContain('2. e5 (2. exd5');
+    expect(pgn).toContain('2... Qxd5 (2... c6)');
+    const second = buildRecordFromPgn(pgn);
+    const stripIds = (record: ReturnType<typeof buildRecordFromPgn>) => JSON.stringify(record.mainline, (key, value) => key === 'id' ? undefined : value);
+    expect(stripIds(second)).toEqual(stripIds(first));
+    expect(second.headers.Round).toBe('3');
+    expect(second.headers.TimeControl).toBe('300+2');
 });

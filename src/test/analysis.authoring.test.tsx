@@ -1,0 +1,122 @@
+import { act, cleanup, fireEvent, render, screen } from '@testing-library/react';
+import { afterEach, describe, expect, it, vi } from 'vitest';
+import { Chess } from 'chess.js';
+import { buildRecordFromPgn, createRecord, getCurrentFen, toSnapshot, type EngineSummary } from '@/features/analysis/model';
+import { editGameMetadata } from '@/features/analysis/gameMetadata';
+import { makePrediction, savePrediction } from '@/features/analysis/predictionModel';
+import { hydrateSnapshot, withHistory, undoRecord } from '@/features/analysis/workspace';
+import { imageSquare, positionSvg, svgToPng, type PositionImageOptions } from '@/features/analysis/positionImage';
+import { toggleArrow } from '@/features/analysis/annotations';
+import PredictionDialog from '@/features/analysis/PredictionDialog';
+import GameMetadataDialog from '@/features/analysis/GameMetadataDialog';
+import PositionImageDialog from '@/features/analysis/PositionImageDialog';
+vi.mock('@/components/ChessBoard', () => ({ default: ({ displayFen }: { displayFen: string }) => <div data-testid="forecast-board" data-fen={displayFen} /> }));
+afterEach(() => { cleanup(); vi.restoreAllMocks(); vi.unstubAllGlobals(); });
+const source: PositionImageOptions = { fen: new Chess().fen(), flipped: false, light: '#eeeeee', dark: '#888888', title: 'Білі & Чорні', comment: '<script>alert("x")</script>', lastMove: 'e2e4', arrows: [['g1', 'f3', '#ff8800']], showLastMove: true, showArrows: true, showComment: true };
+const summary: EngineSummary = { backend: 'worker', fen: source.fen, scoreCp: 40, scoreMate: null, numericScore: 40, bestMoveUci: 'e2e4', bestMoveSan: 'e4', pvSan: ['e4', 'e5'], lineSan: [], lines: [], depth: 12 };
+describe('Analysis authoring', () => {
+  it('lets a player name be changed without rejecting untouched imported metadata', () => {
+    const record = buildRecordFromPgn('[White "Old name"]\n[Date "?"]\n[ECO "?"]\n[WhiteElo "-"]\n\n1. e4 e5 *');
+    const onSave = vi.fn();
+    render(<GameMetadataDialog record={record} onSave={onSave} onClose={() => {}} />);
+    fireEvent.change(screen.getByLabelText('Білі'), { target: { value: 'Нове ім’я' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Зберегти дані' }));
+    expect(onSave).toHaveBeenCalledOnce();
+    expect(onSave.mock.calls[0][0].headers).toMatchObject({ White: 'Нове ім’я', Date: '?', ECO: '?', WhiteElo: '-' });
+  });
+  it('edits metadata without losing custom headers, branches or selection, and supports undo', () => {
+    const record = buildRecordFromPgn('[Annotator "Coach"]\n\n1. e4 (1. d4 {Idea}) e5 *'); record.currentPath = [-1, 0];
+    const updated = editGameMetadata(record, { White: 'Андрій', Black: 'Суперник', Date: '2024.02.29', Result: '1-0' });
+    expect(updated.headers.Annotator).toBe('Coach'); expect(updated.headers.White).toBe('Андрій'); expect(updated.headers.Result).toBe('1-0');
+    expect(updated.rootVariations).toBe(record.rootVariations); expect(getCurrentFen(updated)).toBe(getCurrentFen(record));
+    expect(undoRecord(withHistory(record, updated)).headers).toEqual(record.headers);
+    expect(() => editGameMetadata(record, { Date: '2025.02.29', Result: '*' })).toThrow();
+    expect(() => editGameMetadata(record, { Date: '1900.02.29', Result: '*' })).toThrow();
+    expect(() => editGameMetadata(record, { ECO: 'Z99', Result: '*' })).toThrow();
+  });
+  it('normalizes common date formats and ECO while allowing fields to be cleared explicitly', () => {
+    const record = buildRecordFromPgn('[White "Player"]\n[Event "Open"]\n\n1. e4 *');
+    for (const Date of ['15.09.2026', '2026-09-15', '2026.09.15']) {
+      expect(editGameMetadata(record, { Date, ECO: 'b20' }).headers).toMatchObject({ Date: '2026.09.15', ECO: 'B20', White: 'Player', Event: 'Open' });
+    }
+    expect(editGameMetadata(record, { Date: '?' }).headers.Date).toBe('????.??.??');
+    expect(editGameMetadata(record, { Event: '' }).headers.Event).toBeUndefined();
+    expect(() => editGameMetadata(record, { Date: '31.04.2026' })).toThrow('Такої дати не існує');
+  });
+  it('focuses the invalid field, keeps edits after failure, and cancels without saving', () => {
+    const onSave = vi.fn(), onClose = vi.fn();
+    render(<GameMetadataDialog record={createRecord()} onSave={onSave} onClose={onClose} />);
+    fireEvent.change(screen.getByLabelText('Білі'), { target: { value: 'Гравець' } });
+    fireEvent.change(screen.getByLabelText('Дата PGN'), { target: { value: '31.02.2026' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Зберегти дані' }));
+    expect(onSave).not.toHaveBeenCalled();
+    expect(screen.getByRole('alert')).toHaveTextContent('Такої дати не існує');
+    expect(screen.getByLabelText('Дата PGN')).toHaveFocus();
+    expect(screen.getByLabelText('Дата PGN')).toHaveAttribute('aria-invalid', 'true');
+    expect(screen.getByLabelText('Білі')).toHaveValue('Гравець');
+    fireEvent.click(screen.getByRole('button', { name: 'Скасувати' }));
+    expect(onClose).toHaveBeenCalledOnce(); expect(onSave).not.toHaveBeenCalled();
+  });
+  it('saves forecasts and arrows through snapshot hydration, rejecting an illegal move', () => {
+    const record = createRecord(); record.rootArrows = [['e2', 'e4', '#ff8800']];
+    const prediction = makePrediction(record.rootFen, 'e4', '+0,50', 'Зайняти центр');
+    const saved = hydrateSnapshot(toSnapshot(savePrediction(record, prediction)));
+    expect(saved.predictions?.[0]).toMatchObject({ moveUci: 'e2e4', estimatedCp: 50, plan: 'Зайняти центр' });
+    expect(saved.rootArrows).toEqual(record.rootArrows);
+    expect(toggleArrow(saved.rootArrows!, 'e2', 'e4')).toEqual([]);
+    expect(() => makePrediction(record.rootFen, 'e5', '0', 'План')).toThrow();
+    expect(() => makePrediction(record.rootFen, 'e4', '', 'План')).toThrow();
+  });
+  it('exports position, last move, arrows and escaped caption with correct orientation and size limits', () => {
+    const svg = positionSvg(source);
+    expect((svg.match(/data-square=/g) || [])).toHaveLength(64);
+    expect(svg).toContain('data-last-move="e2"'); expect(svg).toContain('data-last-move="e4"');
+    expect(svg).toContain('data-arrow="g1f3"'); expect(svg).toContain('&lt;script&gt;');
+    expect(svg).not.toContain('<script>'); expect(svg).toContain('Білі &amp; Чорні');
+    expect(imageSquare('a1', false)).toEqual({ x: 40, y: 800 }); expect(imageSquare('a1', true)).toEqual({ x: 740, y: 100 });
+    const plain = positionSvg({ ...source, showArrows: false, showComment: false, showLastMove: false });
+    expect(plain).not.toContain('data-arrow'); expect(plain).not.toContain('data-last-move'); expect(plain).not.toContain('script');
+    expect(() => positionSvg({ ...source, comment: 'a'.repeat(2001) })).toThrow();
+    expect(() => positionSvg({ ...source, comment: '\n'.repeat(70) })).toThrow();
+  });
+  it('waits for a saved valid forecast before querying Stockfish and revealing its answer', async () => {
+    const analyze = vi.fn(async () => summary), onSave = vi.fn();
+    render(<PredictionDialog fen={source.fen} analyze={analyze} onSave={onSave} onClose={() => {}} />);
+    expect(analyze).not.toHaveBeenCalled(); expect(screen.queryByLabelText('Порівняння прогнозу')).not.toBeInTheDocument();
+    fireEvent.change(screen.getByLabelText('Мій хід'), { target: { value: 'e4' } });
+    fireEvent.change(screen.getByLabelText('Моя оцінка, пішаки'), { target: { value: '0.5' } });
+    fireEvent.change(screen.getByLabelText('Мій план'), { target: { value: 'Контроль центру' } });
+    await act(async () => { fireEvent.click(screen.getByRole('button', { name: 'Порівняти зі Stockfish' })); });
+    expect(onSave).toHaveBeenCalledOnce(); expect(analyze).toHaveBeenCalledTimes(2);
+    expect(onSave.mock.invocationCallOrder[0]).toBeLessThan(analyze.mock.invocationCallOrder[0]);
+    expect(screen.getByLabelText('Порівняння прогнозу')).toBeInTheDocument(); expect(screen.getByLabelText('Мій хід')).toBeDisabled();
+  });
+  it('keeps a forecast after an engine error and aborts pending requests on close', async () => {
+    const onSave = vi.fn(), analyze = vi.fn().mockRejectedValue(new Error('offline'));
+    const view = render(<PredictionDialog fen={source.fen} saved={makePrediction(source.fen, 'e4', '0.5', 'Центр')} analyze={analyze} onSave={onSave} onClose={() => {}} />);
+    await act(async () => { fireEvent.click(screen.getByRole('button', { name: 'Порівняти зі Stockfish' })); });
+    expect(onSave).toHaveBeenCalled(); expect(screen.getByRole('alert')).toHaveTextContent('Прогноз збережено');
+    expect(screen.queryByLabelText('Порівняння прогнозу')).not.toBeInTheDocument();
+    analyze.mockImplementation(() => new Promise(() => {}));
+    fireEvent.click(screen.getByRole('button', { name: 'Повторити перевірку' }));
+    const signal = analyze.mock.calls.at(-1)![3] as AbortSignal; view.unmount(); expect(signal.aborted).toBe(true);
+  });
+  it('saves metadata from the dialog and offers export preview controls', () => {
+    const onSave = vi.fn();
+    const view = render(<GameMetadataDialog record={createRecord()} onSave={onSave} onClose={() => {}} />);
+    fireEvent.change(screen.getByLabelText('Білі'), { target: { value: 'Гравець' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Зберегти дані' })); expect(onSave.mock.calls[0][0].headers.White).toBe('Гравець'); view.unmount();
+    render(<PositionImageDialog source={source} onClose={() => {}} />);
+    expect(screen.getByRole('img')).toHaveAttribute('src', expect.stringContaining('data:image/svg+xml'));
+    expect(screen.getByRole('button', { name: 'Завантажити PNG' })).toBeEnabled();
+    fireEvent.click(screen.getByLabelText('Стрілки'));
+    expect(decodeURIComponent(screen.getByRole('img').getAttribute('src')!)).not.toContain('data-arrow');
+  });
+  it('reports PNG loading failure and releases its temporary URL', async () => {
+    const revoke = vi.fn();
+    vi.stubGlobal('URL', { createObjectURL: () => 'blob:position', revokeObjectURL: revoke });
+    vi.stubGlobal('Image', class { onerror?: () => void; set src(_value: string) { this.onerror?.(); } });
+    await expect(svgToPng(positionSvg(source))).rejects.toThrow(/SVG/);
+    expect(revoke).toHaveBeenCalledWith('blob:position');
+  });
+});

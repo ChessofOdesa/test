@@ -1,4 +1,4 @@
-import { cloneNodes, type AnalysisMoveNode } from "@/features/analysis/model";
+import { cloneNodes, type AnalysisMoveNode, type AnalysisRecord } from "@/features/analysis/model";
 
 export type PromotedVariation = {
     mainline: AnalysisMoveNode[];
@@ -55,5 +55,24 @@ export function promoteVariationPath(mainline: AnalysisMoveNode[], path: number[
     return {
         mainline: [...prefix, ...promotedLine],
         currentPath: [anchorIndex + path.length - 1],
+    };
+}
+
+export function promoteRecordVariation(record: AnalysisRecord, path: number[]): AnalysisRecord | null {
+    if (path[0] !== -1) {
+        const promoted = promoteVariationPath(record.mainline, path);
+        return promoted ? { ...record, ...promoted } : null;
+    }
+    const roots = record.rootVariations || [];
+    const root = roots[path[1]];
+    if (path.length < 2 || !root) return null;
+    const promotedLine = detachPrimaryBranch(prioritizeSelectedPath(root, path.slice(2)));
+    const oldMainline = tailToBranch(record.mainline);
+    const remainingRoots = cloneNodes(roots.filter((_, index) => index !== path[1]));
+    return {
+        ...record,
+        mainline: promotedLine,
+        rootVariations: oldMainline ? [oldMainline, ...remainingRoots] : remainingRoots,
+        currentPath: [path.length - 2],
     };
 }

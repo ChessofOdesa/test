@@ -1,0 +1,20 @@
+import { cleanup, fireEvent, render, screen } from '@testing-library/react';
+import { afterEach, expect, it, vi } from 'vitest';
+import { TooltipProvider } from '@/components/ui/tooltip';
+import EngineVariations, { type EngineVariation } from '@/features/analysis/EngineVariations';
+afterEach(cleanup);
+it('numbers a black-to-move custom position, shows mate scores and disables edit/preview while locked', () => {
+  const line: EngineVariation = { id: 'mate', rank: 1, score: '−M2', pv: ['e7e5', 'g1f3'], preview: { label: 'Найкращий варіант', moves: ['e5', 'Nf3'], fens: [], index: 0 } };
+  const onPreview = vi.fn(), onAdd = vi.fn();
+  const content = (disabled: boolean) => <TooltipProvider><EngineVariations lines={[line]} fen="rnbqkbnr/pppppppp/8/8/4P3/8/PPPP1PPP/RNBQKBNR b KQkq - 0 23" disabled={disabled} selectedId="mate" selectedIndex={1} onPreview={onPreview} onAdd={onAdd} /></TooltipProvider>;
+  const view = render(content(false));
+  expect(screen.getByText('−M2')).toBeInTheDocument();
+  expect(screen.getByRole('button', { name: 'Варіант 1: 23... e5' })).toBeEnabled();
+  const next = screen.getByRole('button', { name: 'Варіант 1: 24. Nf3' });
+  expect(next).toHaveAttribute('aria-current', 'step'); fireEvent.click(next);
+  expect(onPreview).toHaveBeenCalledWith(line, 1);
+  fireEvent.click(screen.getByRole('button', { name: 'Додати варіант Stockfish 1 до дерева' }));
+  expect(onAdd).toHaveBeenCalledWith(line);
+  view.rerender(content(true));
+  for (const button of screen.getAllByRole('button')) expect(button).toBeDisabled();
+});

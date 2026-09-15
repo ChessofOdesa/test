@@ -30,6 +30,7 @@ interface ChessBoardProps {
     captureSquares?: Square[];
     dangerSquares?: Square[];
     customArrows?: BoardArrow[];
+    onAnnotationArrow?: (from: Square, to: Square) => void;
     allowArrows?: boolean;
     allowPremoves?: boolean;
     customArrowColor?: string;
@@ -85,7 +86,8 @@ function placement(fen?: string): BoardPosition | undefined {
     }
     return position;
 }
-function ChessBoard({ initialFen, displayFen, onMove, interactive = true, size = 480, flipped = false, highlightSquares, annotationSquares = EMPTY_SQUARES, targetSquares = EMPTY_SQUARES, startSquares = EMPTY_SQUARES, blockedSquares = EMPTY_SQUARES, captureSquares = EMPTY_SQUARES, dangerSquares = EMPTY_SQUARES, customArrows = EMPTY_ARROWS, allowArrows = true, allowPremoves = false, customArrowColor = "#315c9a", showLegalMoves = true, showLastMove = true, showChecks = true, lastMoveSquares = EMPTY_SQUARES, customLightSquareStyle, customDarkSquareStyle, customBoardStyle, animationDuration = 150, enableMoveSounds = false, autoQueen = false, confirmMove = false, playerColor, optimistic = true }: ChessBoardProps) {
+function ChessBoard({ initialFen, displayFen, onMove, interactive = true, size = 480, flipped = false, highlightSquares, annotationSquares = EMPTY_SQUARES, targetSquares = EMPTY_SQUARES, startSquares = EMPTY_SQUARES, blockedSquares = EMPTY_SQUARES, captureSquares = EMPTY_SQUARES, dangerSquares = EMPTY_SQUARES, customArrows = EMPTY_ARROWS, onAnnotationArrow, allowArrows = true, allowPremoves = false, customArrowColor = "#315c9a", showLegalMoves = true, showLastMove = true, showChecks = true, lastMoveSquares = EMPTY_SQUARES, customLightSquareStyle, customDarkSquareStyle, customBoardStyle, animationDuration = 150, enableMoveSounds = false, autoQueen = false, confirmMove = false, playerColor, optimistic = true }: ChessBoardProps) {
+    const annotationStart = useRef<Square | null>(null);
     const [fen, setFen] = useState(initialFen || STARTING_FEN);
     const [selected, setSelected] = useState<Square | null>(null);
     const [promotion, setPromotion] = useState<{
@@ -250,8 +252,24 @@ function ChessBoard({ initialFen, displayFen, onMove, interactive = true, size =
         return result;
     }, [annotationSquares, startSquares, blockedSquares, dangerSquares, captureSquares, highlightSquares, showLastMove, lastMoveSquares, premove, selected, showLegalMoves, legal, targetSquares, showChecks, game]);
     const promotionStyle = promotion ? { left: Math.min(size - 154, Math.max(0, (flipped ? 7 - (promotion.to.charCodeAt(0) - 97) : promotion.to.charCodeAt(0) - 97) * size / 8)), top: promotion.to[1] === (flipped ? "1" : "8") ? 2 : Math.max(0, size - 140) } : undefined;
-    return <div className="relative" style={{ width: size, maxWidth: "100%" }}>
-   <Chessboard position={display || fen} boardWidth={size} boardOrientation={flipped ? "black" : "white"} arePiecesDraggable={canInteract} isDraggablePiece={({ piece }) => canInteract && (!playerColor || piece[0] === playerColor)} areArrowsAllowed={allowArrows} arePremovesAllowed={false} onSquareClick={click} onPieceDrop={(from, to) => attempt(from, to)} onPromotionCheck={() => false} onSquareRightClick={() => { setPremove(null); setSelected(null); }} customArrows={allowArrows ? customArrows : EMPTY_ARROWS} customArrowColor={customArrowColor} customSquareStyles={styles} customLightSquareStyle={customLightSquareStyle || { backgroundColor: board.theme.light }} customDarkSquareStyle={customDarkSquareStyle || { backgroundColor: board.theme.dark }} customPieces={board.pieceStyle === "text" ? TEXT_PIECES : undefined} showBoardNotation={board.showCoordinates} animationDuration={animationDuration} customBoardStyle={customBoardStyle || { borderRadius: 7, boxShadow: "0 1px 4px rgba(25,42,68,.12)" }}/>
+    const pointerSquare = (element: HTMLDivElement, x: number, y: number): Square | null => {
+        const rect = element.getBoundingClientRect(), width = Math.min(size, rect.width);
+        const file = Math.floor((x - rect.left) / (width / 8)), rank = Math.floor((y - rect.top) / (width / 8));
+        if (!width || file < 0 || file > 7 || rank < 0 || rank > 7) return null;
+        return (String.fromCharCode(97 + (flipped ? 7 - file : file)) + (flipped ? rank + 1 : 8 - rank)) as Square;
+    };
+    return <div className="relative" style={{ width: size, maxWidth: "100%" }}
+      onContextMenu={event => { if (onAnnotationArrow && allowArrows) event.preventDefault(); }}
+      onPointerDownCapture={event => { annotationStart.current = null; if (event.button === 2 && onAnnotationArrow && allowArrows) annotationStart.current = pointerSquare(event.currentTarget, event.clientX, event.clientY); }}
+      onPointerCancel={() => { annotationStart.current = null; }}
+      onPointerLeave={() => { annotationStart.current = null; }}
+      onPointerUpCapture={event => {
+        const from = annotationStart.current; annotationStart.current = null;
+        if (event.button !== 2 || !from || !onAnnotationArrow || !allowArrows) return;
+        const to = pointerSquare(event.currentTarget, event.clientX, event.clientY);
+        if (to && to !== from) onAnnotationArrow(from, to);
+      }}>
+   <Chessboard position={display || fen} boardWidth={size} boardOrientation={flipped ? "black" : "white"} arePiecesDraggable={canInteract} isDraggablePiece={({ piece }) => canInteract && (!playerColor || piece[0] === playerColor)} areArrowsAllowed={allowArrows && !onAnnotationArrow} arePremovesAllowed={false} onSquareClick={click} onPieceDrop={(from, to) => attempt(from, to)} onPromotionCheck={() => false} onSquareRightClick={() => { setPremove(null); setSelected(null); }} customArrows={allowArrows ? customArrows : EMPTY_ARROWS} customArrowColor={customArrowColor} customSquareStyles={styles} customLightSquareStyle={customLightSquareStyle || { backgroundColor: board.theme.light }} customDarkSquareStyle={customDarkSquareStyle || { backgroundColor: board.theme.dark }} customPieces={board.pieceStyle === "text" ? TEXT_PIECES : undefined} showBoardNotation={board.showCoordinates} animationDuration={animationDuration} customBoardStyle={customBoardStyle || { borderRadius: 7, boxShadow: "0 1px 4px rgba(25,42,68,.12)" }}/>
    {promotion && <div ref={promotionRef} className="room-promotion" style={promotionStyle} role="dialog" aria-label="Перетворення пішака" onKeyDown={event => {
                 if (event.key === "Escape") {
                     setPromotion(null);
