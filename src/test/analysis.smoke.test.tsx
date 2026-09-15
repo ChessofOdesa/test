@@ -56,6 +56,53 @@ function importGame(pgn: string) {
 
 
 describe("Analysis Center", () => {
+    it("keeps edited imported metadata in PGN, redo, reopened dialogs and the autosaved draft", async () => {
+        const view = openAnalysis('[White "Перший"]\n[Date "?"]\n[ECO "?"]\n[WhiteElo "-"]\n[Annotator "Coach"]\n\n1. e4 (1. d4 {План}) e5 *');
+        fireEvent.click(screen.getByRole('tab', { name: /Інфо/ }));
+        fireEvent.click(screen.getByRole('button', { name: 'Редагувати дані' }));
+        fireEvent.change(screen.getByLabelText('Білі'), { target: { value: 'Другий' } });
+        fireEvent.change(screen.getByLabelText('Дата PGN'), { target: { value: '15.09.2026' } });
+        fireEvent.change(screen.getByLabelText('Результат'), { target: { value: '1-0' } });
+        fireEvent.click(screen.getByRole('button', { name: 'Зберегти дані' }));
+        const pgn = document.querySelector('.analysis-pgn-details pre')!;
+        expect(pgn).toHaveTextContent('[White "Другий"]');
+        expect(pgn).toHaveTextContent('[Date "2026.09.15"]');
+        expect(pgn).toHaveTextContent('[Annotator "Coach"]');
+        expect(pgn).toHaveTextContent('d4'); expect(pgn).toHaveTextContent('{План}');
+        expect(pgn.textContent?.trim().endsWith('1-0')).toBe(true);
+        fireEvent.click(screen.getByRole('button', { name: 'Скасувати зміну' }));
+        expect(screen.queryByText('Другий')).not.toBeInTheDocument();
+        fireEvent.click(screen.getByRole('button', { name: 'Повторити зміну' }));
+        fireEvent.click(screen.getByRole('button', { name: 'Редагувати дані' }));
+        expect(screen.getByLabelText('Білі')).toHaveValue('Другий');
+        fireEvent.click(screen.getByRole('button', { name: 'Скасувати' }));
+        view.unmount(); openAnalysis('');
+        fireEvent.click(screen.getByRole('tab', { name: /Інфо/ }));
+        expect(screen.getAllByText('Другий').length).toBeGreaterThan(0);
+        expectBoard(['e4', 'e5']);
+    });
+
+    it("applies manually selected engine settings after economy mode", async () => {
+        openAnalysis('');
+        fireEvent.click(screen.getByRole('button', { name: 'Налаштування аналізу' }));
+        fireEvent.click(screen.getByRole('switch', { name: /Економний режим/ }));
+        expect(screen.getByRole('button', { name: 'Швидкий D8' })).toHaveAttribute('aria-pressed', 'true');
+        expect(screen.getByRole('button', { name: 'Кількість варіантів: 1' })).toHaveAttribute('aria-pressed', 'true');
+        fireEvent.click(screen.getByRole('button', { name: 'Глибокий D16' }));
+        expect(screen.getByRole('switch', { name: /Економний режим/ })).toHaveAttribute('aria-checked', 'false');
+        await waitFor(() => expect(vi.mocked(analyzeFenWithStockfish).mock.calls.some(call => call[1] === 16 && call[4]?.multiPv === 3)).toBe(true));
+        fireEvent.click(screen.getByRole('switch', { name: /Економний режим/ }));
+        fireEvent.click(screen.getByRole('button', { name: 'Кількість варіантів: 5' }));
+        expect(screen.getByRole('switch', { name: /Економний режим/ })).toHaveAttribute('aria-checked', 'false');
+        await waitFor(() => expect(vi.mocked(analyzeFenWithStockfish).mock.calls.some(call => call[1] === 16 && call[4]?.multiPv === 5)).toBe(true));
+    });
+
+    it("opens opening information from the book badge", () => {
+        openAnalysis('1. e4 e5 2. Nf3 Nc6 3. Bc4 *');
+        fireEvent.click(screen.getByRole('button', { name: 'Хід позначено як теорію' }));
+        expect(screen.getByRole('tab', { name: /Інфо/ })).toHaveAttribute('aria-selected', 'true');
+    });
+
     it("edits game information through Info and restores it with shared undo", async () => {
         openAnalysis('[White "Перший"]\n\n1. e4 e5 *');
         fireEvent.click(screen.getByRole('tab', { name: /Інфо/ }));

@@ -15,6 +15,15 @@ afterEach(() => { cleanup(); vi.restoreAllMocks(); vi.unstubAllGlobals(); });
 const source: PositionImageOptions = { fen: new Chess().fen(), flipped: false, light: '#eeeeee', dark: '#888888', title: 'Білі & Чорні', comment: '<script>alert("x")</script>', lastMove: 'e2e4', arrows: [['g1', 'f3', '#ff8800']], showLastMove: true, showArrows: true, showComment: true };
 const summary: EngineSummary = { backend: 'worker', fen: source.fen, scoreCp: 40, scoreMate: null, numericScore: 40, bestMoveUci: 'e2e4', bestMoveSan: 'e4', pvSan: ['e4', 'e5'], lineSan: [], lines: [], depth: 12 };
 describe('Analysis authoring', () => {
+  it('lets a player name be changed without rejecting untouched imported metadata', () => {
+    const record = buildRecordFromPgn('[White "Old name"]\n[Date "?"]\n[ECO "?"]\n[WhiteElo "-"]\n\n1. e4 e5 *');
+    const onSave = vi.fn();
+    render(<GameMetadataDialog record={record} onSave={onSave} onClose={() => {}} />);
+    fireEvent.change(screen.getByLabelText('Білі'), { target: { value: 'Нове ім’я' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Зберегти дані' }));
+    expect(onSave).toHaveBeenCalledOnce();
+    expect(onSave.mock.calls[0][0].headers).toMatchObject({ White: 'Нове ім’я', Date: '?', ECO: '?', WhiteElo: '-' });
+  });
   it('edits metadata without losing custom headers, branches or selection, and supports undo', () => {
     const record = buildRecordFromPgn('[Annotator "Coach"]\n\n1. e4 (1. d4 {Idea}) e5 *'); record.currentPath = [-1, 0];
     const updated = editGameMetadata(record, { White: 'Андрій', Black: 'Суперник', Date: '2024.02.29', Result: '1-0' });
@@ -24,6 +33,29 @@ describe('Analysis authoring', () => {
     expect(() => editGameMetadata(record, { Date: '2025.02.29', Result: '*' })).toThrow();
     expect(() => editGameMetadata(record, { Date: '1900.02.29', Result: '*' })).toThrow();
     expect(() => editGameMetadata(record, { ECO: 'Z99', Result: '*' })).toThrow();
+  });
+  it('normalizes common date formats and ECO while allowing fields to be cleared explicitly', () => {
+    const record = buildRecordFromPgn('[White "Player"]\n[Event "Open"]\n\n1. e4 *');
+    for (const Date of ['15.09.2026', '2026-09-15', '2026.09.15']) {
+      expect(editGameMetadata(record, { Date, ECO: 'b20' }).headers).toMatchObject({ Date: '2026.09.15', ECO: 'B20', White: 'Player', Event: 'Open' });
+    }
+    expect(editGameMetadata(record, { Date: '?' }).headers.Date).toBe('????.??.??');
+    expect(editGameMetadata(record, { Event: '' }).headers.Event).toBeUndefined();
+    expect(() => editGameMetadata(record, { Date: '31.04.2026' })).toThrow('Такої дати не існує');
+  });
+  it('focuses the invalid field, keeps edits after failure, and cancels without saving', () => {
+    const onSave = vi.fn(), onClose = vi.fn();
+    render(<GameMetadataDialog record={createRecord()} onSave={onSave} onClose={onClose} />);
+    fireEvent.change(screen.getByLabelText('Білі'), { target: { value: 'Гравець' } });
+    fireEvent.change(screen.getByLabelText('Дата PGN'), { target: { value: '31.02.2026' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Зберегти дані' }));
+    expect(onSave).not.toHaveBeenCalled();
+    expect(screen.getByRole('alert')).toHaveTextContent('Такої дати не існує');
+    expect(screen.getByLabelText('Дата PGN')).toHaveFocus();
+    expect(screen.getByLabelText('Дата PGN')).toHaveAttribute('aria-invalid', 'true');
+    expect(screen.getByLabelText('Білі')).toHaveValue('Гравець');
+    fireEvent.click(screen.getByRole('button', { name: 'Скасувати' }));
+    expect(onClose).toHaveBeenCalledOnce(); expect(onSave).not.toHaveBeenCalled();
   });
   it('saves forecasts and arrows through snapshot hydration, rejecting an illegal move', () => {
     const record = createRecord(); record.rootArrows = [['e2', 'e4', '#ff8800']];

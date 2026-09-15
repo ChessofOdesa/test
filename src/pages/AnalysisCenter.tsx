@@ -980,7 +980,7 @@ export default function AnalysisCenter() {
                             <div className="analysis-popover-heading analysis-popover-subheading"><strong>Движок</strong><span>Глибина</span></div>
                             <div className="analysis-setting-options">
                                 {[8, 12, 16].map(depth => (
-                                    <button key={depth} type="button" className={cn(engineDepth === depth && "is-active")} onClick={() => setEngineDepth(depth)}>
+                                    <button key={depth} type="button" aria-pressed={requestedDepth === depth} className={cn(requestedDepth === depth && "is-active")} onClick={() => { pauseReview(); setEngineDepth(depth); setEconomy(false); setDeepPosition(null); }}>
                                         <strong>{depth === 8 ? "Швидкий" : depth === 12 ? "Стандартний" : "Глибокий"}</strong>
                                         <span>D{depth}</span>
                                     </button>
@@ -989,8 +989,9 @@ export default function AnalysisCenter() {
 
                             <div className="analysis-popover-heading analysis-popover-subheading"><strong>Варіанти</strong><span>MultiPV</span></div>
                             <div className="analysis-multipv-options">
-                                {[1, 2, 3, 5].map(value => <button key={value} type="button" className={cn(multiPv === value && "is-active")} onClick={() => setMultiPv(value)}>{value}</button>)}
+                                {[1, 2, 3, 5].map(value => <button key={value} type="button" aria-label={`Кількість варіантів: ${value}`} aria-pressed={requestedMultiPv === value} className={cn(requestedMultiPv === value && "is-active")} onClick={() => { pauseReview(); setMultiPv(value); setEconomy(false); setDeepPosition(null); }}>{value}</button>)}
                             </div>
+                            {economy && <p className="analysis-muted">Економний режим: D8 і один варіант. Вибір глибини або кількості варіантів вимкне його.</p>}
 
                             <div className="analysis-popover-heading analysis-popover-subheading"><strong>Дошка</strong><span>Вигляд</span></div>
                             <label className="analysis-theme-select">
@@ -1080,7 +1081,7 @@ export default function AnalysisCenter() {
                                                 type="button"
                                                 className={`analysis-board-badge analysis-board-badge-${boardBadgeKind}`}
                                                 aria-label={boardBadgeKind === "book" ? "Хід позначено як теорію" : `Хід класифіковано як ${BOARD_BADGE_LABELS[boardBadgeKind]}`}
-                                                onClick={() => boardBadgeKind !== "book" && setTab("engine")}
+                                                onClick={() => setTab(boardBadgeKind === "book" ? "info" : "engine")}
                                             >
                                                 {BOARD_BADGE_MARKS[boardBadgeKind]}
                                             </button>

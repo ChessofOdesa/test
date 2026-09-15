@@ -11,6 +11,14 @@
 .analysis-workspace-dialog input:not([type=checkbox]), .analysis-workspace-dialog select, [role=dialog] textarea { min-width: 0; width: 100%; border: 1px solid hsl(var(--border)); padding: 8px 10px; border-radius: 7px; background: hsl(var(--background)); }
 .analysis-workspace-dialog input:focus-visible, .analysis-workspace-dialog select:focus-visible { outline: 2px solid hsl(var(--primary)); outline-offset: 2px; }
 .analysis-form-grid { display: grid; grid-template-columns: repeat(2, minmax(0,1fr)); gap: 12px; }
+.analysis-metadata-dialog { display: flex; flex-direction: column; overflow: hidden; }
+.analysis-metadata-dialog > :first-child { flex-shrink: 0; }
+.analysis-metadata-dialog form { display: flex; flex-direction: column; min-height: 0; overflow: hidden; }
+.analysis-metadata-fields { overflow: auto; padding: 4px; min-height: 0; overscroll-behavior: contain; }
+.analysis-metadata-footer { flex-shrink: 0; padding-top: 12px; margin-top: 8px; border-top: 1px solid hsl(var(--border)); }
+.analysis-metadata-footer .analysis-inline-actions { justify-content: flex-end; }
+.analysis-metadata-footer [role=alert] { color: hsl(var(--destructive)); font-size: .85rem; margin-bottom: 8px; }
+.analysis-metadata-fields input[aria-invalid=true] { border-color: hsl(var(--destructive)); }
 .analysis-archive-list { display: grid; gap: 8px; max-height: 320px; overflow: auto; }
 .analysis-archive-list article { display: flex; justify-content: space-between; align-items: center; border: 1px solid hsl(var(--border)); border-radius: 9px; padding: 8px; gap: 8px; }
 .analysis-archive-list article > button:first-child { min-width: 0; flex: 1; display: grid; gap: 4px; text-align: left; }

@@ -161,3 +161,47 @@ The existing live-browser limitation still applies; this is a source/component a
   real-worker checks remain pending under the existing live-browser limitation.
 - Local environment returned after preparation; the implementation is now in tracked
   source files. No production deployment, merge, account sync or database change.
+
+## Game-information and button audit — 2026-09-15
+
+The reported metadata save failure was reproduced with a PGN containing Date `?`,
+ECO `?` and WhiteElo `-`: changing only White never called onSave. The regression
+failed before the fix and passes afterward.
+
+- Validate only explicitly changed metadata fields; preserve untouched imported
+  values and custom headers. Omitted patch fields are preserved; an explicit empty
+  value removes a field. Dates accept DD.MM.YYYY, YYYY.MM.DD and YYYY-MM-DD, normalize
+  to PGN format and still reject nonexistent dates. ECO accepts lowercase and `?`.
+- Metadata errors identify/focus the invalid field, retain the draft and expose
+  aria-invalid/description. Form fields scroll separately from Save/Cancel/error
+  footer. Mobile layout needs a real-browser check, as noted below.
+- Engine depth and MultiPV buttons now show effective settings. Choosing them exits
+  economy mode and clears a per-position depth override, so the requested choice
+  actually reaches the engine. A note explains this behavior before selection.
+- The formerly ineffective book-badge button now opens Info; evaluation badges still
+  open Engine. No duplicate toolbar, editor, move tree or navigation was added.
+
+Audit scope: existing Analysis Center handlers and their regression coverage.
+
+| Area | Evidence |
+| --- | --- |
+| Metadata Save/Cancel/error/reopen/undo/redo | Component tests, including legacy imported values and invalid dates |
+| Metadata persistence and PGN export | Integration test verifies names/date/result/custom headers/comments/branches, then remounts from the saved draft |
+| Navigation, tabs, board moves, previews, branches | Existing smoke/tree/navigation/branch tests |
+| Import, archives, links, cache, history | Existing file-import and workspace tests |
+| Stockfish controls and review pause/resume/cancel | Existing cancellation tests plus manual depth/MultiPV regression |
+| Forecast, practice, comparison, position editor, annotations | Existing authoring/practice/editor-model/board-annotation tests |
+| Image export | SVG/content/orientation and PNG-error tests; actual browser download remains unverified |
+
+Validation: all 133 tests in 23 files, TypeScript, focused ESLint and production
+Vite build pass. Existing bundle-size/Browserslist/React Router notices remain.
+Component tests use a mocked board/worker; these results do not certify every live
+button or every page of the platform.
+
+Deployment check: PR #10 is still draft/unmerged, main is `8c3a27e`. The PR's Vercel
+preview navigates to “Log in to Vercel” in the available browser. No login or access
+settings were changed. Earlier localhost access was blocked by the browser. Live
+responsive, clipboard/download and real Stockfish worker QA remain pending. The
+user's exact site URL and deployed revision have not been provided; do not claim
+that the user's current browser already contains these changes. Update this same
+PR branch; no production merge/deployment was performed.
