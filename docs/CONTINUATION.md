@@ -247,3 +247,31 @@ Automated settings audit (real shared ChessBoard adapter, mocked renderer/engine
 Validation: 141 tests in 24 files, TypeScript, focused ESLint and production build.
 Live browser, animation rendering, touch gestures and Vercel preview remain subject
 to the previously recorded access limitation. PR #10 remains draft/unmerged.
+
+## Engine tab redesign — 2026-09-15
+
+User requested a complete Engine tab redesign with directly explorable variations.
+Replaced the large best-move card and collapsed alternatives with a single compact
+variation list. Removed obsolete styles for the replaced sections.
+
+- Compact Stockfish status, one position evaluation, White-perspective explanation
+  and side-to-move label. All returned MultiPV lines are visible immediately.
+- Each row has a fixed score cell (including mate scores), best/rank indicator,
+  individually clickable SAN moves and one explicit Add entire line control.
+- Move numbers follow the actual FEN, including Black to move and custom fullmove
+  numbers. Preview up to 20 legal plies; invalid continuations stop before bad moves.
+- Clicking any ply uses the existing board preview and shared bottom navigator.
+  Preview selection is highlighted and horizontally revealed; switching rows never
+  edits the saved tree. Return to game restores the selected game position.
+- Mobile rows scroll horizontally with larger move targets. Scores/add controls stay
+  outside the scrolling region. Focus/disabled states and accessible move labels.
+- Comparison and economy deep-position actions remain below the lines. Existing
+  settings, engine adapter, board and tree are reused; Advanced details still work.
+- Clear loading, error, review-in-progress, checkmate/stalemate and fewer-line states.
+  Preview text explicitly says scores belong to the original analyzed position.
+
+Validation: 143 tests in 25 files, TypeScript, focused ESLint and production build
+pass. Includes direct any-ply preview, row switching, shared navigation, unchanged
+PGN until explicit add, Black move numbers, mate-score display and disabled controls.
+Live visual/touch/worker validation remains pending under the existing protected
+preview limitation. No production merge/deployment. Continue on the same PR #10.

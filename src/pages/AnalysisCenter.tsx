@@ -1,3 +1,4 @@
+import EngineVariations, { type EngineVariation } from '@/features/analysis/EngineVariations';
 import { readAnalysisPreferences, saveAnalysisPreferences } from '@/features/analysis/preferences';
 import GameMetadataDialog from '@/features/analysis/GameMetadataDialog';
 import PredictionDialog from '@/features/analysis/PredictionDialog';
@@ -60,7 +61,6 @@ import {
     BrainCircuit,
     ChevronLeft,
     ChevronRight,
-    ChevronDown,
     Clipboard,
     Copy,
     Download,
@@ -83,7 +83,6 @@ import {
     Plus,
     RotateCcw,
     Settings2,
-    Star,
     Trash2,
     Zap,
 } from "lucide-react";
@@ -118,18 +117,11 @@ type ReviewState = {
 };
 
 type EnginePreview = {
+    lineId?: string;
     label: string;
     fens: string[];
     moves: string[];
     index: number;
-};
-
-type EngineLineView = {
-    id: string;
-    rank: number;
-    score: string;
-    moves: string;
-    pv: string[];
 };
 
 const CLASSIFICATION_LABELS: Record<MoveClassification, string> = {
@@ -254,7 +246,7 @@ function buildPreview(baseFen: string, pv: string[], label: string): EnginePrevi
     const chess = new Chess(baseFen);
     const fens: string[] = [];
     const moves: string[] = [];
-    for (const uci of pv.slice(0, 10)) {
+    for (const uci of pv.slice(0, 20)) {
         if (uci.length < 4) break;
         try {
             const move = chess.move({
@@ -839,37 +831,21 @@ export default function AnalysisCenter() {
         setTab("engine");
     }, [record]);
 
-    const engineLines = useMemo<EngineLineView[]>(() => {
+    const engineLines = useMemo<EngineVariation[]>(() => {
         if (!currentEngine) return [];
-        if (currentEngine.lines.length) {
-            return currentEngine.lines.slice(0, requestedMultiPv).map((line, index) => ({
-                id: `${line.multipv || index + 1}-${line.pv.join("-")}`,
-                rank: line.multipv || index + 1,
-                score: engineLineScore(line),
-                moves: uciPvToSan(currentFen, line.pv).slice(0, 10).join(" "),
-                pv: line.pv,
-            }));
-        }
-        const fallbackPv = currentEngine.bestMoveUci ? [currentEngine.bestMoveUci] : [];
-        return fallbackPv.length ? [{
-            id: "main",
-            rank: 1,
-            score: evaluationLabel(currentEngine),
-            moves: currentEngine.pvSan.slice(0, 10).join(" ") || currentEngine.bestMoveSan || "",
-            pv: fallbackPv,
-        }] : [];
+        const source = currentEngine.lines.length ? currentEngine.lines.slice(0, requestedMultiPv) : [{ multipv: 1, pv: currentEngine.bestMoveUci ? [currentEngine.bestMoveUci] : [], scoreCp: currentEngine.scoreCp, scoreMate: currentEngine.scoreMate }];
+        return source.flatMap((line, index) => {
+            const rank = line.multipv || index + 1;
+            const preview = buildPreview(currentFen, line.pv, rank === 1 ? 'Найкращий варіант' : `Варіант ${rank}`);
+            return preview ? [{ id: `${rank}-${line.pv.join('-')}`, rank, score: engineLineScore(line), pv: line.pv.slice(0, preview.moves.length), preview }] : [];
+        });
     }, [currentEngine, currentFen, requestedMultiPv]);
 
-    const previewEngineLine = (line: EngineLineView, label = `Варіант ${line.rank}`) => {
-        const preview = buildPreview(currentFen, line.pv, label);
-        if (!preview) {
-            toast.info("Цю лінію поки неможливо показати на дошці.");
-            return;
-        }
-        setLinePreview(preview);
+    const previewEngineLine = (line: EngineVariation, index: number) => {
+        setLinePreview({ ...line.preview, lineId: line.id, index });
     };
 
-    const addEngineLineToVariations = (line: EngineLineView) => {
+    const addEngineLineToVariations = (line: EngineVariation) => {
         if (review.running || !line.pv.length) return;
         try {
             editRecord(appendAnalysisLine(record, line.pv.slice(0, 20)));
@@ -1164,94 +1140,26 @@ export default function AnalysisCenter() {
                         )}
 
                         {tab === "engine" && (
-                            <div className="analysis-engine-panel analysis-engine-panel-simple">
+                            <div className="analysis-engine-panel analysis-engine-workbench">
+                                <div className="analysis-engine-heading"><div><BrainCircuit size={18} /><strong>Stockfish</strong></div><span role="status"><i className={cn("analysis-status-dot", positionBusy && "is-busy", currentEngine && "is-ready")} />{!engineEnabled ? 'Вимкнений' : review.running ? 'Огляд партії' : positionError ? 'Недоступний' : positionBusy ? 'Обчислює…' : currentEngine ? 'Готово' : 'Очікує'}</span></div>
                                 {!engineEnabled ? (
                                     <div className="analysis-empty-state"><Zap size={28} /><strong>Движок вимкнено</strong><p>Увімкніть Stockfish у лівій панелі.</p></div>
                                 ) : (
                                     <>
-                                        <div className="analysis-inline-actions"><Button size="sm" variant="outline" disabled={review.running || !record.currentPath} onClick={() => openWorkspaceDialog('compare')}>Порівняти лінії</Button>{economy && <Button size="sm" variant="ghost" disabled={review.running} aria-pressed={deepPosition === currentFen} onClick={() => setDeepPosition(value => value === currentFen ? null : currentFen)}>{deepPosition === currentFen ? 'Повернути швидкий аналіз' : 'Глибоко цю позицію'}</Button>}</div>
-                                        {economy && <p className="analysis-muted">Економний режим: одна лінія, короткий пошук. У фоновій вкладці — пауза.</p>}
-                                        <div className="analysis-engine-toolbar analysis-engine-toolbar-simple">
-                                            <strong>Движок</strong>
-                                        </div>
-
-                                        <div className="analysis-engine-status analysis-engine-status-simple">
-                                            <div>
-                                                <span className={cn("analysis-status-dot", positionBusy && "is-busy", currentEngine && !positionBusy && "is-ready")} />
-                                                <strong>{engineSource(currentEngine)}</strong>
-                                            </div>
-                                            <span>{review.running ? "Огляд партії" : positionError ? "Недоступний" : positionBusy ? "Аналізує…" : currentEngine ? "Готовий" + (currentEngine.depth ? " · D" + currentEngine.depth : "") : "Очікує"}</span>
-                                        </div>
-
-                                        <div className="analysis-engine-evaluation-simple" aria-live="polite">
-                                            <strong>{positionBusy && !currentEngine ? "…" : evaluationLabel(currentEngine)}</strong>
-                                            <span>{linePreview ? "Оцінка позиції, вибраної в ходах" : engineVerdict(currentEngine?.numericScore)}</span>
-                                        </div>
-
-                                        {analysisUiMode === "advanced" && (
-                                            <div className="analysis-engine-advanced-meta" aria-label="Розширені дані движка">
-                                                <span><small>Глибина</small><strong>{currentEngine?.depth ? "D" + currentEngine.depth : "—"}</strong></span>
-                                                <span><small>MultiPV</small><strong>{requestedMultiPv}</strong></span>
-                                                <span><small>Джерело</small><strong>{currentEngine?.backend === "cloud" ? "Cloud" : currentEngine?.backend === "native" ? "Server" : "Browser"}</strong></span>
-                                            </div>
-                                        )}
-
-                                        {analysisUiMode === "advanced" && currentNode?.classification && currentNode.evalLoss != null && (
-                                            <div className="analysis-engine-selected-advanced" aria-label="Деталі вибраного ходу">
-                                                <div><span>Вибраний хід</span><strong>{currentNode.moveNumber}{currentNode.color === "w" ? "." : "..."} {currentNode.san}</strong></div>
-                                                <span className={"analysis-classification analysis-classification-" + currentNode.classification}>{CLASSIFICATION_MARKS[currentNode.classification]}</span>
-                                                <small>Втрата {(currentNode.evalLoss / 100).toFixed(2)}</small>
-                                            </div>
-                                        )}
-
-                                        {positionError ? <div className="analysis-error">{positionError}</div> : null}
-
-                                        {currentEngine?.bestMoveSan ? (
-                                            <section className="analysis-best-move-simple" aria-label="Найкращий хід Stockfish">
-                                                <div className="analysis-best-move-simple-head">
-                                                    <span><Star size={15} />Найкращий хід</span>
-                                                    <b>{evaluationLabel(currentEngine)}</b>
-                                                </div>
-                                                <strong className="analysis-best-move-simple-san">{currentEngine.bestMoveSan}</strong>
-                                                {currentEngine.pvSan.length > 0 && <p>{currentEngine.pvSan.slice(0, analysisUiMode === "advanced" ? 8 : 5).join(" ")}</p>}
-                                                <div className="analysis-best-move-simple-actions">
-                                                    <Button size="sm" disabled={!engineLines.length} onClick={() => engineLines[0] && previewEngineLine(engineLines[0], "Найкращий варіант")}>Показати на дошці</Button>
-                                                    <Button variant="ghost" size="sm" disabled={review.running || !engineLines.length} onClick={() => engineLines[0] && addEngineLineToVariations(engineLines[0])}><GitBranch size={14} />У варіанти</Button>
-                                                </div>
-                                            </section>
-                                        ) : positionBusy ? (
-                                            <div className="analysis-best-move-simple is-loading"><div className="analysis-line-skeleton" /><div className="analysis-line-skeleton" /></div>
-                                        ) : (
-                                            <div className="analysis-empty-state compact"><BrainCircuit size={25} /><strong>Хід ще не готовий</strong><p>Stockfish обчислює поточну позицію.</p></div>
-                                        )}
-
-                                        {!positionBusy && currentEngine && engineLines.length < requestedMultiPv && <p className="analysis-muted">Рушій повернув {engineLines.length} з {requestedMultiPv} запитаних ліній.</p>}
-                                        {engineLines.length > 1 && (
-                                            <details className="analysis-engine-others">
-                                                <summary>
-                                                    <span>Інші варіанти</span>
-                                                    <b>{engineLines.length - 1}</b>
-                                                    <ChevronDown size={16} />
-                                                </summary>
-                                                <div className="analysis-engine-other-lines">
-                                                    {engineLines.slice(1).map(line => (
-                                                        <div key={line.id} className="analysis-engine-other-row">
-                                                            <button type="button" className="analysis-engine-other-preview" onClick={() => previewEngineLine(line)} title={line.moves}>
-                                                                <strong>{line.moves.split(" ")[0] || "#" + line.rank}</strong>
-                                                                <span>{line.moves.split(" ").slice(1, 5).join(" ")}</span>
-                                                                <b>{line.score}</b>
-                                                            </button>
-                                                            <Tooltip>
-                                                                <TooltipTrigger asChild>
-                                                                    <button type="button" className="analysis-engine-other-add" disabled={review.running} onClick={() => addEngineLineToVariations(line)} aria-label={"Додати варіант Stockfish " + line.rank + " до дерева"}><GitBranch size={14} /></button>
-                                                                </TooltipTrigger>
-                                                                <TooltipContent>Додати до варіантів</TooltipContent>
-                                                            </Tooltip>
-                                                        </div>
-                                                    ))}
-                                                </div>
-                                            </details>
-                                        )}
+                                        <div className="analysis-engine-position"><strong>{positionBusy && !currentEngine ? '…' : evaluationLabel(currentEngine)}</strong><div><span>{engineVerdict(currentEngine?.numericScore)}</span><small>{currentFen.split(' ')[1] === 'w' ? 'Хід білих' : 'Хід чорних'} · Оцінка з боку білих</small></div></div>
+                                        <div className="analysis-pv-heading"><strong>Варіанти Stockfish</strong><span>{currentEngine?.depth ? `D${currentEngine.depth} · ` : ''}{engineLines.length} / {requestedMultiPv} ліній</span></div>
+                                        {positionError ? <div className="analysis-error" role="alert">{positionError}</div>
+                                            : review.running ? <p className="analysis-muted">Триває огляд партії. Варіанти поточної позиції з’являться після завершення або паузи.</p>
+                                            : engineLines.length ? <EngineVariations lines={engineLines} fen={currentFen} selectedId={linePreview?.lineId} selectedIndex={linePreview?.index} disabled={review.running} onPreview={previewEngineLine} onAdd={addEngineLineToVariations} />
+                                            : positionBusy ? <div className="analysis-pv-loading" aria-label="Завантаження варіантів">{Array.from({ length: requestedMultiPv }, (_, i) => <div key={i} className="analysis-line-skeleton" />)}</div>
+                                            : <div className="analysis-empty-state compact"><strong>{new Chess(currentFen).isCheckmate() ? 'Мат' : new Chess(currentFen).isStalemate() ? 'Пат' : 'Варіантів немає'}</strong><p>Рушій не повернув доступних продовжень.</p></div>}
+                                        {engineLines.length > 0 && <p className="analysis-pv-help">Натисни хід, щоб переглянути позицію. Значок <GitBranch size={13} /> додає всю лінію до партії.</p>}
+                                        {linePreview?.lineId && <p className="analysis-pv-preview-note">Перегляд варіанта · оцінки належать початковій позиції. Переміщуйся кнопками під панеллю.</p>}
+                                        {!positionBusy && currentEngine && engineLines.length > 0 && engineLines.length < requestedMultiPv && <p className="analysis-muted">Рушій повернув {engineLines.length} з {requestedMultiPv} запитаних ліній.</p>}
+                                        <div className="analysis-engine-bottom-actions"><Button size="sm" variant="outline" disabled={review.running || !record.currentPath} onClick={() => openWorkspaceDialog('compare')}>Порівняти лінії</Button>{economy && <Button size="sm" variant="ghost" disabled={review.running} aria-pressed={deepPosition === currentFen} onClick={() => setDeepPosition(value => value === currentFen ? null : currentFen)}>{deepPosition === currentFen ? 'Повернути швидкий аналіз' : 'Глибоко цю позицію'}</Button>}</div>
+                                        {economy && <p className="analysis-muted">Економний режим · одна лінія · у фоновій вкладці пауза.</p>}
+                                        {analysisUiMode === "advanced" && <div className="analysis-engine-advanced-meta" aria-label="Розширені дані движка"><span><small>Глибина</small><strong>{currentEngine?.depth ? `D${currentEngine.depth}` : '—'}</strong></span><span><small>MultiPV</small><strong>{requestedMultiPv}</strong></span><span><small>Джерело</small><strong>{engineSource(currentEngine)}</strong></span></div>}
+                                        {analysisUiMode === "advanced" && currentNode?.classification && currentNode.evalLoss != null && <div className="analysis-engine-selected-advanced" aria-label="Деталі вибраного ходу"><div><span>Вибраний хід</span><strong>{currentNode.moveNumber}{currentNode.color === 'w' ? '.' : '...'} {currentNode.san}</strong></div><span className={'analysis-classification analysis-classification-' + currentNode.classification}>{CLASSIFICATION_MARKS[currentNode.classification]}</span><small>Втрата {(currentNode.evalLoss / 100).toFixed(2)}</small></div>}
                                     </>
                                 )}
                             </div>

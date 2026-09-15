@@ -261,7 +261,7 @@ describe("Analysis Center", () => {
         expect(within(advanced).getByText("MultiPV")).toBeInTheDocument();
     });
 
-    it("previews the best move from the simplified engine card", async () => {
+    it("previews the best move directly from its variation row", async () => {
         render(<MemoryRouter initialEntries={["/analysis"]}>
             <BoardSettingsProvider><TooltipProvider><Analysis /></TooltipProvider></BoardSettingsProvider>
         </MemoryRouter>);
@@ -272,13 +272,13 @@ describe("Analysis Center", () => {
 
         const bestMoveCard = await screen.findByLabelText("Найкращий хід Stockfish");
         expect(within(bestMoveCard).getByText("e4")).toBeInTheDocument();
-        fireEvent.click(within(bestMoveCard).getByRole("button", { name: /Показати на дошці/i }));
+        fireEvent.click(within(bestMoveCard).getByRole("button", { name: 'Варіант 1: 1. e4' }));
         await waitFor(() => expect(board.getAttribute("data-fen")).not.toBe(initialFen));
         expect(screen.getByText("Найкращий варіант")).toBeInTheDocument();
         expect(screen.getByRole("button", { name: /До партії/i })).toBeInTheDocument();
     });
 
-    it("keeps the Engine tab simple and hides secondary lines until requested", async () => {
+    it("shows every returned engine line directly without duplicate settings or nested alternatives", async () => {
         render(<MemoryRouter initialEntries={["/analysis"]}>
             <BoardSettingsProvider><TooltipProvider><Analysis /></TooltipProvider></BoardSettingsProvider>
         </MemoryRouter>);
@@ -290,12 +290,11 @@ describe("Analysis Center", () => {
         expect(screen.queryByRole("button", { name: "Налаштувати движок" })).not.toBeInTheDocument();
         expect(screen.getAllByRole("button", { name: "Налаштування аналізу" })).toHaveLength(1);
         expect(screen.queryByText("Глибина")).not.toBeInTheDocument();
-        expect(screen.queryByText("Варіанти Stockfish")).not.toBeInTheDocument();
-        const alternatives = screen.getByText("Інші варіанти").closest("details");
-        expect(alternatives).toBeInTheDocument();
-        expect(alternatives).not.toHaveAttribute("open");
-        fireEvent.click(within(alternatives!).getByText("Інші варіанти"));
-        expect(within(alternatives!).getAllByRole("button", { name: /Додати варіант Stockfish .* до дерева/i })).toHaveLength(2);
+        const lines = screen.getByRole('list', { name: 'Варіанти Stockfish' });
+        expect(within(lines).getAllByRole('listitem')).toHaveLength(3);
+        expect(within(lines).getAllByRole('button', { name: /Додати варіант Stockfish .* до дерева/ })).toHaveLength(3);
+        expect(screen.queryByText('Інші варіанти')).not.toBeInTheDocument();
+        expect(within(lines).getByRole('button', { name: 'Варіант 2: 1. d4' })).toBeVisible();
     });
 
     it("runs full review from Overview and adds a real classification badge", async () => {
@@ -419,7 +418,7 @@ describe("Analysis position synchronization", () => {
     it("uses the same bottom controls and keyboard for a Stockfish preview", async () => {
         openAnalysis('');
         fireEvent.click(screen.getByRole('tab', { name: /Движок/i }));
-        fireEvent.click(within(await screen.findByLabelText('Найкращий хід Stockfish')).getByRole('button', { name: 'Показати на дошці' }));
+        fireEvent.click(within(await screen.findByLabelText('Найкращий хід Stockfish')).getByRole('button', { name: 'Варіант 1: 1. e4' }));
         expectBoard(['e4']);
         fireEvent.click(screen.getByRole('button', { name: 'Наступний хід' }));
         expectBoard(['e4', 'e5']);
@@ -494,7 +493,7 @@ it("adds a Stockfish line explicitly and exports the resulting game in Info", as
     fireEvent.click(screen.getByRole('tab', { name: /Движок/i }));
     const card = await screen.findByLabelText('Найкращий хід Stockfish');
     expectBoard([]);
-    fireEvent.click(within(card).getByRole('button', { name: 'У варіанти' }));
+    fireEvent.click(within(card).getByRole('button', { name: 'Додати варіант Stockfish 1 до дерева' }));
     expectBoard(['e4', 'e5', 'Nf3']);
     expect(screen.getByRole('tab', { name: /Ходи/i })).toHaveAttribute('aria-selected', 'true');
     fireEvent.click(screen.getByRole('tab', { name: /Інфо/i }));
@@ -522,3 +521,20 @@ it("creates a root branch on the board and navigates it with the shared footer",
     fireEvent.click(screen.getByRole('tab', { name: /Інфо/i }));
     expect(document.querySelector('.analysis-pgn-details pre')?.textContent).toContain('(1. d4 1... d5)');
 });
+
+ it('previews any ply and switches engine lines without mutating the saved game', async () => {
+    openAnalysis('');
+    fireEvent.click(screen.getByRole('tab', { name: /Движок/ }));
+    fireEvent.click(await screen.findByRole('button', { name: 'Варіант 1: 2. Nf3' }));
+    expectBoard(['e4', 'e5', 'Nf3']);
+    expect(screen.getByRole('button', { name: 'Варіант 1: 2. Nf3' })).toHaveAttribute('aria-current', 'step');
+    fireEvent.click(screen.getByRole('button', { name: 'Варіант 2: 1... d5' }));
+    expectBoard(['d4', 'd5']);
+    fireEvent.click(screen.getByRole('button', { name: 'Наступний хід' }));
+    expectBoard(['d4', 'd5', 'Nf3']);
+    expect(screen.getByRole('button', { name: 'Варіант 2: 2. Nf3' })).toHaveAttribute('aria-current', 'step');
+    fireEvent.click(screen.getByRole('button', { name: /До партії/ }));
+    expectBoard([]);
+    fireEvent.click(screen.getByRole('tab', { name: /Інфо/ }));
+    expect(document.querySelector('.analysis-pgn-details pre')?.textContent).not.toContain('Nf3');
+ });
