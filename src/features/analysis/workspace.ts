@@ -1,3 +1,5 @@
+import { readPredictions } from './predictionModel';
+import { readArrows } from './annotations';
 import { Chess } from 'chess.js';
 import { buildAnalysisPgn } from './pgnTree';
 import { buildRecordFromPgn, createMoveNode, createRecord, getRecordNode, renderMoves, restoreRecord, toSnapshot, type AnalysisMoveNode, type AnalysisRecord, type AnalysisSnapshot, readStoredSessions, findOpening } from './model';
@@ -24,6 +26,7 @@ export function hydrateSnapshot(input: unknown): AnalysisRecord {
     if (++count > 4000 || depth > 200 || !raw || !Array.isArray(raw.children)) throw new Error('Завеликий або пошкоджений аналіз.');
     const chess = new Chess(fen); const move = chess.move(raw.uci);
     const node = createMoveNode(move, fen, chess.fen(), ply);
+    node.arrows = readArrows(raw.arrows);
     node.comment = typeof raw.comment === 'string' ? raw.comment.slice(0, 10000) : '';
     node.nag = ['!', '?', '!!', '??', '!?', '?!'].includes(raw.nag || '') ? raw.nag : null;
     node.classification = ['best', 'excellent', 'good', 'inaccuracy', 'mistake', 'blunder'].includes(raw.classification || '') ? raw.classification : null;
@@ -41,6 +44,8 @@ export function hydrateSnapshot(input: unknown): AnalysisRecord {
   record.rootVariations = (data.rootVariations || []).map(raw => read(raw, record.rootFen, 1, 0));
   record.headers = Object.fromEntries(Object.entries(data.headers || {}).filter(([key, value]) => /^\w+$/.test(key) && typeof value === 'string').map(([key, value]) => [key, value.slice(0, 1000)]));
   record.currentPath = Array.isArray(data.currentPath) && data.currentPath.every(Number.isInteger) && getRecordNode(record, data.currentPath) ? [...data.currentPath] : null;
+  record.predictions = readPredictions(data.predictions);
+  record.rootArrows = readArrows(data.rootArrows);
   return record;
 }
 function readJson(key: string): unknown { try { const text = localStorage.getItem(key); return text && text.length <= MAX_BYTES ? JSON.parse(text) : null; } catch { return null; } }

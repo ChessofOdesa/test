@@ -135,3 +135,29 @@ The current Simple/Advanced panels, navigator, board and PGN model are reused.
 
 Verification: all 118 frontend tests pass (39 targeted interaction tests), plus TypeScript and focused ESLint.
 The existing live-browser limitation still applies; this is a source/component audit.
+
+
+## Forecast, position image and game metadata — 2026-09-15
+
+- My forecast opens an isolated board without engine scores. Legal SAN/UCI, a numeric
+  White-perspective estimate and a plan are saved before explicit Stockfish comparison.
+  Inputs survive draft/archive hydration and undo. The comparison evaluates both the
+  starting position and proposed move; it does not claim to judge the prose plan.
+- Info / Edit game data supports players, ratings, event, site, date, round, result,
+  time control, termination, opening and ECO. Dates/results/ratings/ECO are validated.
+  Unknown headers, move-tree identity and current branch are retained; edits use undo.
+- Info / Export image captures the displayed position, board theme/orientation,
+  last-move squares, visible arrows and caption in self-contained SVG or 2x PNG.
+  Preview checkboxes control layers; arrow fields also work on mobile. Caption changes
+  affect only the image. Escaping and caption/line limits prevent invalid or oversized SVG.
+- Analysis annotations are controlled: right-drag toggles saved arrows per move/root,
+  repeated drawing removes an arrow, and More / Clear position arrows clears them.
+  These arrows survive Stockfish updates and draft restoration. Other pages keep the
+  existing board's native arrow interaction because the new callback is opt-in.
+- 127 frontend tests passed in 23 files, including authoring persistence, worker-error
+  and cancellation, metadata undo, orientation and annotation-gesture regressions.
+  TypeScript, focused ESLint and production Vite build passed. SVG sample diagrams
+  were rendered with Sharp and visually inspected. Actual browser PNG download and
+  real-worker checks remain pending under the existing live-browser limitation.
+- Local environment returned after preparation; the implementation is now in tracked
+  source files. No production deployment, merge, account sync or database change.

@@ -1,3 +1,9 @@
+import GameMetadataDialog from '@/features/analysis/GameMetadataDialog';
+import PredictionDialog from '@/features/analysis/PredictionDialog';
+import PositionImageDialog from '@/features/analysis/PositionImageDialog';
+import { savePrediction } from '@/features/analysis/predictionModel';
+import { toggleArrow } from '@/features/analysis/annotations';
+import type { PositionImageOptions } from '@/features/analysis/positionImage';
 import { useAnalysisWorkspace } from "@/features/analysis/useAnalysisWorkspace";
 import { readDraft, readSharedAnalysis, undoRecord, redoRecord } from "@/features/analysis/workspace";
 import { readPositionCache, writePositionCache, clearPositionCache } from "@/features/analysis/positionCache";
@@ -325,7 +331,8 @@ export default function AnalysisCenter() {
     const loadedInputRef = useRef<string | null>(null);
 
     const { record, setRecord, editRecord, saveStatus } = useAnalysisWorkspace(() => readDraft() || createRecord());
-    const [workspaceDialog, setWorkspaceDialog] = useState<'archive' | 'share' | 'editor' | 'training' | 'compare' | null>(null);
+    const [workspaceDialog, setWorkspaceDialog] = useState<'archive' | 'share' | 'editor' | 'training' | 'compare' | 'metadata' | 'prediction' | 'image' | null>(null);
+    const [imageSource, setImageSource] = useState<PositionImageOptions | null>(null);
     const [activeSaveId, setActiveSaveId] = useState<string | null>(null);
     const [economy, setEconomy] = useState(false);
     const [pageVisible, setPageVisible] = useState(() => document.visibilityState !== 'hidden');
@@ -897,6 +904,24 @@ export default function AnalysisCenter() {
 
     const missing = (value?: string | null) => value?.trim() && !/^\?/.test(value) ? value : "Не вказано";
     const resultLabel = record.headers.Result && record.headers.Result !== "*" ? record.headers.Result : "Не завершено";
+    const savedArrows = useMemo(() => currentNode?.arrows || record.rootArrows || [], [currentNode, record.rootArrows]);
+    const visibleArrows = useMemo(() => linePreview ? [] : [...savedArrows, ...bestMoveArrow.filter(arrow => !savedArrows.some(saved => saved[0] === arrow[0] && saved[1] === arrow[1]))], [savedArrows, bestMoveArrow, linePreview]);
+    const changeAnnotationArrow = (from: Square, to: Square) => {
+        if (linePreview || review.running || workspaceDialog) return;
+        editRecord(current => current.currentPath
+            ? updateRecordNode(current, current.currentPath, node => { node.arrows = toggleArrow(node.arrows, from, to); })
+            : { ...current, rootArrows: toggleArrow(current.rootArrows || [], from, to) });
+    };
+    const clearAnnotationArrows = () => editRecord(current => current.currentPath
+        ? updateRecordNode(current, current.currentPath, node => { node.arrows = []; })
+        : { ...current, rootArrows: [] });
+    const openPositionImage = () => {
+        setImageSource({ fen: displayedFen, flipped, light: boardSettings.theme.light, dark: boardSettings.theme.dark,
+            title: [record.headers.White || 'Білі', record.headers.Black || 'Чорні'].join(' — '),
+            comment: linePreview ? '' : currentNode?.comment || '', lastMove: lastMoveSquares?.join(''),
+            arrows: visibleArrows, showLastMove: true, showArrows: true, showComment: true });
+        openWorkspaceDialog('image');
+    };
     const moveCount = Math.ceil(record.mainline.length / 2);
 
     return (
@@ -925,6 +950,7 @@ export default function AnalysisCenter() {
                     />
                     <ToolButton label="Нова позиція" shortLabel="Нова позиція" icon={<Plus size={20} />} onClick={resetAnalysis} />
                     <ToolButton label="Імпорт PGN" shortLabel="Імпорт PGN" icon={<Clipboard size={19} />} active={importOpen && importMode === "pgn"} onClick={() => openImport("pgn")} />
+                    <ToolButton label="Мій прогноз" shortLabel="Мій прогноз" icon={<BrainCircuit size={18} />} onClick={() => openWorkspaceDialog("prediction")} />
                     <ToolButton label="Редактор позиції" shortLabel="Редактор" icon={<Pencil size={18} />} onClick={() => openWorkspaceDialog("editor")} />
                     <ToolButton label="Вставити FEN" shortLabel="FEN позиція" icon={<Copy size={18} />} active={importOpen && importMode === "fen"} onClick={() => openImport("fen")} />
 
@@ -1006,6 +1032,7 @@ export default function AnalysisCenter() {
                             {!currentNode && <DropdownMenuItem onSelect={() => void copyText(currentFen, "FEN")}><Copy size={16} className="mr-2" />Копіювати FEN</DropdownMenuItem>}
                             <DropdownMenuItem onSelect={() => setFlipped(value => !value)}><FlipVertical size={16} className="mr-2" />Перевернути дошку</DropdownMenuItem>
                             <DropdownMenuSeparator />
+                            <DropdownMenuItem disabled={!savedArrows.length || review.running} onSelect={clearAnnotationArrows}><Trash2 size={16} className="mr-2" />Очистити стрілки позиції</DropdownMenuItem>
                             <DropdownMenuItem disabled={!hasVariations} onSelect={clearVariations}><Trash2 size={16} className="mr-2" />Очистити власні варіанти</DropdownMenuItem>
                             <DropdownMenuItem disabled={!reviewedNodes.length} onSelect={clearReviewResults}><Trash2 size={16} className="mr-2" />Очистити результати аналізу</DropdownMenuItem>
                         </DropdownMenuContent>
@@ -1034,12 +1061,13 @@ export default function AnalysisCenter() {
                                 flipped={flipped}
                                 interactive={!review.running && !linePreview}
                                 onMove={addVariationMove}
-                                customArrows={bestMoveArrow}
+                                customArrows={visibleArrows}
+                                onAnnotationArrow={changeAnnotationArrow}
                                 lastMoveSquares={lastMoveSquares}
                                 showLastMove
                                 showLegalMoves
                                 showChecks
-                                allowArrows={showBestMoveArrow && !linePreview}
+                                allowArrows={!linePreview && !review.running}
                                 animationDuration={moveAnimation ? 150 : 0}
                                 customBoardStyle={{ borderRadius: 10, boxShadow: "0 16px 42px rgba(27,49,80,.16)" }}
                             />
@@ -1314,6 +1342,7 @@ export default function AnalysisCenter() {
                             <div className="analysis-info-panel">
                                 <div className="analysis-info-header">
                                     <div><strong>Дані партії</strong><span>Метадані PGN, гравці та дебют</span></div>
+                                    <Button size="sm" variant="outline" onClick={() => openWorkspaceDialog("metadata")}><Pencil size={14} />Редагувати дані</Button>
                                     <button type="button" className="analysis-info-copy" disabled={!metadataText} onClick={() => void copyText(metadataText, "Метадані PGN")}><Copy size={14} />Копіювати дані</button>
                                 </div>
 
@@ -1338,8 +1367,8 @@ export default function AnalysisCenter() {
                                 </div>
 
                                 <div className="analysis-info-opening">
-                                    <div><span>Дебют</span><strong title={opening?.opening.name || undefined}>{opening?.line?.name || opening?.opening.name || "Не визначено"}</strong></div>
-                                    <b>{opening?.opening.eco || "ECO —"}</b>
+                                    <div><span>Дебют</span><strong title={record.headers.Opening || opening?.opening.name || undefined}>{record.headers.Opening || opening?.line?.name || opening?.opening.name || "Не визначено"}</strong></div>
+                                    <b>{record.headers.ECO || opening?.opening.eco || "ECO —"}</b>
                                 </div>
 
                                 {record.rootFen !== START_FEN && (
@@ -1348,11 +1377,12 @@ export default function AnalysisCenter() {
 
                                 <details className="analysis-pgn-details"><summary>Повний PGN</summary><pre>{buildAnalysisPgn(record)}</pre></details>
                                 <div className="analysis-info-export">
+                                    <Button size="sm" variant="outline" onClick={openPositionImage}><Download size={14} />Експорт картинки</Button>
                                     <Button size="sm" variant="outline" onClick={() => void copyText(buildAnalysisPgn(record), "PGN")}><Copy size={14} />Копіювати PGN</Button>
                                     <Button size="sm" variant="outline" onClick={downloadPgn}><Download size={14} />Завантажити PGN</Button>
                                 </div>
 
-                                {!metadataText && <div className="analysis-empty-state compact"><FileText size={24} /><strong>Метаданих поки немає</strong><p>Імпортуйте PGN із заголовками, щоб тут з’явилися дані партії.</p></div>}
+                                {!metadataText && <div className="analysis-empty-state compact"><FileText size={24} /><strong>Метаданих поки немає</strong><p>Додайте імена, результат та інші дані кнопкою «Редагувати дані».</p></div>}
                             </div>
                         )}
                     </div>
@@ -1365,7 +1395,10 @@ export default function AnalysisCenter() {
                 </aside>
             </main>
 
-            {workspaceDialog === 'archive' && <ArchiveDialog record={record} activeId={activeSaveId} onSaved={setActiveSaveId} onLoad={(saved, id) => { cancelReview(); setRecord(saved); setActiveSaveId(id); setTab('moves'); }} onClose={() => setWorkspaceDialog(null)} />}
+            {workspaceDialog === 'metadata' && <GameMetadataDialog record={record} onSave={editRecord} onClose={() => setWorkspaceDialog(null)} />}
+            {workspaceDialog === 'prediction' && <PredictionDialog key={currentFen} fen={currentFen} saved={record.predictions?.find(item => item.fen === currentFen)} analyze={analyzeCached} onSave={prediction => editRecord(current => savePrediction(current, prediction))} onClose={() => setWorkspaceDialog(null)} />}
+            {workspaceDialog === 'image' && imageSource && <PositionImageDialog source={imageSource} onClose={() => setWorkspaceDialog(null)} />}
+            {workspaceDialog === 'archive'  && <ArchiveDialog record={record} activeId={activeSaveId} onSaved={setActiveSaveId} onLoad={(saved, id) => { cancelReview(); setRecord(saved); setActiveSaveId(id); setTab('moves'); }} onClose={() => setWorkspaceDialog(null)} />}
             {workspaceDialog === 'share' && <ShareDialog record={record} onClose={() => setWorkspaceDialog(null)} />}
             {workspaceDialog === 'editor' && <PositionEditor fen={currentFen} onApply={fen => { cancelReview(); editRecord(createRecord(fen)); setActiveSaveId(null); setTab('moves'); }} onClose={() => setWorkspaceDialog(null)} />}
             {workspaceDialog === 'training' && <MistakeTraining record={record} analyze={analyzeCached} onClose={() => setWorkspaceDialog(null)} />}

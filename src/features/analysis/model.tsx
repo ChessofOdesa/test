@@ -35,7 +35,10 @@ export type AnalysisMoveNode = {
     children: AnalysisMoveNode[];
     bookmark?: "important" | "check" | "opening";
 };
+export type PositionPrediction = { fen: string; moveUci: string; moveSan: string; estimatedCp: number; plan: string; createdAt: string };
 export type AnalysisSnapshot = {
+    predictions?: PositionPrediction[];
+    rootArrows?: AnalysisArrow[];
     headers: Record<string, string>;
     rootFen: string;
     currentPath: number[] | null;
@@ -178,6 +181,8 @@ export function cloneNodes(nodes: AnalysisMoveNode[]): AnalysisMoveNode[] {
 export function toSnapshot(record: AnalysisRecord | AnalysisSnapshot): AnalysisSnapshot {
     return {
         headers: { ...record.headers },
+        predictions: record.predictions?.map(item => ({ ...item })),
+        rootArrows: record.rootArrows?.map(arrow => [...arrow] as AnalysisArrow),
         rootFen: record.rootFen,
         currentPath: record.currentPath ? [...record.currentPath] : null,
         mainline: cloneNodes(record.mainline),

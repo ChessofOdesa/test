@@ -56,6 +56,20 @@ function importGame(pgn: string) {
 
 
 describe("Analysis Center", () => {
+    it("edits game information through Info and restores it with shared undo", async () => {
+        openAnalysis('[White "Перший"]\n\n1. e4 e5 *');
+        fireEvent.click(screen.getByRole('tab', { name: /Інфо/ }));
+        fireEvent.click(screen.getByRole('button', { name: 'Редагувати дані' }));
+        fireEvent.change(screen.getByLabelText('Білі'), { target: { value: 'Другий' } });
+        fireEvent.click(screen.getByRole('button', { name: 'Зберегти дані' }));
+        expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+        expect(screen.getAllByText('Другий').length).toBeGreaterThan(0);
+        expectBoard(['e4', 'e5']);
+        fireEvent.click(screen.getByRole('button', { name: 'Скасувати зміну' }));
+        expect(screen.queryByText('Другий')).not.toBeInTheDocument();
+        expectBoard(['e4', 'e5']);
+    });
+
     it("restores an autosaved selected variation after remount and preserves it on invalid shared input", async () => {
         const view = openAnalysis('1. e4 *');
         fireEvent.keyDown(window, { key: 'Home' });

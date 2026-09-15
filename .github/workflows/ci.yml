@@ -42,5 +42,8 @@ jobs:
           if-no-files-found: ignore
           retention-days: 7
 
+      - name: Check TypeScript
+        run: npx tsc --noEmit -p tsconfig.app.json
+
       - name: Build production bundle
         run: npm run build

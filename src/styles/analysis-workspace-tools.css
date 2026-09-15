@@ -55,3 +55,9 @@
   .analysis-editor-pieces { grid-template-columns: repeat(6, 1fr); }
 }
 @media (prefers-reduced-motion: reduce) { .analysis-panel-body { scroll-behavior: auto; } }
+
+.analysis-span-all { grid-column: 1 / -1; }
+.analysis-position-image { width: min(100%, 440px); max-height: 52dvh; object-fit: contain; margin-inline: auto; border: 1px solid hsl(var(--border)); }
+.analysis-prediction-result { display: grid; gap: 9px; overflow-wrap: anywhere; }
+.analysis-info-export, .analysis-info-header { flex-wrap: wrap; gap: 8px; }
+@media (max-width: 520px) { .analysis-form-grid { grid-template-columns: 1fr; } }
