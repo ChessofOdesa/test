@@ -1184,6 +1184,7 @@ export default function AnalysisCenter() {
 
                                         {analysisUiMode === "advanced" && (
                                             <div className="analysis-engine-advanced-v3" aria-label="Розширені дані движка">
+                                                <span><small>Глибина</small><b>{currentEngine?.depth || engineDepth}</b></span>
                                                 <span><small>MultiPV</small><b>{multiPv}</b></span>
                                                 <span><small>Джерело</small><b>{currentEngine?.backend === "cloud" ? "Cloud" : currentEngine?.backend === "native" ? "Server" : "Browser"}</b></span>
                                                 <span><small>Вибраний хід</small><b>{currentNode ? String(currentNode.moveNumber) + (currentNode.color === "w" ? ". " : "... ") + currentNode.san : "—"}</b></span>
