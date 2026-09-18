@@ -84,6 +84,7 @@ import { useLocation, useSearchParams } from "react-router-dom";
 import { toast } from "sonner";
 import "@/styles/analysis-center.css";
 import "@/styles/analysis-panel-professional.css";
+import "@/styles/analysis-page-screenshot.css";
 
 type PanelTab = "moves" | "engine" | "overview" | "info";
 type ImportMode = "pgn" | "fen";
@@ -346,6 +347,22 @@ export default function AnalysisCenter() {
     const [analysisUiMode, setAnalysisUiMode] = useState<AnalysisUiMode>("simple");
 
     const renderedMoves = useMemo(() => renderMoves(record.mainline), [record.mainline]);
+
+    const mainlineRows = useMemo(() => {
+        const rows = new Map<number, {
+            number: number;
+            white: { index: number; node: AnalysisMoveNode } | null;
+            black: { index: number; node: AnalysisMoveNode } | null;
+        }>();
+        record.mainline.forEach((node, index) => {
+            const row = rows.get(node.moveNumber) || { number: node.moveNumber, white: null, black: null };
+            if (node.color === "w") row.white = { index, node };
+            else row.black = { index, node };
+            rows.set(node.moveNumber, row);
+        });
+        return [...rows.values()].sort((a, b) => a.number - b.number);
+    }, [record.mainline]);
+
     const currentNode = useMemo(() => getLastMove(record), [record]);
     const currentFen = useMemo(() => getCurrentFen(record), [record]);
     const currentMoveIndex = useMemo(
@@ -658,6 +675,18 @@ export default function AnalysisCenter() {
         }
     }, [currentFen, currentNode?.ply, linePreview]);
 
+
+    const updatePositionComment = useCallback((value: string) => {
+        const selectedPath = record.currentPath;
+        if (!selectedPath) return;
+        setRecord(current => ({
+            ...current,
+            mainline: updateNodeAtPath(current.mainline, selectedPath, node => {
+                node.comment = value;
+            }),
+        }));
+    }, [record.currentPath]);
+
     const startFullReview = async () => {
         if (!record.mainline.length || review.running) return;
         reviewAbortRef.current?.abort();
@@ -892,9 +921,9 @@ export default function AnalysisCenter() {
         : [];
 
     const panelTabs: Array<{ id: PanelTab; label: string; icon: typeof Clipboard }> = [
-        { id: "moves", label: "Ходи", icon: Clipboard },
-        { id: "engine", label: "Движок", icon: BrainCircuit },
         { id: "overview", label: "Огляд", icon: BarChart3 },
+        { id: "engine", label: "Движок", icon: BrainCircuit },
+        { id: "moves", label: "Ходи", icon: Clipboard },
         { id: "info", label: "Інфо", icon: Info },
     ];
 
@@ -911,10 +940,10 @@ export default function AnalysisCenter() {
 
     const missing = (value?: string | null) => value?.trim() || "Не вказано";
     const resultLabel = record.headers.Result && record.headers.Result !== "*" ? record.headers.Result : "Не завершено";
-    const moveCount = Math.ceil(record.mainline.length / 2);
+    const moveCount = new Set(record.mainline.map(node => node.moveNumber)).size;
 
     return (
-        <div className="analysis-center">
+        <div className="analysis-center analysis-center-v3">
             <input ref={fileInputRef} className="hidden" type="file" accept=".pgn" onChange={event => void handleFile(event.target.files?.[0])} />
 
             <main className="analysis-workspace">
@@ -1115,42 +1144,50 @@ export default function AnalysisCenter() {
                         )}
 
                         {tab === "engine" && (
-                            <div className="analysis-engine-panel analysis-engine-panel-simple">
-                                {!engineEnabled ? (
-                                    <div className="analysis-empty-state"><Zap size={28} /><strong>Движок вимкнено</strong><p>Увімкніть Stockfish у лівій панелі.</p></div>
-                                ) : (
+                            <div className="analysis-engine-workspace-v3">
+                                <section className="analysis-engine-control-v3" aria-label="Керування Stockfish">
+                                    <div className="analysis-engine-control-main-v3">
+                                        <BrainCircuit size={22} />
+                                        <div>
+                                            <strong>{engineSource(currentEngine)}</strong>
+                                            <span>{positionBusy ? "Аналізує позицію…" : currentEngine ? "Готовий" : engineEnabled ? "Очікує позицію" : "Вимкнено"}</span>
+                                        </div>
+                                    </div>
+                                    <div className="analysis-engine-control-actions-v3">
+                                        <button
+                                            type="button"
+                                            role="switch"
+                                            aria-label="Stockfish"
+                                            aria-checked={engineEnabled}
+                                            className="analysis-engine-toggle-v3"
+                                            onClick={() => setEngineEnabled(value => !value)}
+                                        />
+                                        <button type="button" className="analysis-engine-settings-v3" aria-label="Налаштувати движок" onClick={() => setSettingsOpen(true)}>
+                                            <Settings2 size={17} />
+                                        </button>
+                                    </div>
+                                </section>
+
+                                <div className="analysis-engine-meta-v3">
+                                    <span>Глибина <b>{currentEngine?.depth || engineDepth}</b></span>
+                                    <i aria-hidden="true" />
+                                    <span><b>{Math.min(3, multiPv)}</b> {Math.min(3, multiPv) === 1 ? "варіант" : "варіанти"}</span>
+                                    <button type="button" onClick={() => setSettingsOpen(true)}>Налаштування</button>
+                                </div>
+
+                                {engineEnabled && (
                                     <>
-                                        <div className="analysis-engine-toolbar analysis-engine-toolbar-simple">
-                                            <strong>Движок</strong>
-                                            <button type="button" className="analysis-engine-settings-link" aria-label="Налаштувати движок" onClick={() => setSettingsOpen(true)}><SlidersHorizontal size={16} /></button>
-                                        </div>
-
-                                        <div className="analysis-engine-status analysis-engine-status-simple">
-                                            <div>
-                                                <span className={cn("analysis-status-dot", positionBusy && "is-busy", currentEngine && !positionBusy && "is-ready")} />
-                                                <strong>{engineSource(currentEngine)}</strong>
-                                            </div>
-                                            <span>{positionBusy ? "Аналізує…" : currentEngine ? "Готовий" + (currentEngine.depth ? " · D" + currentEngine.depth : "") : "Очікує"}</span>
-                                        </div>
-
-                                        <div className="analysis-engine-evaluation-simple" aria-live="polite">
+                                        <div className="analysis-engine-verdict-v3" aria-live="polite">
                                             <strong>{positionBusy && !currentEngine ? "…" : evaluationLabel(currentEngine)}</strong>
                                             <span>{engineVerdict(currentEngine?.numericScore)}</span>
                                         </div>
 
                                         {analysisUiMode === "advanced" && (
-                                            <div className="analysis-engine-advanced-meta" aria-label="Розширені дані движка">
-                                                <span><small>Глибина</small><strong>{currentEngine?.depth ? "D" + currentEngine.depth : "—"}</strong></span>
-                                                <span><small>MultiPV</small><strong>{multiPv}</strong></span>
-                                                <span><small>Джерело</small><strong>{currentEngine?.backend === "cloud" ? "Cloud" : currentEngine?.backend === "native" ? "Server" : "Browser"}</strong></span>
-                                            </div>
-                                        )}
-
-                                        {analysisUiMode === "advanced" && currentNode?.classification && currentNode.evalLoss != null && (
-                                            <div className="analysis-engine-selected-advanced" aria-label="Деталі вибраного ходу">
-                                                <div><span>Вибраний хід</span><strong>{currentNode.moveNumber}{currentNode.color === "w" ? "." : "..."} {currentNode.san}</strong></div>
-                                                <span className={"analysis-classification analysis-classification-" + currentNode.classification}>{CLASSIFICATION_MARKS[currentNode.classification]}</span>
-                                                <small>Втрата {(currentNode.evalLoss / 100).toFixed(2)}</small>
+                                            <div className="analysis-engine-advanced-v3" aria-label="Розширені дані движка">
+                                                <span><small>Глибина</small><b>{currentEngine?.depth || engineDepth}</b></span>
+                                                <span><small>MultiPV</small><b>{multiPv}</b></span>
+                                                <span><small>Джерело</small><b>{currentEngine?.backend === "cloud" ? "Cloud" : currentEngine?.backend === "native" ? "Server" : "Browser"}</b></span>
+                                                <span><small>Вибраний хід</small><b>{currentNode ? String(currentNode.moveNumber) + (currentNode.color === "w" ? ". " : "... ") + currentNode.san : "—"}</b></span>
                                             </div>
                                         )}
 
@@ -1171,53 +1208,97 @@ export default function AnalysisCenter() {
 
                                         {positionError ? <div className="analysis-error">{positionError}</div> : null}
 
-                                        {currentEngine?.bestMoveSan ? (
-                                            <section className="analysis-best-move-simple" aria-label="Найкращий хід Stockfish">
-                                                <div className="analysis-best-move-simple-head">
-                                                    <span><Star size={15} />Найкращий хід</span>
-                                                    <b>{evaluationLabel(currentEngine)}</b>
-                                                </div>
-                                                <strong className="analysis-best-move-simple-san">{currentEngine.bestMoveSan}</strong>
-                                                {currentEngine.pvSan.length > 0 && <p>{currentEngine.pvSan.slice(0, analysisUiMode === "advanced" ? 8 : 5).join(" ")}</p>}
-                                                <div className="analysis-best-move-simple-actions">
-                                                    <Button size="sm" disabled={!engineLines.length} onClick={() => engineLines[0] && previewEngineLine(engineLines[0], "Найкращий варіант")}>Показати на дошці</Button>
-                                                    <Button variant="ghost" size="sm" disabled={!record.currentPath || !engineLines.length} onClick={() => engineLines[0] && addEngineLineToVariations(engineLines[0])}><GitBranch size={14} />У варіанти</Button>
-                                                </div>
-                                            </section>
-                                        ) : positionBusy ? (
-                                            <div className="analysis-best-move-simple is-loading"><div className="analysis-line-skeleton" /><div className="analysis-line-skeleton" /></div>
-                                        ) : (
-                                            <div className="analysis-empty-state compact"><BrainCircuit size={25} /><strong>Хід ще не готовий</strong><p>Stockfish обчислює поточну позицію.</p></div>
-                                        )}
-
-                                        {engineLines.length > 1 && (
-                                            <details className="analysis-engine-others">
-                                                <summary>
-                                                    <span>Інші варіанти</span>
-                                                    <b>{engineLines.length - 1}</b>
-                                                    <ChevronDown size={16} />
-                                                </summary>
-                                                <div className="analysis-engine-other-lines">
-                                                    {engineLines.slice(1).map(line => (
-                                                        <div key={line.id} className="analysis-engine-other-row">
-                                                            <button type="button" className="analysis-engine-other-preview" onClick={() => previewEngineLine(line)} title={line.moves}>
-                                                                <strong>{line.moves.split(" ")[0] || "#" + line.rank}</strong>
-                                                                <span>{line.moves.split(" ").slice(1, 5).join(" ")}</span>
-                                                                <b>{line.score}</b>
+                                        <div className="analysis-engine-lines-v3" aria-label="Варіанти Stockfish">
+                                            {engineLines.length ? engineLines.slice(0, 3).map((line, index) => (
+                                                <div
+                                                    key={line.id}
+                                                    data-testid="analysis-engine-line"
+                                                    className={cn("analysis-engine-line-v3", index === 0 && "is-primary")}
+                                                    aria-label={index === 0 ? "Найкращий хід Stockfish" : "Варіант Stockfish " + line.rank}
+                                                >
+                                                    <button
+                                                        type="button"
+                                                        className="analysis-engine-line-preview-v3"
+                                                        aria-label={index === 0 ? "Показати на дошці найкращий варіант" : "Показати на дошці варіант " + line.rank}
+                                                        onClick={() => previewEngineLine(line, index === 0 ? "Найкращий варіант" : "Варіант " + line.rank)}
+                                                    >
+                                                        <b className="analysis-engine-line-score-v3">{line.score}</b>
+                                                        <span className="analysis-engine-line-rank-v3">{line.rank}.</span>
+                                                        <span className="analysis-engine-line-moves-v3">
+                                                            {line.moves.split(" ").filter(Boolean).slice(0, 8).map((move, moveIndex) => <i key={line.id + "-" + moveIndex}>{move}</i>)}
+                                                        </span>
+                                                    </button>
+                                                    <Tooltip>
+                                                        <TooltipTrigger asChild>
+                                                            <button
+                                                                type="button"
+                                                                className="analysis-engine-line-add-v3"
+                                                                disabled={!record.currentPath}
+                                                                onClick={() => addEngineLineToVariations(line)}
+                                                                aria-label={"Додати варіант Stockfish " + line.rank + " до дерева"}
+                                                            >
+                                                                <Plus size={16} />
                                                             </button>
-                                                            <Tooltip>
-                                                                <TooltipTrigger asChild>
-                                                                    <button type="button" className="analysis-engine-other-add" disabled={!record.currentPath} onClick={() => addEngineLineToVariations(line)} aria-label={"Додати варіант Stockfish " + line.rank + " до дерева"}><GitBranch size={14} /></button>
-                                                                </TooltipTrigger>
-                                                                <TooltipContent>Додати до варіантів</TooltipContent>
-                                                            </Tooltip>
-                                                        </div>
-                                                    ))}
+                                                        </TooltipTrigger>
+                                                        <TooltipContent>Додати до варіантів</TooltipContent>
+                                                    </Tooltip>
                                                 </div>
-                                            </details>
-                                        )}
+                                            )) : positionBusy ? (
+                                                <>
+                                                    <div className="analysis-engine-loading-v3" />
+                                                    <div className="analysis-engine-loading-v3" />
+                                                    <div className="analysis-engine-loading-v3" />
+                                                </>
+                                            ) : (
+                                                <div className="analysis-empty-state compact"><BrainCircuit size={24} /><strong>Лінії ще не готові</strong><p>Stockfish обчислює найсильніші продовження.</p></div>
+                                            )}
+                                        </div>
                                     </>
                                 )}
+
+                                {!engineEnabled && (
+                                    <div className="analysis-empty-state compact"><Zap size={24} /><strong>Stockfish вимкнено</strong><p>Увімкніть перемикач вище, щоб побачити варіанти.</p></div>
+                                )}
+
+                                <section className="analysis-game-moves-v3">
+                                    <div className="analysis-game-moves-head-v3">
+                                        <strong>Ходи партії</strong>
+                                        <button type="button" onClick={() => setTab("moves")}>Усі варіанти</button>
+                                    </div>
+                                    <div className="analysis-game-moves-list-v3" aria-label="Ходи партії">
+                                        {mainlineRows.length ? mainlineRows.map(row => (
+                                            <div key={row.number} className="analysis-game-move-row-v3">
+                                                <span>{row.number}.</span>
+                                                {row.white ? (
+                                                    <button type="button" className={cn("analysis-game-move-v3", isSamePath([row.white.index], record.currentPath) && "is-selected")} onClick={() => navigateTo([row.white!.index])}>
+                                                        <span>{row.white.node.san}</span>
+                                                        {row.white.node.classification && <em>{CLASSIFICATION_MARKS[row.white.node.classification]}</em>}
+                                                    </button>
+                                                ) : <span className="analysis-game-move-v3 is-empty" />}
+                                                {row.black ? (
+                                                    <button type="button" className={cn("analysis-game-move-v3", isSamePath([row.black.index], record.currentPath) && "is-selected")} onClick={() => navigateTo([row.black!.index])}>
+                                                        <span>{row.black.node.san}</span>
+                                                        {row.black.node.classification && <em>{CLASSIFICATION_MARKS[row.black.node.classification]}</em>}
+                                                    </button>
+                                                ) : <span className="analysis-game-move-v3 is-empty" />}
+                                            </div>
+                                        )) : (
+                                            <div className="analysis-empty-state compact"><Clipboard size={22} /><strong>Ходів ще немає</strong><p>Зробіть хід на дошці або імпортуйте PGN.</p></div>
+                                        )}
+                                    </div>
+                                </section>
+
+                                <section className="analysis-position-comment-v3">
+                                    <label htmlFor="analysis-position-comment">Коментар до позиції</label>
+                                    <Textarea
+                                        id="analysis-position-comment"
+                                        aria-label="Коментар до позиції"
+                                        value={currentNode?.comment || ""}
+                                        disabled={!record.currentPath}
+                                        onChange={event => updatePositionComment(event.target.value)}
+                                        placeholder={record.currentPath ? "Оцініть позицію, додайте свій план або ідею…" : "Оберіть хід, щоб додати коментар…"}
+                                    />
+                                </section>
                             </div>
                         )}
 
@@ -1350,10 +1431,12 @@ export default function AnalysisCenter() {
                         )}
                     </div>
 
-                    <div className="analysis-panel-navigation analysis-panel-navigation-simple" aria-label="Навігація по партії" role="group">
+                    <div className="analysis-panel-navigation analysis-panel-navigation-v3" aria-label="Навігація по партії" role="group">
+                        <NavIconButton label="На початок" icon={<ChevronsLeft size={19} />} onClick={goFirst} disabled={!canGoPrevious} />
                         <NavIconButton label="Попередній хід" icon={<ChevronLeft size={19} />} onClick={goPrevious} disabled={!canGoPrevious} />
-                        <span aria-live="polite" title={record.currentPath?.length && record.currentPath.length > 1 ? "Активна лінія: " + navigationLabel : "Позиція: " + navigationLabel}>{navigationLabel}</span>
                         <NavIconButton label="Наступний хід" icon={<ChevronRight size={19} />} onClick={goNext} disabled={!canGoNext} />
+                        <NavIconButton label="У кінець" icon={<ChevronsRight size={19} />} onClick={goLast} disabled={!canGoLast} />
+                        <span aria-live="polite" title={record.currentPath?.length && record.currentPath.length > 1 ? "Активна лінія: " + navigationLabel : "Позиція: " + navigationLabel}>{navigationLabel}</span>
                     </div>
                 </aside>
             </main>
