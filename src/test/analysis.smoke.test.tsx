@@ -42,10 +42,10 @@ describe("Analysis Center", () => {
         const navigator = within(panel).getByLabelText("Навігація по партії");
         expect(navigator).toBeInTheDocument();
         expect(screen.getAllByLabelText("Навігація по партії")).toHaveLength(1);
+        expect(within(navigator).getByRole("button", { name: "На початок" })).toBeInTheDocument();
         expect(within(navigator).getByRole("button", { name: "Попередній хід" })).toBeInTheDocument();
         expect(within(navigator).getByRole("button", { name: "Наступний хід" })).toBeInTheDocument();
-        expect(within(navigator).queryByRole("button", { name: /На початок/i })).not.toBeInTheDocument();
-        expect(within(navigator).queryByRole("button", { name: /У кінець/i })).not.toBeInTheDocument();
+        expect(within(navigator).getByRole("button", { name: "У кінець" })).toBeInTheDocument();
         expect(within(navigator).getByText("0 / 0")).toBeInTheDocument();
     });
 
@@ -127,7 +127,7 @@ describe("Analysis Center", () => {
         expect(screen.getByRole("button", { name: /До партії/i })).toBeInTheDocument();
     });
 
-    it("keeps the Engine tab simple and hides secondary lines until requested", async () => {
+    it("renders the compact screenshot-inspired Engine workspace", async () => {
         render(<MemoryRouter initialEntries={["/analysis"]}>
             <BoardSettingsProvider><Analysis /></BoardSettingsProvider>
         </MemoryRouter>);
@@ -137,13 +137,11 @@ describe("Analysis Center", () => {
 
         expect(await screen.findByText("Позиція близька до рівної")).toBeInTheDocument();
         expect(screen.getByRole("button", { name: "Налаштувати движок" })).toBeInTheDocument();
-        expect(screen.queryByText("Глибина")).not.toBeInTheDocument();
-        expect(screen.queryByText("Варіанти Stockfish")).not.toBeInTheDocument();
-        const alternatives = screen.getByText("Інші варіанти").closest("details");
-        expect(alternatives).toBeInTheDocument();
-        expect(alternatives).not.toHaveAttribute("open");
-        fireEvent.click(within(alternatives!).getByText("Інші варіанти"));
-        expect(within(alternatives!).getAllByRole("button", { name: /Додати варіант Stockfish .* до дерева/i })).toHaveLength(2);
+        expect(screen.getByText("Глибина")).toBeInTheDocument();
+        expect(screen.getByText("Ходи партії")).toBeInTheDocument();
+        expect(screen.getByLabelText("Коментар до позиції")).toBeInTheDocument();
+        expect(await screen.findAllByTestId("analysis-engine-line")).toHaveLength(3);
+        expect(screen.queryByText("Інші варіанти")).not.toBeInTheDocument();
     });
 
     it("runs full review from Overview and adds a real classification badge", async () => {
