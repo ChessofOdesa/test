@@ -502,6 +502,7 @@ export default function AnalysisCenter() {
 
     const navigateTo = useCallback((path: number[] | null) => {
         setLinePreview(null);
+        setPredictionMode(false);
         setRecord(current => ({ ...current, currentPath: path ? [...path] : null }));
     }, []);
 
@@ -762,8 +763,10 @@ export default function AnalysisCenter() {
         setLinePreview(null);
         setReview({ running: false, current: 0, total: 0, error: "" });
         setOverviewFilter("all");
+        setEnginePaused(false);
+        setPredictionMode(false);
         setTab("engine");
-                setShowFullMoveTree(false);
+        setShowFullMoveTree(false);
         toast.success("Відкрито нову позицію для аналізу.");
     };
 
@@ -906,7 +909,7 @@ export default function AnalysisCenter() {
         if (existingIndex >= 0) {
             navigateTo([...basePath, existingIndex]);
             setTab("engine");
-                setShowFullMoveTree(false);
+            setShowFullMoveTree(true);
             toast.info("Такий варіант уже є в дереві.");
             return;
         }
@@ -1467,7 +1470,7 @@ export default function AnalysisCenter() {
                 <DialogContent className="sm:max-w-2xl">
                     <DialogHeader>
                         <DialogTitle>{importMode === "pgn" ? "Імпорт PGN" : "FEN позиція"}</DialogTitle>
-                        <DialogDescription>{importMode === "pgn" ? "Вставте текст PGN. Партія та метадані відкриються у вкладці «Ходи»." : "Вставте FEN, щоб відкрити конкретну позицію для аналізу."}</DialogDescription>
+                        <DialogDescription>{importMode === "pgn" ? "Вставте текст PGN. Партія та метадані відкриються у вкладці «Движок»." : "Вставте FEN, щоб відкрити конкретну позицію для аналізу."}</DialogDescription>
                     </DialogHeader>
                     <Textarea
                         aria-label="Paste PGN or FEN"
