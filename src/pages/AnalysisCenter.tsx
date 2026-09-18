@@ -44,6 +44,7 @@ import { Chess, type Square } from "chess.js";
 import {
     BarChart3,
     BookOpen,
+    Bookmark,
     BrainCircuit,
     ChevronLeft,
     ChevronRight,
@@ -65,8 +66,6 @@ import {
     Plus,
     RotateCcw,
     Settings2,
-    SlidersHorizontal,
-    Star,
     Trash2,
     Zap,
 } from "lucide-react";
@@ -86,7 +85,7 @@ import "@/styles/analysis-center.css";
 import "@/styles/analysis-panel-professional.css";
 import "@/styles/analysis-page-screenshot.css";
 
-type PanelTab = "moves" | "engine" | "overview" | "info";
+type PanelTab = "engine" | "overview" | "info";
 type ImportMode = "pgn" | "fen";
 type OverviewFilter = MoveClassification | "all";
 type AnalysisUiMode = "simple" | "advanced";
@@ -264,43 +263,6 @@ function buildPreview(baseFen: string, pv: string[], label: string): EnginePrevi
     return fens.length ? { label, fens, moves, index: 0 } : null;
 }
 
-function ToolButton({
-    label,
-    shortLabel,
-    icon,
-    active = false,
-    onClick,
-    detail,
-    featured = false,
-}: {
-    label: string;
-    shortLabel: string;
-    icon: ReactNode;
-    active?: boolean;
-    onClick: () => void;
-    detail?: string;
-    featured?: boolean;
-}) {
-    return (
-        <Tooltip>
-            <TooltipTrigger asChild>
-                <button
-                    type="button"
-                    className={cn("analysis-tool-button", active && "is-active", featured && "is-featured")}
-                    onClick={onClick}
-                    aria-label={label}
-                    aria-pressed={active || undefined}
-                >
-                    <span className="analysis-tool-icon">{icon}</span>
-                    <span className="analysis-tool-label">{shortLabel}</span>
-                    {detail ? <small>{detail}</small> : null}
-                </button>
-            </TooltipTrigger>
-            <TooltipContent side="right">{label}</TooltipContent>
-        </Tooltip>
-    );
-}
-
 function NavIconButton({ label, icon, onClick, disabled = false }: { label: string; icon: ReactNode; onClick: () => void; disabled?: boolean }) {
     return (
         <Tooltip>
@@ -324,10 +286,11 @@ export default function AnalysisCenter() {
     const loadedInputRef = useRef<string | null>(null);
 
     const [record, setRecord] = useState<AnalysisRecord>(() => createRecord());
-    const [tab, setTab] = useState<PanelTab>("moves");
+    const [tab, setTab] = useState<PanelTab>("engine");
     const [boardSize, setBoardSize] = useState(650);
     const [flipped, setFlipped] = useState(false);
     const [engineEnabled, setEngineEnabled] = useState(true);
+    const [enginePaused, setEnginePaused] = useState(false);
     const [engineDepth, setEngineDepth] = useState(12);
     const [multiPv, setMultiPv] = useState(3);
     const [showBestMoveArrow, setShowBestMoveArrow] = useState(true);
@@ -345,6 +308,8 @@ export default function AnalysisCenter() {
     const [linePreview, setLinePreview] = useState<EnginePreview | null>(null);
     const [overviewFilter, setOverviewFilter] = useState<OverviewFilter>("all");
     const [analysisUiMode, setAnalysisUiMode] = useState<AnalysisUiMode>("simple");
+    const [showFullMoveTree, setShowFullMoveTree] = useState(false);
+    const [predictionMode, setPredictionMode] = useState(false);
 
     const renderedMoves = useMemo(() => renderMoves(record.mainline), [record.mainline]);
 
@@ -393,12 +358,6 @@ export default function AnalysisCenter() {
                     : "—";
     const evalWhite = hasEvaluation ? Math.max(7, Math.min(93, 50 + currentEval / 18)) : 50;
     const displayedFen = linePreview?.fens[linePreview.index] || currentFen;
-    const engineToolDetail = !engineEnabled
-        ? "OFF"
-        : currentEngine
-            ? `ON · ${evaluationLabel(currentEngine)}`
-            : "ON · ...";
-
     const currentMainlineIndex = record.currentPath?.length === 1 ? record.currentPath[0] : -1;
     const previousMainlineEval = currentMainlineIndex > 0 ? record.mainline[currentMainlineIndex - 1]?.engineEval ?? null : null;
     const cachedBeforeEval = currentNode
@@ -472,14 +431,16 @@ export default function AnalysisCenter() {
             if (routePgn) {
                 setRecord(buildRecordFromPgn(routePgn));
                 setImportDraft(routePgn);
-                setTab("moves");
+                setTab("engine");
+                setShowFullMoveTree(false);
                 setLinePreview(null);
                 toast.success("Партію відкрито в аналізі.");
             } else if (routeFen) {
                 const chess = new Chess(routeFen);
                 setRecord(createRecord(chess.fen()));
                 setImportDraft(chess.fen());
-                setTab("moves");
+                setTab("engine");
+                setShowFullMoveTree(false);
                 setLinePreview(null);
                 toast.success("Позицію відкрито для аналізу.");
             }
@@ -509,6 +470,12 @@ export default function AnalysisCenter() {
             setPositionBusy(false);
             setPositionError("");
             setLinePreview(null);
+            setEnginePaused(false);
+            return;
+        }
+        if (enginePaused) {
+            setPositionBusy(false);
+            setPositionError("");
             return;
         }
         const controller = new AbortController();
@@ -531,10 +498,11 @@ export default function AnalysisCenter() {
             window.clearTimeout(timer);
             controller.abort();
         };
-    }, [analyzeCached, currentFen, engineDepth, engineEnabled, multiPv]);
+    }, [analyzeCached, currentFen, engineDepth, engineEnabled, enginePaused, multiPv]);
 
     const navigateTo = useCallback((path: number[] | null) => {
         setLinePreview(null);
+        setPredictionMode(false);
         setRecord(current => ({ ...current, currentPath: path ? [...path] : null }));
     }, []);
 
@@ -604,7 +572,8 @@ export default function AnalysisCenter() {
             setImportOpen(false);
             setCurrentEngine(null);
             setLinePreview(null);
-            setTab("moves");
+            setTab("engine");
+                setShowFullMoveTree(false);
             setReview({ running: false, current: 0, total: 0, error: "" });
             setOverviewFilter("all");
         } catch {
@@ -626,7 +595,8 @@ export default function AnalysisCenter() {
             setImportDraft(text);
             setCurrentEngine(null);
             setLinePreview(null);
-            setTab("moves");
+            setTab("engine");
+                setShowFullMoveTree(false);
             setReview({ running: false, current: 0, total: 0, error: "" });
             setOverviewFilter("all");
             toast.success("PGN-файл завантажено.");
@@ -675,6 +645,47 @@ export default function AnalysisCenter() {
         }
     }, [currentFen, currentNode?.ply, linePreview]);
 
+
+    const handleAnalysisBoardMove = useCallback((from: string, to: string, promotion?: "q" | "r" | "b" | "n") => {
+        if (!predictionMode) return addVariationMove(from, to, promotion);
+        try {
+            const chess = new Chess(currentFen);
+            const move = chess.move({ from, to, promotion: promotion || "q" });
+            if (!move) return false;
+            const predictedUci = `${move.from}${move.to}${move.promotion || ""}`;
+            const bestUci = currentEngine?.bestMoveUci;
+            const bestSan = currentEngine?.bestMoveSan;
+            setPredictionMode(false);
+            if (!bestUci) {
+                toast.info(`Ваш прогноз: ${move.san}. Stockfish ще не завершив розрахунок.`);
+            } else if (predictedUci === bestUci) {
+                toast.success(`Точно! ${move.san} — перший вибір Stockfish.`);
+            } else {
+                toast.info(`Ваш прогноз: ${move.san}. Stockfish обирає ${bestSan || bestUci}.`);
+            }
+            return false;
+        } catch {
+            setPredictionMode(false);
+            return false;
+        }
+    }, [addVariationMove, currentEngine?.bestMoveSan, currentEngine?.bestMoveUci, currentFen, predictionMode]);
+
+    const savePositionBookmark = useCallback(() => {
+        try {
+            const key = "chess-of-odesa-analysis-bookmarks";
+            const parsed = JSON.parse(window.localStorage.getItem(key) || "[]");
+            const current = Array.isArray(parsed) ? parsed : [];
+            if (!current.some((item: { fen?: string }) => item?.fen === currentFen)) {
+                current.unshift({ fen: currentFen, createdAt: new Date().toISOString() });
+                window.localStorage.setItem(key, JSON.stringify(current.slice(0, 50)));
+                toast.success("Позицію додано в закладки.");
+            } else {
+                toast.info("Ця позиція вже є в закладках.");
+            }
+        } catch {
+            toast.error("Не вдалося зберегти позицію в закладки.");
+        }
+    }, [currentFen]);
 
     const updatePositionComment = useCallback((value: string) => {
         const selectedPath = record.currentPath;
@@ -752,7 +763,10 @@ export default function AnalysisCenter() {
         setLinePreview(null);
         setReview({ running: false, current: 0, total: 0, error: "" });
         setOverviewFilter("all");
-        setTab("moves");
+        setEnginePaused(false);
+        setPredictionMode(false);
+        setTab("engine");
+        setShowFullMoveTree(false);
         toast.success("Відкрито нову позицію для аналізу.");
     };
 
@@ -894,7 +908,8 @@ export default function AnalysisCenter() {
         const existingIndex = parent.children.findIndex(child => child.uci === nodes[0].uci);
         if (existingIndex >= 0) {
             navigateTo([...basePath, existingIndex]);
-            setTab("moves");
+            setTab("engine");
+            setShowFullMoveTree(true);
             toast.info("Такий варіант уже є в дереві.");
             return;
         }
@@ -906,7 +921,8 @@ export default function AnalysisCenter() {
             currentPath: [...basePath, childIndex],
         }));
         setLinePreview(null);
-        setTab("moves");
+        setTab("engine");
+        setShowFullMoveTree(true);
         toast.success("Лінію Stockfish додано до варіантів.");
     };
 
@@ -923,7 +939,6 @@ export default function AnalysisCenter() {
     const panelTabs: Array<{ id: PanelTab; label: string; icon: typeof Clipboard }> = [
         { id: "overview", label: "Огляд", icon: BarChart3 },
         { id: "engine", label: "Движок", icon: BrainCircuit },
-        { id: "moves", label: "Ходи", icon: Clipboard },
         { id: "info", label: "Інфо", icon: Info },
     ];
 
@@ -943,106 +958,10 @@ export default function AnalysisCenter() {
     const moveCount = new Set(record.mainline.map(node => node.moveNumber)).size;
 
     return (
-        <div className="analysis-center analysis-center-v3">
+        <div className="analysis-center analysis-center-v3 analysis-center-v4">
             <input ref={fileInputRef} className="hidden" type="file" accept=".pgn" onChange={event => void handleFile(event.target.files?.[0])} />
 
             <main className="analysis-workspace">
-                <aside className="analysis-tools" aria-label="Інструменти аналізу">
-                    <ToolButton
-                        label={engineEnabled ? "Вимкнути Stockfish" : "Увімкнути Stockfish"}
-                        shortLabel="Движок"
-                        icon={positionBusy ? <Loader2 size={20} className="animate-spin" /> : <Zap size={20} />}
-                        active={engineEnabled}
-                        featured
-                        detail={engineToolDetail}
-                        onClick={() => setEngineEnabled(value => !value)}
-                    />
-                    <ToolButton label="Нова позиція" shortLabel="Нова позиція" icon={<Plus size={20} />} onClick={resetAnalysis} />
-                    <ToolButton label="Імпорт PGN" shortLabel="Імпорт PGN" icon={<Clipboard size={19} />} active={importOpen && importMode === "pgn"} onClick={() => openImport("pgn")} />
-                    <ToolButton label="Відкрити PGN-файл" shortLabel="PGN файл" icon={<FileUp size={19} />} onClick={() => fileInputRef.current?.click()} />
-                    <ToolButton label="Вставити FEN" shortLabel="FEN позиція" icon={<Copy size={18} />} active={importOpen && importMode === "fen"} onClick={() => openImport("fen")} />
-
-                    <Popover open={settingsOpen} onOpenChange={setSettingsOpen}>
-                        <Tooltip>
-                            <TooltipTrigger asChild>
-                                <PopoverTrigger asChild>
-                                    <button type="button" className={cn("analysis-tool-button", settingsOpen && "is-active")} aria-label="Налаштування аналізу" aria-expanded={settingsOpen}>
-                                        <span className="analysis-tool-icon"><Settings2 size={20} /></span>
-                                        <span className="analysis-tool-label">Налаштування</span>
-                                    </button>
-                                </PopoverTrigger>
-                            </TooltipTrigger>
-                            <TooltipContent side="right">Налаштування аналізу</TooltipContent>
-                        </Tooltip>
-                        <PopoverContent side="right" align="center" className="analysis-settings-popover">
-                            <div className="analysis-popover-heading"><strong>Інтерфейс</strong><span>Режим</span></div>
-                            <div className="analysis-ui-mode-options" role="group" aria-label="Режим Analysis">
-                                <button type="button" className={cn(analysisUiMode === "simple" && "is-active")} aria-pressed={analysisUiMode === "simple"} onClick={() => setAnalysisUiMode("simple")}>
-                                    <strong>Простий</strong><span>Менше деталей</span>
-                                </button>
-                                <button type="button" className={cn(analysisUiMode === "advanced" && "is-active")} aria-pressed={analysisUiMode === "advanced"} onClick={() => setAnalysisUiMode("advanced")}>
-                                    <strong>Розширений</strong><span>Depth і MultiPV</span>
-                                </button>
-                            </div>
-
-                            <div className="analysis-popover-heading analysis-popover-subheading"><strong>Движок</strong><span>Глибина</span></div>
-                            <div className="analysis-setting-options">
-                                {[8, 12, 16].map(depth => (
-                                    <button key={depth} type="button" className={cn(engineDepth === depth && "is-active")} onClick={() => setEngineDepth(depth)}>
-                                        <strong>{depth === 8 ? "Швидкий" : depth === 12 ? "Стандартний" : "Глибокий"}</strong>
-                                        <span>D{depth}</span>
-                                    </button>
-                                ))}
-                            </div>
-
-                            <div className="analysis-popover-heading analysis-popover-subheading"><strong>Варіанти</strong><span>MultiPV</span></div>
-                            <div className="analysis-multipv-options">
-                                {[1, 2, 3, 5].map(value => <button key={value} type="button" className={cn(multiPv === value && "is-active")} onClick={() => setMultiPv(value)}>{value}</button>)}
-                            </div>
-
-                            <div className="analysis-popover-heading analysis-popover-subheading"><strong>Дошка</strong><span>Вигляд</span></div>
-                            <label className="analysis-theme-select">
-                                <span>Тема дошки</span>
-                                <select value={boardSettings.theme.id} onChange={event => {
-                                    const next = BOARD_THEMES.find(item => item.id === event.target.value);
-                                    if (next) boardSettings.setTheme(next);
-                                }}>
-                                    {BOARD_THEMES.map(theme => <option key={theme.id} value={theme.id}>{theme.name}</option>)}
-                                </select>
-                            </label>
-                            <div className="analysis-setting-toggles">
-                                <button type="button" role="switch" aria-checked={boardSettings.showCoordinates} onClick={() => boardSettings.setShowCoordinates(!boardSettings.showCoordinates)}><span>Координати</span><b>{boardSettings.showCoordinates ? "ON" : "OFF"}</b></button>
-                                <button type="button" role="switch" aria-checked={showBestMoveArrow} onClick={() => setShowBestMoveArrow(value => !value)}><span>Стрілка найкращого ходу</span><b>{showBestMoveArrow ? "ON" : "OFF"}</b></button>
-                                <button type="button" role="switch" aria-checked={showMoveBadges} onClick={() => setShowMoveBadges(value => !value)}><span>Позначки якості ходу</span><b>{showMoveBadges ? "ON" : "OFF"}</b></button>
-                                <button type="button" role="switch" aria-checked={moveAnimation} onClick={() => setMoveAnimation(value => !value)}><span>Анімація ходів</span><b>{moveAnimation ? "ON" : "OFF"}</b></button>
-                            </div>
-                        </PopoverContent>
-                    </Popover>
-
-                    <DropdownMenu>
-                        <Tooltip>
-                            <TooltipTrigger asChild>
-                                <DropdownMenuTrigger asChild>
-                                    <button type="button" className="analysis-tool-button" aria-label="Додаткові дії">
-                                        <span className="analysis-tool-icon"><MoreHorizontal size={21} /></span>
-                                        <span className="analysis-tool-label">Ще</span>
-                                    </button>
-                                </DropdownMenuTrigger>
-                            </TooltipTrigger>
-                            <TooltipContent side="right">Додаткові дії</TooltipContent>
-                        </Tooltip>
-                        <DropdownMenuContent side="right" align="end" className="w-60">
-                            <DropdownMenuItem disabled={!record.mainline.length} onSelect={() => void copyText(buildAnalysisPgn(record), "PGN")}><Copy size={16} className="mr-2" />Копіювати PGN</DropdownMenuItem>
-                            <DropdownMenuItem disabled={!record.mainline.length} onSelect={downloadPgn}><Download size={16} className="mr-2" />Зберегти PGN</DropdownMenuItem>
-                            <DropdownMenuItem onSelect={() => void copyText(currentFen, "FEN")}><Copy size={16} className="mr-2" />Копіювати FEN</DropdownMenuItem>
-                            <DropdownMenuItem onSelect={() => setFlipped(value => !value)}><FlipVertical size={16} className="mr-2" />Перевернути дошку</DropdownMenuItem>
-                            <DropdownMenuSeparator />
-                            <DropdownMenuItem disabled={!hasVariations} onSelect={clearVariations}><Trash2 size={16} className="mr-2" />Очистити власні варіанти</DropdownMenuItem>
-                            <DropdownMenuItem disabled={!reviewedNodes.length} onSelect={clearReviewResults}><Trash2 size={16} className="mr-2" />Очистити результати аналізу</DropdownMenuItem>
-                        </DropdownMenuContent>
-                    </DropdownMenu>
-                </aside>
-
                 <section className="analysis-board-column">
                     <div className="analysis-playerbar analysis-playerbar-top">
                         <div className="analysis-avatar">{topPlayer.name.slice(0, 1).toUpperCase()}</div>
@@ -1063,7 +982,7 @@ export default function AnalysisCenter() {
                                 size={boardSize}
                                 flipped={flipped}
                                 interactive={!review.running && !linePreview}
-                                onMove={addVariationMove}
+                                onMove={handleAnalysisBoardMove}
                                 customArrows={bestMoveArrow}
                                 lastMoveSquares={lastMoveSquares}
                                 showLastMove
@@ -1133,16 +1052,6 @@ export default function AnalysisCenter() {
                     </div>
 
                     <div className="analysis-panel-body">
-                        {tab === "moves" && (
-                            <AnalysisMoveTree
-                                record={record}
-                                setRecord={setRecord}
-                                onNavigate={navigateTo}
-                                onOpenEngine={() => setTab("engine")}
-                                onPreviewBestMove={previewReviewedBestMove}
-                            />
-                        )}
-
                         {tab === "engine" && (
                             <div className="analysis-engine-workspace-v3">
                                 <section className="analysis-engine-control-v3" aria-label="Керування Stockfish">
@@ -1150,7 +1059,7 @@ export default function AnalysisCenter() {
                                         <BrainCircuit size={22} />
                                         <div>
                                             <strong>{engineSource(currentEngine)}</strong>
-                                            <span>{positionBusy ? "Аналізує позицію…" : currentEngine ? "Готовий" : engineEnabled ? "Очікує позицію" : "Вимкнено"}</span>
+                                            <span>{!engineEnabled ? "Вимкнено" : enginePaused ? "Призупинено" : positionBusy ? "Аналізує позицію…" : currentEngine ? "Готовий" : "Очікує позицію"}</span>
                                         </div>
                                     </div>
                                     <div className="analysis-engine-control-actions-v3">
@@ -1160,11 +1069,70 @@ export default function AnalysisCenter() {
                                             aria-label="Stockfish"
                                             aria-checked={engineEnabled}
                                             className="analysis-engine-toggle-v3"
-                                            onClick={() => setEngineEnabled(value => !value)}
+                                            onClick={() => {
+                                                setEngineEnabled(value => !value);
+                                                setEnginePaused(false);
+                                            }}
                                         />
-                                        <button type="button" className="analysis-engine-settings-v3" aria-label="Налаштувати движок" onClick={() => setSettingsOpen(true)}>
-                                            <Settings2 size={17} />
+                                        <button
+                                            type="button"
+                                            className={cn("analysis-engine-pause-v4", enginePaused && "is-paused")}
+                                            aria-label={enginePaused ? "Продовжити Stockfish" : "Призупинити Stockfish"}
+                                            disabled={!engineEnabled}
+                                            onClick={() => setEnginePaused(value => !value)}
+                                        >
+                                            {enginePaused ? <Play size={17} /> : <Pause size={17} />}
                                         </button>
+                                        <Popover open={settingsOpen} onOpenChange={setSettingsOpen}>
+                                                <PopoverTrigger asChild>
+                                                    <button type="button" className="analysis-engine-settings-v3" aria-label="Налаштувати движок">
+                                                        <Settings2 size={17} />
+                                                    </button>
+                                                </PopoverTrigger>
+                                                <PopoverContent side="bottom" align="end" className="analysis-settings-popover">
+                                                    <div className="analysis-popover-heading"><strong>Інтерфейс</strong><span>Режим</span></div>
+                                                    <div className="analysis-ui-mode-options" role="group" aria-label="Режим Analysis">
+                                                        <button type="button" className={cn(analysisUiMode === "simple" && "is-active")} aria-pressed={analysisUiMode === "simple"} onClick={() => setAnalysisUiMode("simple")}>
+                                                            <strong>Простий</strong><span>Менше деталей</span>
+                                                        </button>
+                                                        <button type="button" className={cn(analysisUiMode === "advanced" && "is-active")} aria-pressed={analysisUiMode === "advanced"} onClick={() => setAnalysisUiMode("advanced")}>
+                                                            <strong>Розширений</strong><span>Depth і MultiPV</span>
+                                                        </button>
+                                                    </div>
+
+                                                    <div className="analysis-popover-heading analysis-popover-subheading"><strong>Движок</strong><span>Глибина</span></div>
+                                                    <div className="analysis-setting-options">
+                                                        {[8, 12, 16].map(depth => (
+                                                            <button key={depth} type="button" className={cn(engineDepth === depth && "is-active")} onClick={() => setEngineDepth(depth)}>
+                                                                <strong>{depth === 8 ? "Швидкий" : depth === 12 ? "Стандартний" : "Глибокий"}</strong>
+                                                                <span>D{depth}</span>
+                                                            </button>
+                                                        ))}
+                                                    </div>
+
+                                                    <div className="analysis-popover-heading analysis-popover-subheading"><strong>Варіанти</strong><span>MultiPV</span></div>
+                                                    <div className="analysis-multipv-options">
+                                                        {[1, 2, 3, 5].map(value => <button key={value} type="button" className={cn(multiPv === value && "is-active")} onClick={() => setMultiPv(value)}>{value}</button>)}
+                                                    </div>
+
+                                                    <div className="analysis-popover-heading analysis-popover-subheading"><strong>Дошка</strong><span>Вигляд</span></div>
+                                                    <label className="analysis-theme-select">
+                                                        <span>Тема дошки</span>
+                                                        <select value={boardSettings.theme.id} onChange={event => {
+                                                            const next = BOARD_THEMES.find(item => item.id === event.target.value);
+                                                            if (next) boardSettings.setTheme(next);
+                                                        }}>
+                                                            {BOARD_THEMES.map(theme => <option key={theme.id} value={theme.id}>{theme.name}</option>)}
+                                                        </select>
+                                                    </label>
+                                                    <div className="analysis-setting-toggles">
+                                                        <button type="button" role="switch" aria-checked={boardSettings.showCoordinates} onClick={() => boardSettings.setShowCoordinates(!boardSettings.showCoordinates)}><span>Координати</span><b>{boardSettings.showCoordinates ? "ON" : "OFF"}</b></button>
+                                                        <button type="button" role="switch" aria-checked={showBestMoveArrow} onClick={() => setShowBestMoveArrow(value => !value)}><span>Стрілка найкращого ходу</span><b>{showBestMoveArrow ? "ON" : "OFF"}</b></button>
+                                                        <button type="button" role="switch" aria-checked={showMoveBadges} onClick={() => setShowMoveBadges(value => !value)}><span>Позначки якості ходу</span><b>{showMoveBadges ? "ON" : "OFF"}</b></button>
+                                                        <button type="button" role="switch" aria-checked={moveAnimation} onClick={() => setMoveAnimation(value => !value)}><span>Анімація ходів</span><b>{moveAnimation ? "ON" : "OFF"}</b></button>
+                                                    </div>
+                                                </PopoverContent>
+                                            </Popover>
                                     </div>
                                 </section>
 
@@ -1172,7 +1140,6 @@ export default function AnalysisCenter() {
                                     <span>Глибина <b>{currentEngine?.depth || engineDepth}</b></span>
                                     <i aria-hidden="true" />
                                     <span><b>{Math.min(3, multiPv)}</b> {Math.min(3, multiPv) === 1 ? "варіант" : "варіанти"}</span>
-                                    <button type="button" onClick={() => setSettingsOpen(true)}>Налаштування</button>
                                 </div>
 
                                 {engineEnabled && (
@@ -1262,30 +1229,42 @@ export default function AnalysisCenter() {
 
                                 <section className="analysis-game-moves-v3">
                                     <div className="analysis-game-moves-head-v3">
-                                        <strong>Ходи партії</strong>
-                                        <button type="button" onClick={() => setTab("moves")}>Усі варіанти</button>
+                                        <strong>{showFullMoveTree ? "Варіанти" : "Ходи партії"}</strong>
+                                        <button type="button" onClick={() => setShowFullMoveTree(value => !value)}>{showFullMoveTree ? "Партія" : "Усі варіанти"}</button>
                                     </div>
-                                    <div className="analysis-game-moves-list-v3" aria-label="Ходи партії">
-                                        {mainlineRows.length ? mainlineRows.map(row => (
-                                            <div key={row.number} className="analysis-game-move-row-v3">
-                                                <span>{row.number}.</span>
-                                                {row.white ? (
-                                                    <button type="button" className={cn("analysis-game-move-v3", isSamePath([row.white.index], record.currentPath) && "is-selected")} onClick={() => navigateTo([row.white!.index])}>
-                                                        <span>{row.white.node.san}</span>
-                                                        {row.white.node.classification && <em>{CLASSIFICATION_MARKS[row.white.node.classification]}</em>}
-                                                    </button>
-                                                ) : <span className="analysis-game-move-v3 is-empty" />}
-                                                {row.black ? (
-                                                    <button type="button" className={cn("analysis-game-move-v3", isSamePath([row.black.index], record.currentPath) && "is-selected")} onClick={() => navigateTo([row.black!.index])}>
-                                                        <span>{row.black.node.san}</span>
-                                                        {row.black.node.classification && <em>{CLASSIFICATION_MARKS[row.black.node.classification]}</em>}
-                                                    </button>
-                                                ) : <span className="analysis-game-move-v3 is-empty" />}
-                                            </div>
-                                        )) : (
-                                            <div className="analysis-empty-state compact"><Clipboard size={22} /><strong>Ходів ще немає</strong><p>Зробіть хід на дошці або імпортуйте PGN.</p></div>
-                                        )}
-                                    </div>
+                                    {showFullMoveTree ? (
+                                        <div className="analysis-full-tree-v4" aria-label="Повне дерево ходів">
+                                            <AnalysisMoveTree
+                                                record={record}
+                                                setRecord={setRecord}
+                                                onNavigate={navigateTo}
+                                                onOpenEngine={() => setShowFullMoveTree(false)}
+                                                onPreviewBestMove={previewReviewedBestMove}
+                                            />
+                                        </div>
+                                    ) : (
+                                        <div className="analysis-game-moves-list-v3" aria-label="Ходи партії">
+                                            {mainlineRows.length ? mainlineRows.map(row => (
+                                                <div key={row.number} className="analysis-game-move-row-v3">
+                                                    <span>{row.number}.</span>
+                                                    {row.white ? (
+                                                        <button type="button" className={cn("analysis-game-move-v3", isSamePath([row.white.index], record.currentPath) && "is-selected")} onClick={() => navigateTo([row.white!.index])}>
+                                                            <span>{row.white.node.san}</span>
+                                                            {row.white.node.classification && <em>{CLASSIFICATION_MARKS[row.white.node.classification]}</em>}
+                                                        </button>
+                                                    ) : <span className="analysis-game-move-v3 is-empty" />}
+                                                    {row.black ? (
+                                                        <button type="button" className={cn("analysis-game-move-v3", isSamePath([row.black.index], record.currentPath) && "is-selected")} onClick={() => navigateTo([row.black!.index])}>
+                                                            <span>{row.black.node.san}</span>
+                                                            {row.black.node.classification && <em>{CLASSIFICATION_MARKS[row.black.node.classification]}</em>}
+                                                        </button>
+                                                    ) : <span className="analysis-game-move-v3 is-empty" />}
+                                                </div>
+                                            )) : (
+                                                <div className="analysis-empty-state compact"><Clipboard size={22} /><strong>Ходів ще немає</strong><p>Зробіть хід на дошці або імпортуйте PGN.</p></div>
+                                            )}
+                                        </div>
+                                    )}
                                 </section>
 
                                 <section className="analysis-position-comment-v3">
@@ -1438,6 +1417,52 @@ export default function AnalysisCenter() {
                         <NavIconButton label="У кінець" icon={<ChevronsRight size={19} />} onClick={goLast} disabled={!canGoLast} />
                         <span aria-live="polite" title={record.currentPath?.length && record.currentPath.length > 1 ? "Активна лінія: " + navigationLabel : "Позиція: " + navigationLabel}>{navigationLabel}</span>
                     </div>
+
+                    <div className="analysis-panel-actions-v4" aria-label="Дії аналізу">
+                        <button
+                            type="button"
+                            className={cn("analysis-prediction-v4", predictionMode && "is-active")}
+                            aria-pressed={predictionMode}
+                            disabled={!engineEnabled || !currentEngine?.bestMoveUci || review.running || Boolean(linePreview)}
+                            onClick={() => {
+                                setPredictionMode(value => {
+                                    const next = !value;
+                                    if (next) toast.info("Зробіть свій прогнозований хід на дошці.");
+                                    return next;
+                                });
+                            }}
+                        >
+                            <BrainCircuit size={17} />
+                            <span>Мій прогноз</span>
+                        </button>
+
+                        <button type="button" className="analysis-bottom-icon-v4" aria-label="Зберегти позицію в закладки" onClick={savePositionBookmark}>
+                            <Bookmark size={19} />
+                        </button>
+
+                        <DropdownMenu>
+                            <DropdownMenuTrigger asChild>
+                                <button type="button" className="analysis-more-v4" aria-label="Додаткові дії аналізу">
+                                    <MoreHorizontal size={18} />
+                                    <span>Ще</span>
+                                </button>
+                            </DropdownMenuTrigger>
+                            <DropdownMenuContent align="end" side="top" className="w-64">
+                                <DropdownMenuItem onSelect={resetAnalysis}><Plus size={16} className="mr-2" />Нова позиція</DropdownMenuItem>
+                                <DropdownMenuItem onSelect={() => openImport("pgn")}><Clipboard size={16} className="mr-2" />Імпорт PGN</DropdownMenuItem>
+                                <DropdownMenuItem onSelect={() => fileInputRef.current?.click()}><FileUp size={16} className="mr-2" />Відкрити PGN-файл</DropdownMenuItem>
+                                <DropdownMenuItem onSelect={() => openImport("fen")}><Copy size={16} className="mr-2" />Вставити FEN</DropdownMenuItem>
+                                <DropdownMenuSeparator />
+                                <DropdownMenuItem disabled={!record.mainline.length} onSelect={() => void copyText(buildAnalysisPgn(record), "PGN")}><Copy size={16} className="mr-2" />Копіювати PGN</DropdownMenuItem>
+                                <DropdownMenuItem disabled={!record.mainline.length} onSelect={downloadPgn}><Download size={16} className="mr-2" />Зберегти PGN</DropdownMenuItem>
+                                <DropdownMenuItem onSelect={() => void copyText(currentFen, "FEN")}><Copy size={16} className="mr-2" />Копіювати FEN</DropdownMenuItem>
+                                <DropdownMenuItem onSelect={() => setFlipped(value => !value)}><FlipVertical size={16} className="mr-2" />Перевернути дошку</DropdownMenuItem>
+                                <DropdownMenuSeparator />
+                                <DropdownMenuItem disabled={!hasVariations} onSelect={clearVariations}><Trash2 size={16} className="mr-2" />Очистити власні варіанти</DropdownMenuItem>
+                                <DropdownMenuItem disabled={!reviewedNodes.length} onSelect={clearReviewResults}><Trash2 size={16} className="mr-2" />Очистити результати аналізу</DropdownMenuItem>
+                            </DropdownMenuContent>
+                        </DropdownMenu>
+                    </div>
                 </aside>
             </main>
 
@@ -1445,7 +1470,7 @@ export default function AnalysisCenter() {
                 <DialogContent className="sm:max-w-2xl">
                     <DialogHeader>
                         <DialogTitle>{importMode === "pgn" ? "Імпорт PGN" : "FEN позиція"}</DialogTitle>
-                        <DialogDescription>{importMode === "pgn" ? "Вставте текст PGN. Партія та метадані відкриються у вкладці «Ходи»." : "Вставте FEN, щоб відкрити конкретну позицію для аналізу."}</DialogDescription>
+                        <DialogDescription>{importMode === "pgn" ? "Вставте текст PGN. Партія та метадані відкриються у вкладці «Движок»." : "Вставте FEN, щоб відкрити конкретну позицію для аналізу."}</DialogDescription>
                     </DialogHeader>
                     <Textarea
                         aria-label="Paste PGN or FEN"

@@ -55,25 +55,27 @@ describe("Analysis Center", () => {
         </MemoryRouter>);
 
         await screen.findByTestId("analysis-board");
-        for (const name of [/Ходи/i, /Движок/i, /Огляд/i, /Інфо/i]) {
+        for (const name of [/Движок/i, /Огляд/i, /Інфо/i]) {
             fireEvent.click(screen.getByRole("tab", { name }));
             expect(screen.getByLabelText("Навігація по партії")).toBeInTheDocument();
         }
     });
 
-    it("keeps global actions in the left toolbar and board flip out of the move navigator", async () => {
+    it("keeps rare Analysis actions in one bottom More menu without a duplicate local toolbar", async () => {
         render(<MemoryRouter initialEntries={["/analysis"]}>
             <BoardSettingsProvider><Analysis /></BoardSettingsProvider>
         </MemoryRouter>);
 
         await screen.findByTestId("analysis-board");
-        const tools = screen.getByLabelText("Інструменти аналізу");
-        expect(within(tools).getAllByRole("button")[0]).toHaveAccessibleName(/Stockfish/i);
-        expect(within(tools).getByRole("button", { name: "Нова позиція" })).toBeInTheDocument();
-        expect(within(tools).getByRole("button", { name: "Імпорт PGN" })).toBeInTheDocument();
-        expect(within(tools).getByRole("button", { name: "Відкрити PGN-файл" })).toBeInTheDocument();
-        expect(within(tools).getByRole("button", { name: "Вставити FEN" })).toBeInTheDocument();
-        expect(screen.queryByRole("button", { name: "Перевернути дошку" })).not.toBeInTheDocument();
+        expect(screen.queryByLabelText("Інструменти аналізу")).not.toBeInTheDocument();
+        expect(screen.queryByRole("tab", { name: /Ходи/i })).not.toBeInTheDocument();
+
+        fireEvent.click(screen.getByRole("button", { name: "Додаткові дії аналізу" }));
+        expect(screen.getByRole("menuitem", { name: "Нова позиція" })).toBeInTheDocument();
+        expect(screen.getByRole("menuitem", { name: "Імпорт PGN" })).toBeInTheDocument();
+        expect(screen.getByRole("menuitem", { name: "Відкрити PGN-файл" })).toBeInTheDocument();
+        expect(screen.getByRole("menuitem", { name: "Вставити FEN" })).toBeInTheDocument();
+        expect(screen.getByRole("menuitem", { name: "Перевернути дошку" })).toBeInTheDocument();
     });
 
     it("keeps analysis settings in one popover", async () => {
@@ -81,7 +83,7 @@ describe("Analysis Center", () => {
             <BoardSettingsProvider><Analysis /></BoardSettingsProvider>
         </MemoryRouter>);
 
-        fireEvent.click(await screen.findByRole("button", { name: "Налаштування аналізу" }));
+        fireEvent.click(await screen.findByRole("button", { name: "Налаштувати движок" }));
         expect(screen.getByText("Тема дошки")).toBeInTheDocument();
         expect(screen.getByRole("switch", { name: /Координати/i })).toBeInTheDocument();
         expect(screen.getByRole("switch", { name: /Стрілка найкращого ходу/i })).toBeInTheDocument();
@@ -99,11 +101,11 @@ describe("Analysis Center", () => {
         fireEvent.click(screen.getByRole("tab", { name: /Движок/i }));
         expect(screen.queryByLabelText("Розширені дані движка")).not.toBeInTheDocument();
 
-        fireEvent.click(screen.getByRole("button", { name: "Налаштування аналізу" }));
+        fireEvent.click(screen.getByRole("button", { name: "Налаштувати движок" }));
         expect(screen.getByRole("button", { name: /Простий/i })).toHaveAttribute("aria-pressed", "true");
         fireEvent.click(screen.getByRole("button", { name: /Розширений/i }));
         expect(screen.getByRole("button", { name: /Розширений/i })).toHaveAttribute("aria-pressed", "true");
-        fireEvent.click(screen.getByRole("button", { name: "Налаштування аналізу" }));
+        fireEvent.click(screen.getByRole("button", { name: "Налаштувати движок" }));
 
         const advanced = await screen.findByLabelText("Розширені дані движка");
         expect(within(advanced).getByText("Глибина")).toBeInTheDocument();
@@ -136,7 +138,11 @@ describe("Analysis Center", () => {
         fireEvent.click(screen.getByRole("tab", { name: /Движок/i }));
 
         expect(await screen.findByText("Позиція близька до рівної")).toBeInTheDocument();
-        expect(screen.getByRole("button", { name: "Налаштувати движок" })).toBeInTheDocument();
+        expect(screen.getAllByRole("switch", { name: "Stockfish" })).toHaveLength(1);
+        expect(screen.getAllByRole("button", { name: "Налаштувати движок" })).toHaveLength(1);
+        expect(screen.getAllByRole("button", { name: "Призупинити Stockfish" })).toHaveLength(1);
+        expect(screen.getByRole("button", { name: "Мій прогноз" })).toBeInTheDocument();
+        expect(screen.getByRole("button", { name: "Зберегти позицію в закладки" })).toBeInTheDocument();
         expect(screen.getByText("Глибина")).toBeInTheDocument();
         expect(screen.getByText("Ходи партії")).toBeInTheDocument();
         expect(screen.getByLabelText("Коментар до позиції")).toBeInTheDocument();
@@ -193,17 +199,19 @@ describe("Analysis Center", () => {
         expect(screen.getAllByText("Не вказано").length).toBeGreaterThan(0);
     });
 
-    it("keeps PGN import returning to Moves with a precise action label", async () => {
+    it("imports PGN from the single More menu and returns to Engine", async () => {
         render(<MemoryRouter initialEntries={["/analysis"]}>
             <BoardSettingsProvider><Analysis/></BoardSettingsProvider>
         </MemoryRouter>);
 
-        fireEvent.click(screen.getByRole("button", { name: "Імпорт PGN" }));
+        fireEvent.click(screen.getByRole("button", { name: "Додаткові дії аналізу" }));
+        fireEvent.click(screen.getByRole("menuitem", { name: "Імпорт PGN" }));
         const editor = screen.getByRole("textbox", { name: "Paste PGN or FEN" });
         fireEvent.change(editor, { target: { value: '[Event "Import"]\n\n1. e4 e5 2. Nf3 Nc6 *' } });
         fireEvent.click(screen.getByRole("button", { name: "Відкрити для аналізу" }));
 
         await waitFor(() => expect(screen.getByText("e4")).toBeInTheDocument());
-        expect(screen.getByRole("tab", { name: /Ходи/i })).toHaveAttribute("aria-selected", "true");
+        expect(screen.getByRole("tab", { name: /Движок/i })).toHaveAttribute("aria-selected", "true");
+        expect(screen.queryByRole("tab", { name: /Ходи/i })).not.toBeInTheDocument();
     });
 });
