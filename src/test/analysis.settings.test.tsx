@@ -33,8 +33,8 @@ describe('Analysis settings controls', () => {
     open(); settings();
     for (const theme of BOARD_THEMES) {
       fireEvent.change(screen.getByLabelText('Тема дошки'), { target: { value: theme.id } });
-      expect(board().customLightSquareStyle.backgroundColor).toBe(theme.light);
-      expect(board().customDarkSquareStyle.backgroundColor).toBe(theme.dark);
+      expect(board().customLightSquareStyle.backgroundColor).toBe(theme.id === 'odesa' ? '#eee9d3' : theme.light);
+      expect(board().customDarkSquareStyle.backgroundColor).toBe(theme.id === 'odesa' ? '#708b9c' : theme.dark);
     }
     toggle('Координати'); expect(board().showBoardNotation).toBe(false);
     toggle('Координати'); expect(board().showBoardNotation).toBe(true);

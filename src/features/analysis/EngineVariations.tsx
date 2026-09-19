@@ -1,4 +1,4 @@
-import { GitBranch } from 'lucide-react';
+import { Plus } from 'lucide-react';
 import { useEffect, useRef } from 'react';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 
@@ -33,6 +33,6 @@ export default function EngineVariations({ lines, fen, selectedId, selectedIndex
         {(!black || index === 0) && <span className="analysis-pv-number">{notation}</span>}<span>{san}</span>
       </button>;
     })}</div>
-    <Tooltip><TooltipTrigger asChild><button type="button" className="analysis-pv-add" aria-label={`Додати варіант Stockfish ${line.rank} до дерева`} disabled={disabled} onClick={() => onAdd(line)}><GitBranch size={17} /></button></TooltipTrigger><TooltipContent>Додати всю лінію до партії</TooltipContent></Tooltip>
+    <Tooltip><TooltipTrigger asChild><button type="button" className="analysis-pv-add" aria-label={`Додати варіант Stockfish ${line.rank} до дерева`} disabled={disabled} onClick={() => onAdd(line)}><Plus size={17} /></button></TooltipTrigger><TooltipContent>Додати всю лінію до партії</TooltipContent></Tooltip>
   </li>)}</ol>;
 }

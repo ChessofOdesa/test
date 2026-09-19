@@ -275,3 +275,32 @@ pass. Includes direct any-ply preview, row switching, shared navigation, unchang
 PGN until explicit add, Black move numbers, mate-score display and disabled controls.
 Live visual/touch/worker validation remains pending under the existing protected
 preview limitation. No production merge/deployment. Continue on the same PR #10.
+
+## Approved analysis-page mockup — 2026-09-19
+
+Implemented the generated mockup in the existing Analysis Center. The global
+navigation/sidebar component, its styles, and other pages are unchanged.
+
+- Page-scoped navy/blue palette in `analysis-studio.css`; two desktop columns,
+  responsive stacked layout, player bars, framed PV rows and large footer controls.
+- Three tabs: Overview, Engine and Info. The existing move tree now appears below
+  engine lines; advanced selected-move details remain available in a disclosure.
+- A single engine header contains on/off, pause/resume and the existing settings
+  popover. Pausing cancels calculation without disabling game navigation.
+- Existing PGN/FEN imports, position editor, compare and board flip moved to More.
+  My forecast and bookmarks remain in the footer. Existing autoplay is portaled
+  into the shared navigator rather than implemented a second time.
+- Inline comments save on blur or Ctrl/Cmd+Enter, use existing undo/autosave/PGN,
+  and are disabled for the root, previews and active reviews.
+- The default Odesa board receives the mockup's ivory/slate colors on this page
+  only; other chosen themes remain effective. Image export uses the displayed colors.
+
+Browser validation remains blocked: the supported browser returned
+`net::ERR_BLOCKED_BY_CLIENT` for the local analysis page. Do not claim pixel-perfect
+verification or validated real-worker/mobile rendering from component tests.
+This work remains in the draft PR; no production merge was requested.
+
+Validation: 146 tests in 25 files pass with `npm test -- --maxWorkers=2`,
+TypeScript and focused ESLint pass, and Vite production build passes. The first
+concurrent build/test run timed out in two settings tests; the less-concurrent
+run passed without changing assertion timeouts. Existing bundle-size notices remain.

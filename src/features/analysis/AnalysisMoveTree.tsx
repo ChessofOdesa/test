@@ -1,3 +1,4 @@
+import { createPortal } from "react-dom";
 import { nextAnalysisPath } from "./navigation";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
@@ -169,6 +170,8 @@ export default function AnalysisMoveTree({
     focusBranch = false,
     followSelection = true,
     suspended = false,
+    navigationTarget,
+    compact = false,
 }: {
     record: AnalysisRecord;
     setRecord: Dispatch<SetStateAction<AnalysisRecord>>;
@@ -178,6 +181,8 @@ export default function AnalysisMoveTree({
     focusBranch?: boolean;
     followSelection?: boolean;
     suspended?: boolean;
+    navigationTarget?: HTMLElement | null;
+    compact?: boolean;
 }) {
     const treeRef = useRef<HTMLDivElement | null>(null);
     const manualScrollUntil = useRef(0);
@@ -459,12 +464,14 @@ export default function AnalysisMoveTree({
         return entry.node.children.map((child, childIndex) => renderBranch(child, [...entry.path, childIndex], 1, `${entry.node.id}-${child.id}`));
     };
 
+    const autoplayButton = <button type="button" disabled={suspended} onClick={() => setAutoplay(value => !value)} aria-label={autoplay ? "Зупинити Auto-play" : "Auto-play партії"}>{autoplay ? <Pause size={20} /> : <Play size={20} />}</button>;
+
     if (!record.mainline.length) {
         const fenOnly = record.rootFen !== START_FEN;
         return (
             <div className="analysis-move-tree analysis-move-tree-empty">
                 <div className="analysis-move-tree-header">
-                    <div><strong>Ходи</strong><span>{fenOnly ? "Аналіз позиції" : "Нова партія"}</span></div>
+                    <div><strong>Ходи партії</strong><span>{fenOnly ? "Аналіз позиції" : "Нова партія"}</span></div>
                 </div>
                 <div className="analysis-empty-state compact">
                     <GitBranch size={28} />
@@ -479,14 +486,14 @@ export default function AnalysisMoveTree({
         <div ref={treeRef} className="analysis-move-tree">
             <div className="analysis-move-tree-header">
                 <div>
-                    <strong>Ходи</strong>
+                    <strong>Ходи партії</strong>
                     <span>{pluralMoves(moveCount)}{variationCount ? ` · ${pluralVariations(variationCount)}` : ""}</span>
                 </div>
                 <div className="analysis-move-tree-actions">
                     {followSelection && <button type="button" aria-label="Показати вибраний хід" onClick={() => { manualScrollUntil.current = 0; revealSelected(); }}>До ходу</button>}
                     {nextErrorIndex >= 0 && <button type="button" className="analysis-next-error" onClick={() => onNavigate([nextErrorIndex])}>Наступна помилка <ChevronRight size={13} /></button>}
                     {variationCount > 0 && filter !== "variations" && !focusBranch && <button type="button" onClick={() => setVariationsCollapsed(value => !value)} aria-label={variationsCollapsed ? "Розгорнути варіанти" : "Згорнути варіанти"}>{variationsCollapsed ? <ChevronRight size={15} /> : <ChevronDown size={15} />}</button>}
-                    <button type="button" onClick={() => setAutoplay(value => !value)} aria-label={autoplay ? "Зупинити Auto-play" : "Auto-play партії"}>{autoplay ? <Pause size={15} /> : <Play size={15} />}</button>
+                    {navigationTarget ? createPortal(autoplayButton, navigationTarget) : autoplayButton}
                     <DropdownMenu>
                         <DropdownMenuTrigger asChild><button type="button" aria-label="Швидкість Auto-play"><span className="analysis-speed-label">{autoplaySpeed}x</span></button></DropdownMenuTrigger>
                         <DropdownMenuContent align="end">
@@ -543,7 +550,7 @@ export default function AnalysisMoveTree({
                 </div>
             )}
 
-            {renderSelectedInspector()}
+            {compact ? <details className="analysis-move-details"><summary>Деталі вибраного ходу</summary>{renderSelectedInspector()}</details> : renderSelectedInspector()}
 
             <div className="analysis-mainline-label">Основна партія</div>
             <div className="analysis-inline-move-list" aria-label="Список ходів">

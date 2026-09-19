@@ -83,6 +83,10 @@ import {
     Plus,
     RotateCcw,
     Settings2,
+    SkipBack,
+    SkipForward,
+    UserRound,
+    Check,
     Trash2,
     Zap,
 } from "lucide-react";
@@ -101,8 +105,18 @@ import { toast } from "sonner";
 import "@/styles/analysis-center.css";
 import "@/styles/analysis-panel-professional.css";
 import "@/styles/analysis-workspace-tools.css";
+import "@/styles/analysis-studio.css";
 
-type PanelTab = "moves" | "engine" | "overview" | "info";
+function PositionComment({ comment, disabled, onSave }: { comment: string; disabled: boolean; onSave: (value: string) => void }) {
+    const [draft, setDraft] = useState(comment);
+    useEffect(() => setDraft(comment), [comment]);
+    const commit = () => { if (!disabled && draft.trim() !== comment) onSave(draft.trim()); };
+    return <label className="analysis-position-comment">Коментар до позиції
+        <Textarea aria-label="Коментар до позиції" value={draft} disabled={disabled} maxLength={500} placeholder="Оцініть позицію, додайте свої думки…" onChange={event => setDraft(event.target.value)} onBlur={commit} onKeyDown={event => { if ((event.ctrlKey || event.metaKey) && event.key === 'Enter') { event.preventDefault(); event.currentTarget.blur(); } }} />
+    </label>;
+}
+
+type PanelTab = "engine" | "overview" | "info";
 type ImportMode = "pgn" | "fen";
 type OverviewFilter = MoveClassification | "all";
 type AnalysisUiMode = "simple" | "advanced";
@@ -180,17 +194,6 @@ function engineLineScore(line: EngineLine) {
     return line.scoreMate != null ? `${line.scoreMate < 0 ? "−" : ""}M${Math.abs(line.scoreMate)}` : formatCp(line.scoreCp);
 }
 
-function engineVerdict(score: number | null | undefined) {
-    if (score == null) return "Оцінка позиції ще обчислюється";
-    if (score >= 250) return "Велика перевага білих";
-    if (score >= 80) return "Перевага білих";
-    if (score >= 25) return "Трохи краще у білих";
-    if (score <= -250) return "Велика перевага чорних";
-    if (score <= -80) return "Перевага чорних";
-    if (score <= -25) return "Трохи краще у чорних";
-    return "Позиція близька до рівної";
-}
-
 function sideAccuracy(record: AnalysisRecord, color?: "w" | "b") {
     const nodes = record.mainline.filter((node, index) => (!color || node.color === color) && node.evalLoss != null && node.engineMate == null && (index === 0 || record.mainline[index - 1].engineMate == null));
     if (!nodes.length) return null;
@@ -264,43 +267,6 @@ function buildPreview(baseFen: string, pv: string[], label: string): EnginePrevi
     return fens.length ? { label, fens, moves, index: 0 } : null;
 }
 
-function ToolButton({
-    label,
-    shortLabel,
-    icon,
-    active = false,
-    onClick,
-    detail,
-    featured = false,
-}: {
-    label: string;
-    shortLabel: string;
-    icon: ReactNode;
-    active?: boolean;
-    onClick: () => void;
-    detail?: string;
-    featured?: boolean;
-}) {
-    return (
-        <Tooltip>
-            <TooltipTrigger asChild>
-                <button
-                    type="button"
-                    className={cn("analysis-tool-button", active && "is-active", featured && "is-featured")}
-                    onClick={onClick}
-                    aria-label={label}
-                    aria-pressed={active || undefined}
-                >
-                    <span className="analysis-tool-icon">{icon}</span>
-                    <span className="analysis-tool-label">{shortLabel}</span>
-                    {detail ? <small>{detail}</small> : null}
-                </button>
-            </TooltipTrigger>
-            <TooltipContent side="right">{label}</TooltipContent>
-        </Tooltip>
-    );
-}
-
 function NavIconButton({ label, icon, onClick, disabled = false }: { label: string; icon: ReactNode; onClick: () => void; disabled?: boolean }) {
     return (
         <Tooltip>
@@ -316,6 +282,9 @@ export default function AnalysisCenter() {
     const location = useLocation();
     const [searchParams] = useSearchParams();
     const boardSettings = useBoardSettings();
+    // Match the approved page palette without changing shared preferences on other pages.
+    const boardPalette = boardSettings.theme.id === 'odesa'
+        ? { light: '#eee9d3', dark: '#708b9c' } : boardSettings.theme;
     const boardWrapRef = useRef<HTMLDivElement | null>(null);
     const fileInputRef = useRef<HTMLInputElement | null>(null);
     const positionAbortRef = useRef<AbortController | null>(null);
@@ -336,14 +305,16 @@ export default function AnalysisCenter() {
     const [focusBranch, setFocusBranch] = useState(savedPreferences.focusBranch);
     const [followSelection, setFollowSelection] = useState(savedPreferences.followSelection);
     const [mobileFocus, setMobileFocus] = useState(savedPreferences.mobileFocus);
-    const [panelWidth, setPanelWidth] = useState(460);
+    const [panelWidth, setPanelWidth] = useState(600);
     const [resizing, setResizing] = useState(false);
     const panelRef = useRef<HTMLElement | null>(null);
     const reviewProgressRef = useRef<{ identity: string; next: number } | null>(null);
-    const [tab, setTab] = useState<PanelTab>("moves");
+    const [tab, setTab] = useState<PanelTab>("engine");
+    const [navigationTarget, setNavigationTarget] = useState<HTMLDivElement | null>(null);
     const [boardSize, setBoardSize] = useState(650);
     const [flipped, setFlipped] = useState(false);
     const [engineEnabled, setEngineEnabled] = useState(true);
+    const [enginePaused, setEnginePaused] = useState(false);
     const [engineDepth, setEngineDepth] = useState(savedPreferences.engineDepth);
     const [multiPv, setMultiPv] = useState(savedPreferences.multiPv);
     const [showBestMoveArrow, setShowBestMoveArrow] = useState(savedPreferences.showBestMoveArrow);
@@ -393,11 +364,6 @@ export default function AnalysisCenter() {
         : hasEvaluation ? formatCp(currentEval) : "—";
     const evalWhite = hasEvaluation ? Math.max(7, Math.min(93, 50 + currentEval / 18)) : 50;
     const displayedFen = linePreview?.fens[linePreview.index] || currentFen;
-    const engineToolDetail = !engineEnabled
-        ? "OFF"
-        : currentEngine
-            ? `ON · ${evaluationLabel(currentEngine)}`
-            : "ON · ...";
 
     const currentMainlineIndex = record.currentPath?.length === 1 ? record.currentPath[0] : -1;
     const previousMainlineEval = currentMainlineIndex > 0 ? record.mainline[currentMainlineIndex - 1]?.engineEval ?? null : null;
@@ -497,19 +463,19 @@ export default function AnalysisCenter() {
             if (routePgn) {
                 setRecord(buildRecordFromPgn(routePgn));
                 setImportDraft(routePgn);
-                setTab("moves");
+                setTab("engine");
                 setLinePreview(null);
                 toast.success("Партію відкрито в аналізі.");
             } else if (routeFen) {
                 const chess = new Chess(routeFen);
                 setRecord(createRecord(chess.fen()));
                 setImportDraft(chess.fen());
-                setTab("moves");
+                setTab("engine");
                 setLinePreview(null);
                 toast.success("Позицію відкрито для аналізу.");
             } else if (sharedHash) {
                 const shared = readSharedAnalysis(sharedHash);
-                if (shared) { setRecord(shared); setTab("moves"); setLinePreview(null); toast.success("Спільний аналіз відкрито."); }
+                if (shared) { setRecord(shared); setTab("engine"); setLinePreview(null); toast.success("Спільний аналіз відкрито."); }
             }
         } catch {
             toast.error("Не вдалося відкрити переданий PGN або FEN.");
@@ -546,6 +512,7 @@ export default function AnalysisCenter() {
             setLinePreview(null);
             return;
         }
+        if (enginePaused) { setPositionBusy(false); return; }
         const controller = new AbortController();
         positionAbortRef.current = controller;
         setPositionBusy(true);
@@ -566,7 +533,7 @@ export default function AnalysisCenter() {
             window.clearTimeout(timer);
             controller.abort();
         };
-    }, [analyzeCached, currentFen, requestedDepth, engineEnabled, requestedMultiPv, positionKey, review.running, workspaceDialog, economy, pageVisible]);
+    }, [analyzeCached, currentFen, requestedDepth, engineEnabled, enginePaused, requestedMultiPv, positionKey, review.running, workspaceDialog, economy, pageVisible]);
 
     const navigateTo = useCallback((path: number[] | null) => {
         setLinePreview(null);
@@ -640,7 +607,7 @@ export default function AnalysisCenter() {
             setImportOpen(false);
             setCurrentEngine(null);
             setLinePreview(null);
-            setTab("moves");
+            setTab("engine");
             setReview({ running: false, current: 0, total: 0, error: "" });
             setOverviewFilter("all");
         } catch {
@@ -664,7 +631,7 @@ export default function AnalysisCenter() {
             setImportDraft(text);
             setCurrentEngine(null);
             setLinePreview(null);
-            setTab("moves");
+            setTab("engine");
             setReview({ running: false, current: 0, total: 0, error: "" });
             setOverviewFilter("all");
             setImportOpen(false);
@@ -754,7 +721,7 @@ export default function AnalysisCenter() {
         setLinePreview(null);
         setReview({ running: false, current: 0, total: 0, error: "" });
         setOverviewFilter("all");
-        setTab("moves");
+        setTab("engine");
         toast.success("Відкрито нову позицію для аналізу.");
     };
 
@@ -850,7 +817,7 @@ export default function AnalysisCenter() {
         try {
             editRecord(appendAnalysisLine(record, line.pv.slice(0, 20)));
             setLinePreview(null);
-            setTab("moves");
+            setTab("engine");
             toast.success("Лінію Stockfish відкрито у ходах.");
         } catch {
             toast.error("Не вдалося додати лінію до цієї позиції.");
@@ -868,9 +835,8 @@ export default function AnalysisCenter() {
         : [];
 
     const panelTabs: Array<{ id: PanelTab; label: string; icon: typeof Clipboard }> = [
-        { id: "moves", label: "Ходи", icon: Clipboard },
-        { id: "engine", label: "Движок", icon: BrainCircuit },
         { id: "overview", label: "Огляд", icon: BarChart3 },
+        { id: "engine", label: "Движок", icon: BrainCircuit },
         { id: "info", label: "Інфо", icon: Info },
     ];
 
@@ -900,7 +866,7 @@ export default function AnalysisCenter() {
         ? updateRecordNode(current, current.currentPath, node => { node.arrows = []; })
         : { ...current, rootArrows: [] });
     const openPositionImage = () => {
-        setImageSource({ fen: displayedFen, flipped, light: boardSettings.theme.light, dark: boardSettings.theme.dark,
+        setImageSource({ fen: displayedFen, flipped, light: boardPalette.light, dark: boardPalette.dark,
             title: [record.headers.White || 'Білі', record.headers.Black || 'Чорні'].join(' — '),
             comment: linePreview ? '' : currentNode?.comment || '', lastMove: lastMoveSquares?.join(''),
             arrows: visibleArrows, showLastMove: true, showArrows: true, showComment: true });
@@ -909,48 +875,140 @@ export default function AnalysisCenter() {
     const moveCount = Math.ceil(record.mainline.length / 2);
 
     return (
-        <div className={cn("analysis-center", mobileFocus && "analysis-mobile-focus")} style={{ "--analysis-panel-width": `${panelWidth}px` } as CSSProperties}>
+        <div className={cn("analysis-center analysis-studio", mobileFocus && "analysis-mobile-focus")} style={{ "--analysis-panel-width": `${panelWidth}px` } as CSSProperties}>
             <input ref={fileInputRef} className="hidden" type="file" accept=".pgn" onChange={event => void handleFile(event.target.files?.[0])} />
 
-            <div className="analysis-session-bar"><span role="status">{saveStatus}</span><div>
+            <header className="analysis-session-bar"><div className="analysis-studio-title"><h1>Аналіз партії</h1><span role="status"><Check size={16} />{saveStatus}</span></div><div>
                 <Button variant="ghost" size="sm" aria-label="Скасувати зміну" disabled={!record.historyStack.length || review.running} onClick={() => changeHistory()}><Undo2 size={16} /></Button>
                 <Button variant="ghost" size="sm" aria-label="Повторити зміну" disabled={!record.futureStack.length || review.running} onClick={() => changeHistory(true)}><Redo2 size={16} /></Button>
                 <Button variant="outline" size="sm" onClick={() => openWorkspaceDialog('archive')}><FolderOpen size={15} />Мої аналізи</Button>
                 <Button variant="ghost" size="sm" onClick={() => openWorkspaceDialog('share')}><Share2 size={15} />Поділитися</Button>
-            </div></div>
+            </div></header>
             <main className="analysis-workspace">
-                <aside className="analysis-tools" aria-label="Інструменти аналізу">
-                    <ToolButton
-                        label={engineEnabled ? "Вимкнути Stockfish" : "Увімкнути Stockfish"}
-                        shortLabel="Движок"
-                        icon={positionBusy ? <Loader2 size={20} className="animate-spin" /> : <Zap size={20} />}
-                        active={engineEnabled}
-                        featured
-                        detail={engineToolDetail}
-                        onClick={() => {
-                            if (engineEnabled) { cancelReview(); positionAbortRef.current?.abort(); }
-                            setEngineEnabled(value => !value);
-                        }}
-                    />
-                    <ToolButton label="Нова позиція" shortLabel="Нова позиція" icon={<Plus size={20} />} onClick={resetAnalysis} />
-                    <ToolButton label="Імпорт PGN" shortLabel="Імпорт PGN" icon={<Clipboard size={19} />} active={importOpen && importMode === "pgn"} onClick={() => openImport("pgn")} />
-                    <ToolButton label="Мій прогноз" shortLabel="Мій прогноз" icon={<BrainCircuit size={18} />} onClick={() => openWorkspaceDialog("prediction")} />
-                    <ToolButton label="Редактор позиції" shortLabel="Редактор" icon={<Pencil size={18} />} onClick={() => openWorkspaceDialog("editor")} />
-                    <ToolButton label="Вставити FEN" shortLabel="FEN позиція" icon={<Copy size={18} />} active={importOpen && importMode === "fen"} onClick={() => openImport("fen")} />
 
+
+                <section className="analysis-board-column">
+                    <div className="analysis-playerbar analysis-playerbar-top">
+                        <div className="analysis-avatar"><UserRound size={28} /></div>
+                        <strong>{topPlayer.name}</strong>
+                        {topPlayer.rating && <span>{topPlayer.rating}</span>}
+                    </div>
+
+                    <div className="analysis-board-row">
+                        <div className={cn("analysis-evalbar", !engineEnabled && "is-disabled")} aria-label={`Оцінка позиції ${evalText}`}>
+                            <div className="analysis-eval-black" style={{ height: `${flipped ? evalWhite : 100 - evalWhite}%` }} />
+                            <div className="analysis-eval-white" style={{ height: `${flipped ? 100 - evalWhite : evalWhite}%` }} />
+                            <strong className={cn("analysis-eval-label", currentEval < 0 && "analysis-eval-label-top")}>{evalText}</strong>
+                        </div>
+                        <div ref={boardWrapRef} className="analysis-board-wrap">
+                            <div className="analysis-board-surface" style={{ width: boardSize, height: boardSize }}>
+                            <ChessBoard
+                                displayFen={displayedFen}
+                                initialFen={record.rootFen}
+                                size={boardSize}
+                                flipped={flipped}
+                                interactive={!review.running && !linePreview}
+                                onMove={addVariationMove}
+                                customArrows={visibleArrows}
+                                onAnnotationArrow={changeAnnotationArrow}
+                                lastMoveSquares={lastMoveSquares}
+                                showLastMove
+                                showLegalMoves
+                                showChecks
+                                allowArrows={!linePreview && !review.running}
+                                animationDuration={moveAnimation ? 150 : 0}
+                                customLightSquareStyle={{ backgroundColor: boardPalette.light }}
+                                customDarkSquareStyle={{ backgroundColor: boardPalette.dark }}
+                                customBoardStyle={{ borderRadius: 3, boxShadow: "0 8px 28px rgba(0,0,0,.2)" }}
+                            />
+
+                            {boardBadgeKind && badgeSquare && currentNode && (
+                                <span className="analysis-board-badge-slot" style={badgeSquareStyle(badgeSquare, flipped)}>
+                                    <Tooltip>
+                                        <TooltipTrigger asChild>
+                                            <button
+                                                type="button"
+                                                className={`analysis-board-badge analysis-board-badge-${boardBadgeKind}`}
+                                                aria-label={boardBadgeKind === "book" ? "Хід позначено як теорію" : `Хід класифіковано як ${BOARD_BADGE_LABELS[boardBadgeKind]}`}
+                                                onClick={() => setTab(boardBadgeKind === "book" ? "info" : "engine")}
+                                            >
+                                                {BOARD_BADGE_MARKS[boardBadgeKind]}
+                                            </button>
+                                        </TooltipTrigger>
+                                        <TooltipContent side="top">
+                                            <div className="analysis-badge-tooltip">
+                                                <strong>{BOARD_BADGE_LABELS[boardBadgeKind]}</strong>
+                                                {boardBadgeKind === "book" ? (
+                                                    <span>{opening?.line?.name || opening?.opening.name || "Хід із дебютної бази"}</span>
+                                                ) : (
+                                                    <>
+                                                        {reviewBeforeEval != null && reviewAfterEval != null && <span>Оцінка: {formatCp(reviewBeforeEval)} → {formatCp(reviewAfterEval)}</span>}
+                                                        {currentNode.evalLoss != null && <span>Втрата: {(currentNode.evalLoss / 100).toFixed(2)}</span>}
+                                                    </>
+                                                )}
+                                            </div>
+                                        </TooltipContent>
+                                    </Tooltip>
+                                </span>
+                            )}
+                            </div>
+                        </div>
+                    </div>
+
+                    <div className="analysis-playerbar analysis-playerbar-bottom">
+                        <div className="analysis-avatar analysis-avatar-light"><UserRound size={28} /></div>
+                        <strong>{bottomPlayer.name}</strong>
+                        {bottomPlayer.rating && <span>{bottomPlayer.rating}</span>}
+                    </div>
+                </section>
+
+                <aside ref={panelRef} className="analysis-panel" aria-label="Права панель аналізу">
+                    <div role="separator" aria-label="Ширина панелі аналізу" aria-orientation="vertical" aria-valuemin={340} aria-valuemax={620} aria-valuenow={panelWidth} tabIndex={0} className="analysis-panel-resizer" onPointerDown={event => { event.preventDefault(); setResizing(true); }} onKeyDown={event => { if (event.key === 'ArrowLeft' || event.key === 'ArrowRight') { event.preventDefault(); event.stopPropagation(); setPanelWidth(value => Math.max(340, Math.min(620, value + (event.key === 'ArrowLeft' ? 20 : -20)))); } }} />
+                    <div className="analysis-panel-tabs" role="tablist" aria-label="Панель аналізу" onKeyDown={handleTabKeyDown}>
+                        {panelTabs.map(item => {
+                            const Icon = item.icon;
+                            return (
+                                <button
+                                    key={item.id}
+                                    type="button"
+                                    role="tab"
+                                    id={`analysis-tab-${item.id}`}
+                                    aria-controls={`analysis-panel-${item.id}`}
+                                    aria-selected={tab === item.id}
+                                    tabIndex={tab === item.id ? 0 : -1}
+                                    onClick={() => setTab(item.id)}
+                                >
+                                    <Icon size={16} /><span>{item.label}</span>
+                                </button>
+                            );
+                        })}
+                    </div>
+
+                        {linePreview && <div className="analysis-preview-bar analysis-preview-bar-simple" aria-live="polite">
+                            <div><strong>{linePreview.label}</strong><span>{linePreview.moves.slice(0, linePreview.index + 1).join(" ")}</span></div>
+                            <Button variant="ghost" size="sm" onClick={() => setLinePreview(null)}><RotateCcw size={15} />До партії</Button>
+                        </div>}
+                    <div className="analysis-panel-body" role="tabpanel" id={`analysis-panel-${tab}`} aria-labelledby={`analysis-tab-${tab}`}>
+                        {tab === "engine" && (
+                            <div className="analysis-engine-panel analysis-engine-workbench">
+                                <div className="analysis-engine-heading">
+                                    <div><BrainCircuit size={24} /><strong>Stockfish</strong></div>
+                                    <div className="analysis-engine-controls">
+                                        <button type="button" className="analysis-engine-toggle" aria-label={engineEnabled ? 'Вимкнути Stockfish' : 'Увімкнути Stockfish'} aria-pressed={engineEnabled} onClick={() => { if (engineEnabled) { cancelReview(); positionAbortRef.current?.abort(); } setEnginePaused(false); setEngineEnabled(value => !value); }}><span /></button>
+                                        <button type="button" className="analysis-studio-icon analysis-engine-pause" disabled={!engineEnabled} aria-label={enginePaused ? "Продовжити розрахунок Stockfish" : "Призупинити розрахунок Stockfish"} aria-pressed={enginePaused} onClick={() => { pauseReview(); setEnginePaused(value => !value); }}>{enginePaused ? <Play size={20} /> : <Pause size={20} />}</button>
                     <Popover open={settingsOpen} onOpenChange={setSettingsOpen}>
                         <Tooltip>
                             <TooltipTrigger asChild>
                                 <PopoverTrigger asChild>
-                                    <button type="button" className={cn("analysis-tool-button", settingsOpen && "is-active")} aria-label="Налаштування аналізу" aria-expanded={settingsOpen}>
+                                    <button type="button" className={cn("analysis-studio-icon", settingsOpen && "is-active")} aria-label="Налаштування аналізу" aria-expanded={settingsOpen}>
                                         <span className="analysis-tool-icon"><Settings2 size={20} /></span>
-                                        <span className="analysis-tool-label">Налаштування</span>
+
                                     </button>
                                 </PopoverTrigger>
                             </TooltipTrigger>
-                            <TooltipContent side="right">Налаштування аналізу</TooltipContent>
+                            <TooltipContent side="bottom">Налаштування аналізу</TooltipContent>
                         </Tooltip>
-                        <PopoverContent side="right" align="center" className="analysis-settings-popover">
+                        <PopoverContent side="bottom" align="center" className="analysis-settings-popover">
                             <p className="analysis-muted" role="status">{preferencesSaved ? "Налаштування зберігаються на цьому пристрої." : "Налаштування діють, але не збережені: сховище недоступне."}</p>
                             <div className="analysis-popover-heading"><strong>Інтерфейс</strong><span>Режим</span></div>
                             <div className="analysis-ui-mode-options" role="group" aria-label="Режим Analysis">
@@ -1001,134 +1059,33 @@ export default function AnalysisCenter() {
                             </div>
                         </PopoverContent>
                     </Popover>
+                                    </div>
+                                </div>
+                                {!engineEnabled ? (
+                                    <div className="analysis-empty-state"><Zap size={28} /><strong>Движок вимкнено</strong><p>Увімкніть Stockfish перемикачем угорі.</p></div>
+                                ) : (
+                                    <>
+                                        <div className="analysis-pv-heading"><span>Глибина {currentEngine?.depth || '—'} · {engineLines.length} / {requestedMultiPv} варіанти</span><span role="status">{review.running ? 'Огляд партії' : positionError ? 'Недоступний' : enginePaused ? 'Пауза' : positionBusy ? 'Обчислює…' : currentEngine ? 'Готово' : 'Очікує'}</span></div>
+                                        {positionError ? <div className="analysis-error" role="alert">{positionError}</div>
+                                            : review.running ? <p className="analysis-muted">Триває огляд партії. Варіанти поточної позиції з’являться після завершення або паузи.</p>
+                                            : engineLines.length ? <EngineVariations lines={engineLines} fen={currentFen} selectedId={linePreview?.lineId} selectedIndex={linePreview?.index} disabled={review.running} onPreview={previewEngineLine} onAdd={addEngineLineToVariations} />
+                                            : enginePaused ? <p className="analysis-muted">Розрахунок на паузі. Натисніть ▶ біля Stockfish, щоб продовжити.</p>
+                                            : positionBusy ? <div className="analysis-pv-loading" aria-label="Завантаження варіантів">{Array.from({ length: requestedMultiPv }, (_, i) => <div key={i} className="analysis-line-skeleton" />)}</div>
+                                            : <div className="analysis-empty-state compact"><strong>{new Chess(currentFen).isCheckmate() ? 'Мат' : new Chess(currentFen).isStalemate() ? 'Пат' : 'Варіантів немає'}</strong><p>Рушій не повернув доступних продовжень.</p></div>}
 
-                    <DropdownMenu>
-                        <Tooltip>
-                            <TooltipTrigger asChild>
-                                <DropdownMenuTrigger asChild>
-                                    <button type="button" className="analysis-tool-button" aria-label="Додаткові дії">
-                                        <span className="analysis-tool-icon"><MoreHorizontal size={21} /></span>
-                                        <span className="analysis-tool-label">Ще</span>
-                                    </button>
-                                </DropdownMenuTrigger>
-                            </TooltipTrigger>
-                            <TooltipContent side="right">Додаткові дії</TooltipContent>
-                        </Tooltip>
-                        <DropdownMenuContent side="right" align="end" className="w-60">
-                            {!currentNode && <DropdownMenuItem onSelect={() => void copyText(currentFen, "FEN")}><Copy size={16} className="mr-2" />Копіювати FEN</DropdownMenuItem>}
-                            <DropdownMenuItem onSelect={() => setFlipped(value => !value)}><FlipVertical size={16} className="mr-2" />Перевернути дошку</DropdownMenuItem>
-                            <DropdownMenuSeparator />
-                            <DropdownMenuItem disabled={!savedArrows.length || review.running} onSelect={clearAnnotationArrows}><Trash2 size={16} className="mr-2" />Очистити стрілки позиції</DropdownMenuItem>
-                            <DropdownMenuItem disabled={!hasVariations} onSelect={clearVariations}><Trash2 size={16} className="mr-2" />Очистити власні варіанти</DropdownMenuItem>
-                            <DropdownMenuItem disabled={!reviewedNodes.length} onSelect={clearReviewResults}><Trash2 size={16} className="mr-2" />Очистити результати аналізу</DropdownMenuItem>
-                        </DropdownMenuContent>
-                    </DropdownMenu>
-                </aside>
-
-                <section className="analysis-board-column">
-                    <div className="analysis-playerbar analysis-playerbar-top">
-                        <div className="analysis-avatar">{topPlayer.name.slice(0, 1).toUpperCase()}</div>
-                        <strong>{topPlayer.name}</strong>
-                        {topPlayer.rating && <span>{topPlayer.rating}</span>}
-                    </div>
-
-                    <div className="analysis-board-row">
-                        <div className={cn("analysis-evalbar", !engineEnabled && "is-disabled")} aria-label={`Оцінка позиції ${evalText}`}>
-                            <div className="analysis-eval-black" style={{ height: `${flipped ? evalWhite : 100 - evalWhite}%` }} />
-                            <div className="analysis-eval-white" style={{ height: `${flipped ? 100 - evalWhite : evalWhite}%` }} />
-                            <strong className={cn("analysis-eval-label", currentEval < 0 && "analysis-eval-label-top")}>{evalText}</strong>
-                        </div>
-                        <div ref={boardWrapRef} className="analysis-board-wrap">
-                            <div className="analysis-board-surface" style={{ width: boardSize, height: boardSize }}>
-                            <ChessBoard
-                                displayFen={displayedFen}
-                                initialFen={record.rootFen}
-                                size={boardSize}
-                                flipped={flipped}
-                                interactive={!review.running && !linePreview}
-                                onMove={addVariationMove}
-                                customArrows={visibleArrows}
-                                onAnnotationArrow={changeAnnotationArrow}
-                                lastMoveSquares={lastMoveSquares}
-                                showLastMove
-                                showLegalMoves
-                                showChecks
-                                allowArrows={!linePreview && !review.running}
-                                animationDuration={moveAnimation ? 150 : 0}
-                                customBoardStyle={{ borderRadius: 10, boxShadow: "0 16px 42px rgba(27,49,80,.16)" }}
-                            />
-
-                            {boardBadgeKind && badgeSquare && currentNode && (
-                                <span className="analysis-board-badge-slot" style={badgeSquareStyle(badgeSquare, flipped)}>
-                                    <Tooltip>
-                                        <TooltipTrigger asChild>
-                                            <button
-                                                type="button"
-                                                className={`analysis-board-badge analysis-board-badge-${boardBadgeKind}`}
-                                                aria-label={boardBadgeKind === "book" ? "Хід позначено як теорію" : `Хід класифіковано як ${BOARD_BADGE_LABELS[boardBadgeKind]}`}
-                                                onClick={() => setTab(boardBadgeKind === "book" ? "info" : "engine")}
-                                            >
-                                                {BOARD_BADGE_MARKS[boardBadgeKind]}
-                                            </button>
-                                        </TooltipTrigger>
-                                        <TooltipContent side="top">
-                                            <div className="analysis-badge-tooltip">
-                                                <strong>{BOARD_BADGE_LABELS[boardBadgeKind]}</strong>
-                                                {boardBadgeKind === "book" ? (
-                                                    <span>{opening?.line?.name || opening?.opening.name || "Хід із дебютної бази"}</span>
-                                                ) : (
-                                                    <>
-                                                        {reviewBeforeEval != null && reviewAfterEval != null && <span>Оцінка: {formatCp(reviewBeforeEval)} → {formatCp(reviewAfterEval)}</span>}
-                                                        {currentNode.evalLoss != null && <span>Втрата: {(currentNode.evalLoss / 100).toFixed(2)}</span>}
-                                                    </>
-                                                )}
-                                            </div>
-                                        </TooltipContent>
-                                    </Tooltip>
-                                </span>
-                            )}
-                            </div>
-                        </div>
-                    </div>
-
-                    <div className="analysis-playerbar analysis-playerbar-bottom">
-                        <div className="analysis-avatar analysis-avatar-light">{bottomPlayer.name.slice(0, 1).toUpperCase()}</div>
-                        <strong>{bottomPlayer.name}</strong>
-                        {bottomPlayer.rating && <span>{bottomPlayer.rating}</span>}
-                    </div>
-                </section>
-
-                <aside ref={panelRef} className="analysis-panel" aria-label="Права панель аналізу">
-                    <div role="separator" aria-label="Ширина панелі аналізу" aria-orientation="vertical" aria-valuemin={340} aria-valuemax={620} aria-valuenow={panelWidth} tabIndex={0} className="analysis-panel-resizer" onPointerDown={event => { event.preventDefault(); setResizing(true); }} onKeyDown={event => { if (event.key === 'ArrowLeft' || event.key === 'ArrowRight') { event.preventDefault(); event.stopPropagation(); setPanelWidth(value => Math.max(340, Math.min(620, value + (event.key === 'ArrowLeft' ? 20 : -20)))); } }} />
-                    <div className="analysis-panel-tabs" role="tablist" aria-label="Панель аналізу" onKeyDown={handleTabKeyDown}>
-                        {panelTabs.map(item => {
-                            const Icon = item.icon;
-                            return (
-                                <button
-                                    key={item.id}
-                                    type="button"
-                                    role="tab"
-                                    id={`analysis-tab-${item.id}`}
-                                    aria-controls={`analysis-panel-${item.id}`}
-                                    aria-selected={tab === item.id}
-                                    tabIndex={tab === item.id ? 0 : -1}
-                                    onClick={() => setTab(item.id)}
-                                >
-                                    <Icon size={16} /><span>{item.label}</span>
-                                </button>
-                            );
-                        })}
-                    </div>
-
-                        {linePreview && <div className="analysis-preview-bar analysis-preview-bar-simple" aria-live="polite">
-                            <div><strong>{linePreview.label}</strong><span>{linePreview.moves.slice(0, linePreview.index + 1).join(" ")}</span></div>
-                            <Button variant="ghost" size="sm" onClick={() => setLinePreview(null)}><RotateCcw size={15} />До партії</Button>
-                        </div>}
-                    <div className="analysis-panel-body" role="tabpanel" id={`analysis-panel-${tab}`} aria-labelledby={`analysis-tab-${tab}`}>
-                        {tab === "moves" && <details className="analysis-bookmarks"><summary><Bookmark size={14} />Закладки ({renderedMoves.filter(entry => entry.node.bookmark).length})</summary>{renderedMoves.filter(entry => entry.node.bookmark).map(entry => <button type="button" key={entry.node.id} onClick={() => navigateTo(entry.path)}>{entry.node.moveNumber}{entry.node.color === 'w' ? '.' : '...'} {entry.node.san} · {entry.node.bookmark === 'important' ? 'Важливо' : entry.node.bookmark === 'check' ? 'Перевірити' : 'Дебютна ідея'}</button>)}</details>}
-                        {tab === "moves" && (
+                                        {linePreview?.lineId && <p className="analysis-pv-preview-note">Перегляд варіанта · оцінки належать початковій позиції. Переміщуйся кнопками під панеллю.</p>}
+                                        {!positionBusy && currentEngine && engineLines.length > 0 && engineLines.length < requestedMultiPv && <p className="analysis-muted">Рушій повернув {engineLines.length} з {requestedMultiPv} запитаних ліній.</p>}
+                                        <div className="analysis-engine-bottom-actions">{economy && <Button size="sm" variant="ghost" disabled={review.running} aria-pressed={deepPosition === currentFen} onClick={() => setDeepPosition(value => value === currentFen ? null : currentFen)}>{deepPosition === currentFen ? 'Повернути швидкий аналіз' : 'Глибоко цю позицію'}</Button>}</div>
+                                        {economy && <p className="analysis-muted">Економний режим · одна лінія · у фоновій вкладці пауза.</p>}
+                                        {analysisUiMode === "advanced" && <div className="analysis-engine-advanced-meta" aria-label="Розширені дані движка"><span><small>Глибина</small><strong>{currentEngine?.depth ? `D${currentEngine.depth}` : '—'}</strong></span><span><small>MultiPV</small><strong>{requestedMultiPv}</strong></span><span><small>Джерело</small><strong>{engineSource(currentEngine)}</strong></span></div>}
+                                        {analysisUiMode === "advanced" && currentNode?.classification && currentNode.evalLoss != null && <div className="analysis-engine-selected-advanced" aria-label="Деталі вибраного ходу"><div><span>Вибраний хід</span><strong>{currentNode.moveNumber}{currentNode.color === 'w' ? '.' : '...'} {currentNode.san}</strong></div><span className={'analysis-classification analysis-classification-' + currentNode.classification}>{CLASSIFICATION_MARKS[currentNode.classification]}</span><small>Втрата {(currentNode.evalLoss / 100).toFixed(2)}</small></div>}
+                                    </>
+                                )}
+                                <section className="analysis-studio-moves" aria-label="Ходи партії">
                             <AnalysisMoveTree
                                 record={record}
+                                navigationTarget={navigationTarget}
+                                compact={analysisUiMode === "simple"}
                                 setRecord={editRecord}
                                 focusBranch={focusBranch}
                                 followSelection={followSelection}
@@ -1137,31 +1094,8 @@ export default function AnalysisCenter() {
                                 onOpenEngine={() => setTab("engine")}
                                 onPreviewBestMove={previewReviewedBestMove}
                             />
-                        )}
-
-                        {tab === "engine" && (
-                            <div className="analysis-engine-panel analysis-engine-workbench">
-                                <div className="analysis-engine-heading"><div><BrainCircuit size={18} /><strong>Stockfish</strong></div><span role="status"><i className={cn("analysis-status-dot", positionBusy && "is-busy", currentEngine && "is-ready")} />{!engineEnabled ? 'Вимкнений' : review.running ? 'Огляд партії' : positionError ? 'Недоступний' : positionBusy ? 'Обчислює…' : currentEngine ? 'Готово' : 'Очікує'}</span></div>
-                                {!engineEnabled ? (
-                                    <div className="analysis-empty-state"><Zap size={28} /><strong>Движок вимкнено</strong><p>Увімкніть Stockfish у лівій панелі.</p></div>
-                                ) : (
-                                    <>
-                                        <div className="analysis-engine-position"><strong>{positionBusy && !currentEngine ? '…' : evaluationLabel(currentEngine)}</strong><div><span>{engineVerdict(currentEngine?.numericScore)}</span><small>{currentFen.split(' ')[1] === 'w' ? 'Хід білих' : 'Хід чорних'} · Оцінка з боку білих</small></div></div>
-                                        <div className="analysis-pv-heading"><strong>Варіанти Stockfish</strong><span>{currentEngine?.depth ? `D${currentEngine.depth} · ` : ''}{engineLines.length} / {requestedMultiPv} ліній</span></div>
-                                        {positionError ? <div className="analysis-error" role="alert">{positionError}</div>
-                                            : review.running ? <p className="analysis-muted">Триває огляд партії. Варіанти поточної позиції з’являться після завершення або паузи.</p>
-                                            : engineLines.length ? <EngineVariations lines={engineLines} fen={currentFen} selectedId={linePreview?.lineId} selectedIndex={linePreview?.index} disabled={review.running} onPreview={previewEngineLine} onAdd={addEngineLineToVariations} />
-                                            : positionBusy ? <div className="analysis-pv-loading" aria-label="Завантаження варіантів">{Array.from({ length: requestedMultiPv }, (_, i) => <div key={i} className="analysis-line-skeleton" />)}</div>
-                                            : <div className="analysis-empty-state compact"><strong>{new Chess(currentFen).isCheckmate() ? 'Мат' : new Chess(currentFen).isStalemate() ? 'Пат' : 'Варіантів немає'}</strong><p>Рушій не повернув доступних продовжень.</p></div>}
-                                        {engineLines.length > 0 && <p className="analysis-pv-help">Натисни хід, щоб переглянути позицію. Значок <GitBranch size={13} /> додає всю лінію до партії.</p>}
-                                        {linePreview?.lineId && <p className="analysis-pv-preview-note">Перегляд варіанта · оцінки належать початковій позиції. Переміщуйся кнопками під панеллю.</p>}
-                                        {!positionBusy && currentEngine && engineLines.length > 0 && engineLines.length < requestedMultiPv && <p className="analysis-muted">Рушій повернув {engineLines.length} з {requestedMultiPv} запитаних ліній.</p>}
-                                        <div className="analysis-engine-bottom-actions"><Button size="sm" variant="outline" disabled={review.running || !record.currentPath} onClick={() => openWorkspaceDialog('compare')}>Порівняти лінії</Button>{economy && <Button size="sm" variant="ghost" disabled={review.running} aria-pressed={deepPosition === currentFen} onClick={() => setDeepPosition(value => value === currentFen ? null : currentFen)}>{deepPosition === currentFen ? 'Повернути швидкий аналіз' : 'Глибоко цю позицію'}</Button>}</div>
-                                        {economy && <p className="analysis-muted">Економний режим · одна лінія · у фоновій вкладці пауза.</p>}
-                                        {analysisUiMode === "advanced" && <div className="analysis-engine-advanced-meta" aria-label="Розширені дані движка"><span><small>Глибина</small><strong>{currentEngine?.depth ? `D${currentEngine.depth}` : '—'}</strong></span><span><small>MultiPV</small><strong>{requestedMultiPv}</strong></span><span><small>Джерело</small><strong>{engineSource(currentEngine)}</strong></span></div>}
-                                        {analysisUiMode === "advanced" && currentNode?.classification && currentNode.evalLoss != null && <div className="analysis-engine-selected-advanced" aria-label="Деталі вибраного ходу"><div><span>Вибраний хід</span><strong>{currentNode.moveNumber}{currentNode.color === 'w' ? '.' : '...'} {currentNode.san}</strong></div><span className={'analysis-classification analysis-classification-' + currentNode.classification}>{CLASSIFICATION_MARKS[currentNode.classification]}</span><small>Втрата {(currentNode.evalLoss / 100).toFixed(2)}</small></div>}
-                                    </>
-                                )}
+                                </section>
+                                <PositionComment key={currentNode?.id || 'root'} comment={currentNode?.comment || ''} disabled={!currentNode || Boolean(linePreview) || review.running} onSave={comment => { if (record.currentPath) editRecord(current => updateRecordNode(current, record.currentPath!, node => { node.comment = comment; })); }} />
                             </div>
                         )}
 
@@ -1306,9 +1240,46 @@ export default function AnalysisCenter() {
                     </div>
 
                     <div className="analysis-panel-navigation analysis-panel-navigation-simple" aria-label="Навігація по партії" role="group">
-                        <NavIconButton label="Попередній хід" icon={<ChevronLeft size={19} />} onClick={goPrevious} disabled={!canGoPrevious} />
-                        <span aria-live="polite" title={record.currentPath?.length && record.currentPath.length > 1 ? "Активна лінія: " + navigationLabel : "Позиція: " + navigationLabel}>{linePreview ? `${linePreview.index + 1} / ${linePreview.fens.length}` : navigationLabel}</span>
-                        <NavIconButton label="Наступний хід" icon={<ChevronRight size={19} />} onClick={goNext} disabled={!canGoNext} />
+                        <NavIconButton label="Перший хід" icon={<SkipBack size={22} />} onClick={goFirst} disabled={!canGoPrevious} />
+                        <NavIconButton label="Попередній хід" icon={<ChevronLeft size={24} />} onClick={goPrevious} disabled={!canGoPrevious} />
+                        {tab === 'engine' && <div ref={setNavigationTarget} className="analysis-playback-slot" />}
+                        <NavIconButton label="Наступний хід" icon={<ChevronRight size={24} />} onClick={goNext} disabled={!canGoNext} />
+                        <NavIconButton label="Останній хід" icon={<SkipForward size={22} />} onClick={goLast} disabled={!canGoNext} />
+                        <span aria-live="polite">{linePreview ? `${linePreview.index + 1} / ${linePreview.fens.length}` : navigationLabel}</span>
+                    </div>
+                    <div className="analysis-studio-footer">
+                        <Button variant="ghost" onClick={() => openWorkspaceDialog('prediction')}><BrainCircuit size={22} />Мій прогноз</Button>
+                        <DropdownMenu><DropdownMenuTrigger asChild><Button variant="ghost" aria-label="Закладки позицій"><Bookmark size={22} /></Button></DropdownMenuTrigger><DropdownMenuContent align="end">
+                            <DropdownMenuItem disabled={!currentNode || review.running || Boolean(linePreview)} onSelect={() => editRecord(current => updateRecordNode(current, current.currentPath!, node => { node.bookmark = node.bookmark ? undefined : 'important'; }))}>{currentNode?.bookmark ? 'Прибрати закладку' : 'Позначити позицію'}</DropdownMenuItem>
+                            {renderedMoves.filter(entry => entry.node.bookmark).map(entry => <DropdownMenuItem key={entry.node.id} onSelect={() => navigateTo(entry.path)}>{entry.node.moveNumber}{entry.node.color === 'w' ? '.' : '...'} {entry.node.san}</DropdownMenuItem>)}
+                        </DropdownMenuContent></DropdownMenu>
+                    <DropdownMenu>
+                        <Tooltip>
+                            <TooltipTrigger asChild>
+                                <DropdownMenuTrigger asChild>
+                                    <button type="button" className="analysis-tool-button" aria-label="Додаткові дії">
+                                        <span className="analysis-tool-icon"><MoreHorizontal size={21} /></span>
+                                        <span className="analysis-tool-label">Ще</span>
+                                    </button>
+                                </DropdownMenuTrigger>
+                            </TooltipTrigger>
+                            <TooltipContent side="top">Додаткові дії</TooltipContent>
+                        </Tooltip>
+                        <DropdownMenuContent side="top" align="end" className="w-60">
+                            <DropdownMenuItem onSelect={resetAnalysis}><Plus size={16} className="mr-2" />Нова позиція</DropdownMenuItem>
+                            <DropdownMenuItem onSelect={() => openImport('pgn')}><Clipboard size={16} className="mr-2" />Імпорт PGN</DropdownMenuItem>
+                            <DropdownMenuItem onSelect={() => openImport('fen')}><Copy size={16} className="mr-2" />Вставити FEN</DropdownMenuItem>
+                            <DropdownMenuItem onSelect={() => openWorkspaceDialog('editor')}><Pencil size={16} className="mr-2" />Редактор позиції</DropdownMenuItem>
+                            <DropdownMenuItem disabled={!record.currentPath || review.running} onSelect={() => openWorkspaceDialog('compare')}>Порівняти лінії</DropdownMenuItem>
+                            <DropdownMenuSeparator />
+                            {!currentNode && <DropdownMenuItem onSelect={() => void copyText(currentFen, "FEN")}><Copy size={16} className="mr-2" />Копіювати FEN</DropdownMenuItem>}
+                            <DropdownMenuItem onSelect={() => setFlipped(value => !value)}><FlipVertical size={16} className="mr-2" />Перевернути дошку</DropdownMenuItem>
+                            <DropdownMenuSeparator />
+                            <DropdownMenuItem disabled={!savedArrows.length || review.running} onSelect={clearAnnotationArrows}><Trash2 size={16} className="mr-2" />Очистити стрілки позиції</DropdownMenuItem>
+                            <DropdownMenuItem disabled={!hasVariations} onSelect={clearVariations}><Trash2 size={16} className="mr-2" />Очистити власні варіанти</DropdownMenuItem>
+                            <DropdownMenuItem disabled={!reviewedNodes.length} onSelect={clearReviewResults}><Trash2 size={16} className="mr-2" />Очистити результати аналізу</DropdownMenuItem>
+                        </DropdownMenuContent>
+                    </DropdownMenu>
                     </div>
                 </aside>
             </main>
@@ -1316,16 +1287,16 @@ export default function AnalysisCenter() {
             {workspaceDialog === 'metadata' && <GameMetadataDialog record={record} onSave={editRecord} onClose={() => setWorkspaceDialog(null)} />}
             {workspaceDialog === 'prediction' && <PredictionDialog key={currentFen} fen={currentFen} saved={record.predictions?.find(item => item.fen === currentFen)} analyze={analyzeCached} onSave={prediction => editRecord(current => savePrediction(current, prediction))} onClose={() => setWorkspaceDialog(null)} />}
             {workspaceDialog === 'image' && imageSource && <PositionImageDialog source={imageSource} onClose={() => setWorkspaceDialog(null)} />}
-            {workspaceDialog === 'archive'  && <ArchiveDialog record={record} activeId={activeSaveId} onSaved={setActiveSaveId} onLoad={(saved, id) => { cancelReview(); setRecord(saved); setActiveSaveId(id); setTab('moves'); }} onClose={() => setWorkspaceDialog(null)} />}
+            {workspaceDialog === 'archive'  && <ArchiveDialog record={record} activeId={activeSaveId} onSaved={setActiveSaveId} onLoad={(saved, id) => { cancelReview(); setRecord(saved); setActiveSaveId(id); setTab('engine'); }} onClose={() => setWorkspaceDialog(null)} />}
             {workspaceDialog === 'share' && <ShareDialog record={record} onClose={() => setWorkspaceDialog(null)} />}
-            {workspaceDialog === 'editor' && <PositionEditor fen={currentFen} onApply={fen => { cancelReview(); editRecord(createRecord(fen)); setActiveSaveId(null); setTab('moves'); }} onClose={() => setWorkspaceDialog(null)} />}
+            {workspaceDialog === 'editor' && <PositionEditor fen={currentFen} onApply={fen => { cancelReview(); editRecord(createRecord(fen)); setActiveSaveId(null); setTab('engine'); }} onClose={() => setWorkspaceDialog(null)} />}
             {workspaceDialog === 'training' && <MistakeTraining record={record} analyze={analyzeCached} onClose={() => setWorkspaceDialog(null)} />}
             {workspaceDialog === 'compare' && <CompareLines record={record} analyze={analyzeCached} onClose={() => setWorkspaceDialog(null)} />}
             <Dialog open={importOpen} onOpenChange={setImportOpen}>
                 <DialogContent className="sm:max-w-2xl">
                     <DialogHeader>
                         <DialogTitle>{importMode === "pgn" ? "Імпорт PGN" : "FEN позиція"}</DialogTitle>
-                        <DialogDescription>{importMode === "pgn" ? "Вставте текст PGN. Партія та метадані відкриються у вкладці «Ходи»." : "Вставте FEN, щоб відкрити конкретну позицію для аналізу."}</DialogDescription>
+                        <DialogDescription>{importMode === "pgn" ? "Вставте текст PGN. Ходи партії відкриються під варіантами рушія; метадані — у вкладці «Інфо»." : "Вставте FEN, щоб відкрити конкретну позицію для аналізу."}</DialogDescription>
                     </DialogHeader>
                     {importMode === "pgn" && <Button variant="outline" onClick={() => fileInputRef.current?.click()}><FileUp size={16} />Відкрити PGN-файл</Button>}
                     <Textarea

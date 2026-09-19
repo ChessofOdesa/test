@@ -48,8 +48,12 @@ function expectBoard(moves: string[]) {
     moves.forEach(move => game.move(move));
     expect(screen.getByTestId("analysis-board")).toHaveAttribute("data-fen", game.fen());
 }
+function openMoreAction(name: string) {
+    fireEvent.keyDown(screen.getByRole('button', { name: 'Додаткові дії' }), { key: 'ArrowDown' });
+    fireEvent.click(screen.getByRole('menuitem', { name }));
+}
 function importGame(pgn: string) {
-    fireEvent.click(screen.getByRole("button", { name: "Імпорт PGN" }));
+    openMoreAction("Імпорт PGN");
     fireEvent.change(screen.getByRole("textbox", { name: "Paste PGN or FEN" }), { target: { value: pgn } });
     fireEvent.click(screen.getByRole("button", { name: "Відкрити для аналізу" }));
 }
@@ -140,7 +144,7 @@ describe("Analysis Center", () => {
         expectBoard(['d4']);
         const resizer = screen.getByRole('separator', { name: 'Ширина панелі аналізу' });
         fireEvent.keyDown(resizer, { key: 'ArrowLeft' });
-        expect(resizer).toHaveAttribute('aria-valuenow', '480');
+        expect(resizer).toHaveAttribute('aria-valuenow', '620');
     });
 
     it("saves and searches an analysis through the archive dialog", async () => {
@@ -194,30 +198,26 @@ describe("Analysis Center", () => {
         </MemoryRouter>);
 
         await screen.findByTestId("analysis-board");
-        for (const name of [/Ходи/i, /Движок/i, /Огляд/i, /Інфо/i]) {
+        for (const name of [/Огляд/i, /Движок/i, /Інфо/i]) {
             fireEvent.click(screen.getByRole("tab", { name }));
             expect(screen.getByLabelText("Навігація по партії")).toBeInTheDocument();
         }
     });
 
-    it("keeps global actions in the left toolbar and board flip out of the move navigator", async () => {
-        render(<MemoryRouter initialEntries={["/analysis"]}>
-            <BoardSettingsProvider><TooltipProvider><Analysis /></TooltipProvider></BoardSettingsProvider>
-        </MemoryRouter>);
-
-        await screen.findByTestId("analysis-board");
-        const tools = screen.getByLabelText("Інструменти аналізу");
-        expect(within(tools).getAllByRole("button")[0]).toHaveAccessibleName(/Stockfish/i);
-        expect(within(tools).getByRole("button", { name: "Нова позиція" })).toBeInTheDocument();
-        expect(within(tools).getByRole("button", { name: "Імпорт PGN" })).toBeInTheDocument();
-        expect(within(tools).queryByRole("button", { name: "Відкрити PGN-файл" })).not.toBeInTheDocument();
-        expect(within(tools).getByRole("button", { name: "Вставити FEN" })).toBeInTheDocument();
-        expect(screen.queryByRole("button", { name: "Перевернути дошку" })).not.toBeInTheDocument();
+    it("keeps one settings entry and puts secondary actions in More", async () => {
+        openAnalysis('');
+        expect(screen.getAllByRole('button', { name: 'Налаштування аналізу' })).toHaveLength(1);
+        expect(screen.getAllByRole('tab')).toHaveLength(3);
+        expect(screen.queryByLabelText('Інструменти аналізу')).not.toBeInTheDocument();
+        fireEvent.keyDown(screen.getByRole('button', { name: 'Додаткові дії' }), { key: 'ArrowDown' });
+        for (const name of ['Нова позиція', 'Імпорт PGN', 'Вставити FEN', 'Редактор позиції', 'Перевернути дошку']) {
+            expect(screen.getByRole('menuitem', { name })).toBeInTheDocument();
+        }
     });
 
     it("opens a PGN file from the single import dialog and closes it after loading", async () => {
         openAnalysis('');
-        fireEvent.click(screen.getByRole('button', { name: 'Імпорт PGN' }));
+        openMoreAction("Імпорт PGN");
         expect(screen.getAllByRole('button', { name: 'Відкрити PGN-файл' })).toHaveLength(1);
         const input = document.querySelector<HTMLInputElement>('input[type="file"]')!;
         const file = new File(['1. d4 d5 *'], 'game.pgn', { type: 'application/x-chess-pgn' });
@@ -286,7 +286,7 @@ describe("Analysis Center", () => {
         await screen.findByTestId("analysis-board");
         fireEvent.click(screen.getByRole("tab", { name: /Движок/i }));
 
-        expect(await screen.findByText("Позиція близька до рівної")).toBeInTheDocument();
+        expect(await screen.findByRole("list", { name: "Варіанти Stockfish" })).toBeInTheDocument();
         expect(screen.queryByRole("button", { name: "Налаштувати движок" })).not.toBeInTheDocument();
         expect(screen.getAllByRole("button", { name: "Налаштування аналізу" })).toHaveLength(1);
         expect(screen.queryByText("Глибина")).not.toBeInTheDocument();
@@ -351,13 +351,13 @@ describe("Analysis Center", () => {
             <BoardSettingsProvider><TooltipProvider><Analysis/></TooltipProvider></BoardSettingsProvider>
         </MemoryRouter>);
 
-        fireEvent.click(screen.getByRole("button", { name: "Імпорт PGN" }));
+        openMoreAction("Імпорт PGN");
         const editor = screen.getByRole("textbox", { name: "Paste PGN or FEN" });
         fireEvent.change(editor, { target: { value: '[Event "Import"]\n\n1. e4 e5 2. Nf3 Nc6 *' } });
         fireEvent.click(screen.getByRole("button", { name: "Відкрити для аналізу" }));
 
         await waitFor(() => expect(screen.getByText("e4")).toBeInTheDocument());
-        expect(screen.getByRole("tab", { name: /Ходи/i })).toHaveAttribute("aria-selected", "true");
+        expect(screen.getByRole("tab", { name: /Движок/i })).toHaveAttribute("aria-selected", "true");
     });
 });
 
@@ -401,7 +401,8 @@ describe("Analysis position synchronization", () => {
     it("does not move the board when arrow keys switch tabs", () => {
         openAnalysis();
         fireEvent.click(screen.getByText('e4'));
-        fireEvent.keyDown(screen.getByRole('tab', { name: /Ходи/i }), { key: 'ArrowRight' });
+        fireEvent.click(screen.getByRole('tab', { name: /Огляд/i }));
+        fireEvent.keyDown(screen.getByRole('tab', { name: /Огляд/i }), { key: 'ArrowRight' });
         expect(screen.getByRole('tab', { name: /Движок/i })).toHaveAttribute('aria-selected', 'true');
         expectBoard(['e4']);
     });
@@ -495,7 +496,7 @@ it("adds a Stockfish line explicitly and exports the resulting game in Info", as
     expectBoard([]);
     fireEvent.click(within(card).getByRole('button', { name: 'Додати варіант Stockfish 1 до дерева' }));
     expectBoard(['e4', 'e5', 'Nf3']);
-    expect(screen.getByRole('tab', { name: /Ходи/i })).toHaveAttribute('aria-selected', 'true');
+    expect(screen.getByRole('tab', { name: /Движок/i })).toHaveAttribute('aria-selected', 'true');
     fireEvent.click(screen.getByRole('tab', { name: /Інфо/i }));
     expect(screen.getByRole('button', { name: 'Копіювати PGN' })).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Завантажити PGN' })).toBeInTheDocument();
@@ -538,3 +539,46 @@ it("creates a root branch on the board and navigates it with the shared footer",
     fireEvent.click(screen.getByRole('tab', { name: /Інфо/ }));
     expect(document.querySelector('.analysis-pgn-details pre')?.textContent).not.toContain('Nf3');
  });
+
+
+it('saves the inline position comment once, preserves moves and supports undo', () => {
+    openAnalysis('1. e4 e5 *');
+    const comment = screen.getByRole('textbox', { name: 'Коментар до позиції' });
+    fireEvent.change(comment, { target: { value: 'Підготувати d4' } });
+    fireEvent.blur(comment);
+    fireEvent.click(screen.getByRole('tab', { name: /Інфо/ }));
+    expect(document.querySelector('.analysis-pgn-details pre')?.textContent).toContain('{Підготувати d4}');
+    expectBoard(['e4', 'e5']);
+    fireEvent.click(screen.getByRole('button', { name: 'Скасувати зміну' }));
+    expect(document.querySelector('.analysis-pgn-details pre')?.textContent).not.toContain('Підготувати d4');
+    fireEvent.click(screen.getByRole('button', { name: 'Повторити зміну' }));
+    fireEvent.click(screen.getByRole('tab', { name: /Движок/ }));
+    expect(screen.getByRole('textbox', { name: 'Коментар до позиції' })).toHaveValue('Підготувати d4');
+});
+
+it('uses one autoplay control in the footer and navigates to both ends', () => {
+    openAnalysis('1. e4 e5 2. Nf3 *');
+    const nav = screen.getByRole('group', { name: 'Навігація по партії' });
+    expect(screen.getAllByRole('button', { name: 'Auto-play партії' })).toHaveLength(1);
+    expect(within(nav).getByRole('button', { name: 'Auto-play партії' })).toBeInTheDocument();
+    fireEvent.click(within(nav).getByRole('button', { name: 'Перший хід' }));
+    expectBoard([]);
+    expect(screen.getByRole('textbox', { name: 'Коментар до позиції' })).toBeDisabled();
+    fireEvent.click(within(nav).getByRole('button', { name: 'Останній хід' }));
+    expectBoard(['e4', 'e5', 'Nf3']);
+});
+
+
+it('pauses Stockfish while game navigation remains usable and resumes on the current position', async () => {
+    openAnalysis('');
+    await screen.findByRole('list', { name: 'Варіанти Stockfish' });
+    fireEvent.click(screen.getByRole('button', { name: 'Призупинити розрахунок Stockfish' }));
+    const requests = vi.mocked(analyzeFenWithStockfish).mock.calls.length;
+    fireEvent.click(screen.getByRole('button', { name: 'd2d4' }));
+    await act(async () => { await new Promise(resolve => setTimeout(resolve, 280)); });
+    expectBoard(['d4']);
+    expect(vi.mocked(analyzeFenWithStockfish).mock.calls).toHaveLength(requests);
+    fireEvent.click(screen.getByRole('button', { name: 'Продовжити розрахунок Stockfish' }));
+    await waitFor(() => expect(vi.mocked(analyzeFenWithStockfish).mock.calls.length).toBeGreaterThan(requests));
+    expect(vi.mocked(analyzeFenWithStockfish).mock.lastCall?.[0]).toBe(screen.getByTestId('analysis-board').getAttribute('data-fen'));
+});
