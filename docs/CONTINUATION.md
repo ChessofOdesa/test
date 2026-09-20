@@ -304,3 +304,36 @@ Validation: 146 tests in 25 files pass with `npm test -- --maxWorkers=2`,
 TypeScript and focused ESLint pass, and Vite production build passes. The first
 concurrent build/test run timed out in two settings tests; the less-concurrent
 run passed without changing assertion timeouts. Existing bundle-size notices remain.
+
+## Puzzle studio — 2026-09-20
+
+Implemented the accepted puzzle mockup with the final title correction: “Задачі”
+is inside the left rating/stats card and there is no page subtitle above the board.
+The global navigation/sidebar and its colors remain unchanged.
+
+- Page-scoped three-column navy/blue layout, large existing ChessBoard, mobile
+  stacking, compact training card and actual statistics rather than mockup values.
+- Removed mode tabs, timer mode, reset/skip, variant input and repeat-mistake queues.
+  Next is available only after the entire solution. Theme/difficulty choices are
+  queued for the next puzzle and cannot replace an unfinished attempt.
+- Keep the existing legal-move/solution adapter and opponent replies. Hint first
+  highlights the piece, then its move; assisted attempts are explicitly unranked.
+- Local training rating starts at 1500 (K=24, White/Black-independent result vs puzzle
+  rating). Only a unique completed puzzle changes counts/rating; clean completion
+  wins, an unassisted mistake loses, and assisted completion leaves rating unchanged.
+- Persist exact attempt/ply, mistakes, hints, completed IDs, daily counts/delta,
+  streak, preferences, goal and bookmarks. Validate persisted chess lines; report
+  storage failure. This is browser/device-local training data, not an account rating.
+- Difficulty selects the nearest target (+/-300) among new matching puzzles in the
+  next available shard; traverse exhausted/empty shards, show explicit empty/error
+  states and permit retry. No infinite placeholder for exhausted themes.
+- Flip and bookmark work; opening Analysis after completion passes the original FEN
+  through the existing supported query parameter. No new board or engine component.
+
+Browser layout validation remains subject to the previously recorded local browser
+block. Unit/component tests mock board rendering; do not claim a verified screenshot.
+
+Validation: all 156 tests in 27 files pass (`--maxWorkers=2`), plus TypeScript,
+focused ESLint and production build. Added regressions for no-skip settings,
+persisted attempts/hints, unique rating changes, exhausted shards, bookmarks,
+board flip, supported Analysis FEN navigation and network retry.
