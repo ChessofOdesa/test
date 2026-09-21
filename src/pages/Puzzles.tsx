@@ -114,6 +114,11 @@ export default function Puzzles() {
             </div>
             <dl className="puzzle-stat-values"><div><dt>Розв’язано</dt><dd>{progress.solved}</dd></div><div><dt>Без помилок і підказок</dt><dd>{progress.solved ? `${Math.round(progress.clean / progress.solved * 100)}%` : '—'}</dd></div><div><dt>Серія правильних</dt><dd>{progress.streak}</dd></div></dl>
             <div className="puzzle-daily"><span>Сьогодні</span><strong>{today.solved} / {progress.goal}</strong><progress aria-label="Денна ціль" value={Math.min(today.solved, progress.goal)} max={progress.goal} /></div>
+            <div className="puzzle-theme-picker">
+            <label className="puzzle-collection">Тема задач<select aria-label="Добірка задач" value={progress.theme} disabled={busy} onChange={event => commit({ ...latest.current, theme: event.target.value })}><option value="all">Змішані задачі</option>{manifest.data?.themes.map(theme => <option key={theme} value={theme}>{theme}</option>)}</select></label>
+                <p className="puzzle-next-settings">Тема застосовується до наступної задачі.</p>
+                {manifest.data && <p className="puzzle-total">У базі: <strong>{manifest.data.count.toLocaleString('uk-UA')}</strong> задач</p>}
+            </div>
             <Button className="puzzle-saved-button" variant="outline" onClick={() => setSavedOpen(true)}><Bookmark size={16} />Збережені ({progress.saved.length})</Button>
             {!storageOk && <p role="alert" className="puzzle-storage-error">Не вдалося зберегти прогрес. Не закривайте сторінку, щоб не втратити поточну спробу.</p>}
         </aside>
@@ -129,9 +134,8 @@ export default function Puzzles() {
         </section>
         <aside className="puzzle-training puzzle-card" aria-label="Керування тренуванням">
             <header><h2>Тренування</h2><Popover><PopoverTrigger asChild><Button variant="ghost" size="icon" aria-label="Налаштування задач"><Settings2 size={23} /></Button></PopoverTrigger><PopoverContent align="end"><label className="grid gap-2 text-sm">Денна ціль<select aria-label="Денна ціль задач" value={progress.goal} onChange={event => commit({ ...latest.current, goal: Number(event.target.value) })}>{[5, 10, 20, 30].map(goal => <option key={goal} value={goal}>{goal} задач</option>)}</select></label><p className="mt-3 text-xs text-muted-foreground">Точність — частка задач без помилок і підказок. Прогрес зберігається на цьому пристрої.</p></PopoverContent></Popover></header>
-            <label className="puzzle-collection">Добірка<select aria-label="Добірка задач" value={progress.theme} disabled={busy} onChange={event => commit({ ...latest.current, theme: event.target.value })}><option value="all">Змішані задачі</option>{manifest.data?.themes.map(theme => <option key={theme} value={theme}>{theme}</option>)}</select></label>
             <fieldset className="puzzle-difficulty" disabled={busy}><legend>Складність</legend><div>{([['easier', 'Легше'], ['normal', 'Мій рівень'], ['harder', 'Складніше']] as const).map(([value, label]) => <button type="button" key={value} aria-pressed={progress.difficulty === value} onClick={() => commit({ ...latest.current, difficulty: value as Difficulty })}>{label}</button>)}</div></fieldset>
-            <p className="puzzle-next-settings">Добірка й складність — для наступної задачі.</p>
+            <p className="puzzle-next-settings">Складність — для наступної задачі.</p>
             <div className="puzzle-instruction"><span aria-hidden="true">{complete ? <Check size={32} /> : direction ? '♚' : '♔'}</span><div><h2>{complete ? 'Готово!' : 'Поточна задача'}</h2><p>{puzzle ? `Складність: ${puzzle.rating}` : 'Очікуємо завантаження'}</p></div></div>
             {(error || manifest.isError) && <div role="alert" className="puzzle-load-error">{error || 'Не вдалося завантажити базу задач.'}<Button variant="outline" onClick={() => { if (manifest.isError) void manifest.refetch(); else void loadNext(); }}>Повторити завантаження</Button></div>}
             {complete ? <div className="puzzle-complete-actions"><Button disabled={busy} onClick={() => void loadNext()}>Наступна задача<ArrowRight size={18} /></Button><Button variant="outline" onClick={() => navigate('/analysis', { state: { pgn: puzzleAnalysisPgn(puzzle!, attempt!) } })}>Відкрити в аналізі</Button></div> : null}
