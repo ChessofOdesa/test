@@ -371,3 +371,14 @@ production build pass. The actual bundled Stockfish WASM also ran in a Node VM:
 `ods-25`, forced `d1d8`, depth 14, `score mate 1`, `bestmove d1d8`.
 This engine check is not a browser/Worker integration test. Live rendering, touch
 and protected-preview QA remain unverified; do not claim a pixel-checked layout.
+
+## Puzzle controls simplified — 2026-09-21
+
+User revision: move Hint to the right training panel; remove Save/Saved UI and
+all statistics/detail text beneath the left rating. Left panel contains heading,
+rating and a theme button. The button opens the existing compact Dialog with
+selected-theme indication, selection-and-close, Escape and focus return. Keep
+pending theme semantics and pause board interaction while the dialog is open.
+Remove the now-unused daily-goal settings entry. Retain persisted progress fields
+for backwards compatibility. Seven updated page tests, TypeScript, focused ESLint
+and production build pass; live browser layout remains unverified.

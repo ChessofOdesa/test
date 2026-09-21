@@ -24,10 +24,11 @@ afterEach(() => { cleanup(); localStorage.clear(); vi.unstubAllGlobals(); });
 describe('Puzzle studio', () => {
     it('puts the title in the stats panel, removes rejected controls and prevents skipping by settings', async () => {
         open(); await screen.findByTestId('puzzle-board');
-        expect(within(screen.getByRole('complementary', { name: 'Рейтинг і статистика задач' })).getByRole('heading', { name: 'Задачі' })).toBeInTheDocument();
+        expect(within(screen.getByRole('complementary', { name: 'Рейтинг задач' })).getByRole('heading', { name: 'Задачі' })).toBeInTheDocument();
         expect(screen.queryByRole('tab')).not.toBeInTheDocument();
         for (const name of ['Пропустити','Наступна задача','Записати варіант','Почати заново']) expect(screen.queryByRole('button', { name })).not.toBeInTheDocument();
-        fireEvent.change(screen.getByLabelText('Добірка задач'), { target: { value: 'Мат' } });
+        fireEvent.click(screen.getByRole('button', { name: 'Вибрати тему задач' }));
+        fireEvent.click(within(screen.getByRole('dialog')).getByRole('button', { name: 'Мат' }));
         fireEvent.click(screen.getByRole('button', { name: 'Складніше' }));
         expect(readProgress().current?.puzzle.id).toBe('a');
         fireEvent.click(screen.getByRole('button', { name: 'e2e4' }));
@@ -50,35 +51,37 @@ describe('Puzzle studio', () => {
         fireEvent.click(screen.getByRole('button', { name: 'g1f3' }));
         expect(readProgress().rating).toBe(1488); expect(readProgress().clean).toBe(0); expect(readProgress().solved).toBe(1);
     });
-    it('saves bookmarks, flips the board and opens the original position in analysis after completion', async () => {
+    it('flips the board and opens the full solution in analysis after completion', async () => {
         open(); await screen.findByTestId('puzzle-board');
-        fireEvent.click(screen.getByRole('button', { name: 'Зберегти' })); expect(readProgress().saved[0].id).toBe('a');
         fireEvent.click(screen.getByRole('button', { name: 'Перевернути' })); expect(screen.getByTestId('puzzle-board')).toHaveAttribute('data-flipped','true');
         fireEvent.click(screen.getByRole('button', { name: 'e2e4' })); fireEvent.click(screen.getByRole('button', { name: 'g1f3' }));
         fireEvent.click(screen.getByRole('button', { name: 'Відкрити в аналізі' }));
         const game = new Chess(); game.loadPgn(screen.getByTestId('location').textContent!); expect(game.history()).toEqual(['e4', 'e5', 'Nf3']);
     });
 
-    it('opens and removes old bookmarks without replacing the unfinished puzzle', async () => {
-        open(); await screen.findByTestId('puzzle-board');
-        fireEvent.click(screen.getByRole('button', { name: 'Зберегти' }));
-        fireEvent.click(screen.getByRole('button', { name: 'Збережені (1)' }));
-        expect(within(screen.getByRole('dialog')).getByRole('button', { name: 'Відкрити в аналізі' })).toBeDisabled();
+    it('keeps only rating and themes on the left, hints on the right, and persists a popup choice without skipping', async () => {
+        const view = open(); await screen.findByTestId('puzzle-board');
+        const left = within(screen.getByRole('complementary', { name: 'Рейтинг задач' }));
+        expect(left.getByText('1500')).toBeInTheDocument();
+        for (const text of ['Розв’язано', 'Сьогодні', 'Серія правильних', 'Без помилок і підказок', 'Про рейтинг']) expect(left.queryByText(text)).not.toBeInTheDocument();
+        expect(screen.queryByRole('button', { name: /Зберегти|Збережені/ })).not.toBeInTheDocument();
+        expect(within(screen.getByRole('complementary', { name: 'Керування тренуванням' })).getByRole('button', { name: 'Підказка' })).toBeInTheDocument();
+        expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+        fireEvent.click(left.getByRole('button', { name: 'Вибрати тему задач' }));
+        expect(within(screen.getByTestId('puzzle-board')).getByText('e2e4')).toBeDisabled();
+        expect(within(screen.getByRole('dialog')).getByRole('button', { name: 'Змішані задачі' })).toHaveAttribute('aria-pressed', 'true');
+        fireEvent.click(within(screen.getByRole('dialog')).getByRole('button', { name: 'Мат' }));
+        expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+        expect(readProgress().theme).toBe('Мат');
         expect(readProgress().current?.puzzle.id).toBe('a');
-        fireEvent.click(screen.getByRole('button', { name: 'Видалити закладку A' }));
-        expect(readProgress().saved).toEqual([]);
-        fireEvent.click(screen.getByRole('button', { name: 'Close' }));
-        fireEvent.click(screen.getByRole('button', { name: 'Зберегти' }));
-        fireEvent.click(screen.getByRole('button', { name: 'e2e4' }));
-        fireEvent.click(screen.getByRole('button', { name: 'g1f3' }));
-        fireEvent.click(screen.getByRole('button', { name: 'Наступна задача' }));
-        await waitFor(() => expect(readProgress().current?.puzzle.id).toBe('b'));
-        fireEvent.click(screen.getByRole('button', { name: 'Збережені (1)' }));
-        fireEvent.click(within(screen.getByRole('dialog')).getByRole('button', { name: 'Відкрити в аналізі' }));
-        expect(screen.getByTestId('location').textContent).toContain('1. e4');
-        expect(readProgress().current?.puzzle.id).toBe('b');
-        fireEvent.click(screen.getByRole('button', { name: 'Видалити закладку A' }));
-        expect(readProgress().saved).toEqual([]);
+        view.unmount(); open();
+        await waitFor(() => expect(screen.getByRole('button', { name: 'Вибрати тему задач' })).toBeEnabled());
+        fireEvent.click(screen.getByRole('button', { name: 'Вибрати тему задач' }));
+        expect(within(screen.getByRole('dialog')).getByRole('button', { name: 'Мат' })).toHaveAttribute('aria-pressed', 'true');
+        fireEvent.keyDown(screen.getByRole('dialog'), { key: 'Escape', code: 'Escape' });
+        await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument());
+        expect(readProgress().theme).toBe('Мат');
+        expect(screen.getByRole('button', { name: 'e2e4' })).toBeEnabled();
     });
     it('locks hints while checking and leaves rating and mistakes unchanged on engine failure', async () => {
         let reject!: (error: Error) => void;
