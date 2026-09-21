@@ -6,6 +6,9 @@ export interface TrainingPuzzle {
     title: string;
     theme: string;
     rating: number;
+    sourceId?: string;
+    tags?: string[];
+    setupMove?: string;
 }
 export interface PuzzleSet {
     file: string;

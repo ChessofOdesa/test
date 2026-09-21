@@ -8,9 +8,10 @@ export type PuzzleProgress = {
     rating: number; solved: number; clean: number; streak: number;
     completed: string[]; saved: TrainingPuzzle[];
     days: Record<string, { solved: number; delta: number }>;
+    ratingRange: { min: number; max: number } | null;
     current: Attempt | null; theme: string; difficulty: Difficulty; goal: number;
 };
-export const freshProgress = (): PuzzleProgress => ({ rating: 1500, solved: 0, clean: 0, streak: 0, completed: [], saved: [], days: {}, current: null, theme: 'all', difficulty: 'normal', goal: 10 });
+export const freshProgress = (): PuzzleProgress => ({ rating: 1500, solved: 0, clean: 0, streak: 0, completed: [], saved: [], days: {}, current: null, ratingRange: null, theme: 'all', difficulty: 'normal', goal: 10 });
 export function dayKey(date = new Date()) { return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`; }
 export function isPuzzle(value: unknown): value is TrainingPuzzle {
     const p = value as TrainingPuzzle;
@@ -46,7 +47,9 @@ export function readProgress(): PuzzleProgress {
                 try { const game = new Chess(a.puzzle.fen); for (const move of line.slice(0, m.step)) applySolutionMove(game, move); applySolutionMove(game, m.move); return true; } catch { return false; }
             }));
         if (a && validExtras && isPuzzle(a.puzzle) && integer(a.step, line.length) && (a.step % 2 === 0 || a.step === line.length) && typeof a.wrong === 'boolean' && typeof a.assisted === 'boolean' && integer(a.hintLevel, 2) && (!a.hintLevel || a.assisted) && a.complete === (a.step === line.length) && completed.includes(a.puzzle.id) === a.complete) current = a;
-        return { ...fresh, rating: raw.rating, solved: raw.solved, clean: raw.clean, streak: raw.streak, completed, days, current,
+        const range = raw.ratingRange;
+        const ratingRange = range && integer(range.min, 4000) && integer(range.max, 4000) && range.min >= 100 && range.min <= range.max ? { min: range.min, max: range.max } : null;
+        return { ...fresh, ratingRange, rating: raw.rating, solved: raw.solved, clean: raw.clean, streak: raw.streak, completed, days, current,
             saved: Array.isArray(raw.saved) ? raw.saved.slice(0, 500).filter(isPuzzle) : [],
             theme: typeof raw.theme === 'string' ? raw.theme : 'all', difficulty: ['easier', 'normal', 'harder'].includes(raw.difficulty) ? raw.difficulty : 'normal', goal: [5, 10, 20, 30].includes(raw.goal) ? raw.goal : 10 };
     } catch { return fresh; }
@@ -66,7 +69,7 @@ export function finishAttempt(progress: PuzzleProgress, attempt: Attempt, date =
 export function nearestPuzzle(puzzles: TrainingPuzzle[], progress: PuzzleProgress) {
     const target = progress.rating + ({ easier: -300, normal: 0, harder: 300 }[progress.difficulty]);
     const completed = new Set(progress.completed);
-    return puzzles.filter(p => !completed.has(p.id) && (progress.theme === 'all' || p.theme === progress.theme))
+    return puzzles.filter(p => !completed.has(p.id) && inRatingRange(p.rating, progress.ratingRange) && (progress.theme === 'all' || p.theme === progress.theme))
         .sort((a, b) => Math.abs(a.rating - target) - Math.abs(b.rating - target)).find(isPuzzle) || null;
 }
 export type PuzzleIndexEntry = Pick<TrainingPuzzle, 'id' | 'rating' | 'theme'> & { file: string };
@@ -77,7 +80,7 @@ export async function findNextPuzzle(manifest: PuzzleManifest, progress: PuzzleP
     const target = progress.rating + ({ easier: -300, normal: 0, harder: 300 }[progress.difficulty]);
     const completed = new Set(progress.completed);
     if (index) {
-        const candidates = index.filter(p => files.has(p.file) && Number.isFinite(p.rating) && !completed.has(p.id) && (progress.theme === 'all' || p.theme === progress.theme))
+        const candidates = index.filter(p => files.has(p.file) && Number.isFinite(p.rating) && !completed.has(p.id) && inRatingRange(p.rating, progress.ratingRange) && (progress.theme === 'all' || p.theme === progress.theme))
             .sort((a, b) => Math.abs(a.rating - target) - Math.abs(b.rating - target));
         const loaded = new Map<string, TrainingPuzzle[]>();
         for (const entry of candidates) {
@@ -85,6 +88,8 @@ export async function findNextPuzzle(manifest: PuzzleManifest, progress: PuzzleP
             const puzzle = loaded.get(entry.file)!.find(p => p.id === entry.id && p.rating === entry.rating && p.theme === entry.theme && isPuzzle(p));
             if (puzzle) return puzzle;
         }
+        // The complete index already exhausted the matching candidates.
+        return null;
     }
     // Old manifests still work, but compare all shards instead of taking the first.
     let best: TrainingPuzzle | null = null;
@@ -103,4 +108,11 @@ export function markAttemptWrong(attempt: Attempt, move: string): Attempt {
 }
 export function markAttemptAssisted(attempt: Attempt): Attempt {
     return { ...attempt, assisted: true, ratingOutcome: attempt.ratingOutcome || (attempt.wrong ? 'failed' : 'assisted'), hintLevel: Math.min(2, attempt.hintLevel + 1) };
+}
+
+export function inRatingRange(rating: number, range: PuzzleProgress['ratingRange']) { return !range || rating >= range.min && rating <= range.max; }
+export function lastAttemptMove(attempt: Attempt) {
+    const line = attempt.line || attempt.puzzle.solution;
+    const uci = attempt.step > 0 ? line[attempt.step - 1] : attempt.puzzle.setupMove;
+    return uci && /^[a-h][1-8][a-h][1-8][qrbn]?$/.test(uci) ? [uci.slice(0, 2), uci.slice(2, 4)] : [];
 }

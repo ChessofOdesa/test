@@ -382,3 +382,58 @@ pending theme semantics and pause board interaction while the dialog is open.
 Remove the now-unused daily-goal settings entry. Retain persisted progress fields
 for backwards compatibility. Seven updated page tests, TypeScript, focused ESLint
 and production build pass; live browser layout remains unverified.
+
+## Requested puzzle improvements 1, 3, 5, 7, 10–13, 15 — 2026-09-21
+
+- Compact training panel; explicit correct/wrong status with text and icons.
+- Pass the latest move to the existing board (setup move for new imports, opponent
+  reply during a line, solver move at completion, selected move during review).
+- On narrow screens hints follow the board and difficulty controls start collapsed.
+- Add 10,000 official Lichess export positions: 15,000 unique puzzles / 20 primary
+  themes total. Keep previous IDs and chunks. Source tags, original IDs and setup
+  moves are retained for new tasks. See public/puzzles/README.md and import scripts.
+- Inclusive custom rating range persists, filters the global index, queues for the
+  next task and reports empty matches. Preset difficulty restores automatic mode.
+- Completion-only review reuses Stockfish: theme guidance plus its calculated main
+  line / strongest found reply; each stored wrong move opens an engine continuation
+  on the existing board. Any-ply/back/forward/return controls never edit the attempt.
+  Searches are bounded (target 18, minimum 14, 3s); insufficient data shows retry,
+  not invented explanations. Switching/unmount cancels pending review results.
+- ID-only sharing with clipboard/manual-copy fallback. Resolve IDs through the
+  index; answers/review remain locked before completion. Incoming shared tasks queue
+  behind unfinished attempts; completed IDs open without a second rating award.
+
+Validation: 178 tests in 31 files passed, plus application TypeScript, focused
+ESLint and Vite build. Full data audit: 15,000 unique IDs and four-field FEN keys,
+zero duplicate positions and zero illegal solution lines. Import source was the
+September 10, 2026 CC0 Lichess export, sampled from 120,000 rows with quality filters.
+Component tests mock engine output/board rendering; browser layout/touch and live
+worker integration remain pending. No production merge/deployment.
+
+## Resumed puzzle expansion — 2026-09-21
+
+- Extend the same official-export sample by another 10,000 unique tasks, for
+  25,000 positions in 29 themes. Preserve all previous IDs and shards. Nine added
+  themes cover defense, quiet moves, zugzwang, exposed kings, attacks on either
+  wing, underpromotion and mate in two/three. Add matching post-completion ideas.
+- Move the current task instruction into the left rating/theme panel, including
+  a compact mobile row. Hint stays on the right on desktop and below the board on
+  mobile. Global navigation colors and removed statistics/save buttons stay as requested.
+- Correct moves receive a check by the moved piece; rejected moves mark the
+  original square because the illegal-for-the-solution move is rolled back.
+  Marks respect orientation and hide during engine previews. No numeric blunder
+  category is inferred from this task-result indicator.
+- Empty indexed selections return immediately without downloading every shard.
+  The importer now validates the count, uses queue cursors and rebuilds the index.
+  `node scripts/validate-puzzles.mjs` audits all IDs, normalized FENs, solution
+  legality, terminal positions, rating bounds, themes, shard counts and the index.
+- Revalidated all described existing features: queued theme/range changes, hints,
+  completion-only Stockfish review and mistakes, board previews, ID-only sharing,
+  unfinished-attempt preservation, mobile defaults and move highlighting.
+
+Validation: 179 tests in 31 files, application TypeScript and production Vite
+build passed. Corpus audit: 25,000 positions / 29 themes / 63 shards, zero duplicate
+IDs or FEN keys, zero illegal lines, index consistent. Existing bundle-size and
+Browserslist warnings remain. Component engine/board tests are mocked; a new live
+browser, touch or real-worker certification is not claimed. Keep PR #10 a draft;
+no production merge/deployment.
