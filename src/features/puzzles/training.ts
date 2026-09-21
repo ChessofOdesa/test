@@ -3,7 +3,7 @@ import { applySolutionMove, type TrainingPuzzle, type PuzzleManifest } from './m
 
 export const PUZZLE_PROGRESS_KEY = 'coo.puzzles.training.v1';
 export type Difficulty = 'easier' | 'normal' | 'harder';
-export type Attempt = { puzzle: TrainingPuzzle; step: number; wrong: boolean; assisted: boolean; hintLevel: number; complete: boolean };
+export type Attempt = { puzzle: TrainingPuzzle; step: number; wrong: boolean; assisted: boolean; hintLevel: number; complete: boolean; line?: string[]; ratingOutcome?: 'failed' | 'assisted'; mistakes?: { step: number; move: string }[] };
 export type PuzzleProgress = {
     rating: number; solved: number; clean: number; streak: number;
     completed: string[]; saved: TrainingPuzzle[];
@@ -19,7 +19,7 @@ export function isPuzzle(value: unknown): value is TrainingPuzzle {
 }
 export function attemptFen(attempt: Attempt) {
     const game = new Chess(attempt.puzzle.fen);
-    for (const move of attempt.puzzle.solution.slice(0, attempt.step)) applySolutionMove(game, move);
+    for (const move of (attempt.line || attempt.puzzle.solution).slice(0, attempt.step)) applySolutionMove(game, move);
     return game.fen();
 }
 export function readProgress(): PuzzleProgress {
@@ -38,7 +38,14 @@ export function readProgress(): PuzzleProgress {
         }
         let current: Attempt | null = null;
         const a = raw.current;
-        if (a && isPuzzle(a.puzzle) && integer(a.step, a.puzzle.solution.length) && (a.step % 2 === 0 || a.step === a.puzzle.solution.length) && typeof a.wrong === 'boolean' && typeof a.assisted === 'boolean' && integer(a.hintLevel, 2) && (!a.hintLevel || a.assisted) && a.complete === (a.step === a.puzzle.solution.length) && completed.includes(a.puzzle.id) === a.complete) current = a;
+        const line = a?.line || a?.puzzle?.solution;
+        const validExtras = a && (!a.line || isPuzzle({ ...a.puzzle, solution: a.line })) &&
+            (!a.ratingOutcome || ['failed', 'assisted'].includes(a.ratingOutcome)) &&
+            (!a.mistakes || Array.isArray(a.mistakes) && a.mistakes.length <= 20 && a.mistakes.every((m: { step: number; move: string }) => {
+                if (!m || !integer(m.step, a.step) || m.step % 2 !== 0 || typeof m.move !== 'string' || !/^[a-h][1-8][a-h][1-8][qrbn]?$/.test(m.move)) return false;
+                try { const game = new Chess(a.puzzle.fen); for (const move of line.slice(0, m.step)) applySolutionMove(game, move); applySolutionMove(game, m.move); return true; } catch { return false; }
+            }));
+        if (a && validExtras && isPuzzle(a.puzzle) && integer(a.step, line.length) && (a.step % 2 === 0 || a.step === line.length) && typeof a.wrong === 'boolean' && typeof a.assisted === 'boolean' && integer(a.hintLevel, 2) && (!a.hintLevel || a.assisted) && a.complete === (a.step === line.length) && completed.includes(a.puzzle.id) === a.complete) current = a;
         return { ...fresh, rating: raw.rating, solved: raw.solved, clean: raw.clean, streak: raw.streak, completed, days, current,
             saved: Array.isArray(raw.saved) ? raw.saved.slice(0, 500).filter(isPuzzle) : [],
             theme: typeof raw.theme === 'string' ? raw.theme : 'all', difficulty: ['easier', 'normal', 'harder'].includes(raw.difficulty) ? raw.difficulty : 'normal', goal: [5, 10, 20, 30].includes(raw.goal) ? raw.goal : 10 };
@@ -49,7 +56,8 @@ export function finishAttempt(progress: PuzzleProgress, attempt: Attempt, date =
     if (!attempt.complete || progress.completed.includes(attempt.puzzle.id)) return progress;
     const clean = !attempt.wrong && !attempt.assisted;
     const expected = 1 / (1 + 10 ** ((attempt.puzzle.rating - progress.rating) / 400));
-    const rating = Math.max(100, Math.min(4000, progress.rating + (attempt.assisted ? 0 : Math.round(24 * ((clean ? 1 : 0) - expected)))));
+    const assisted = attempt.ratingOutcome === 'assisted' || !attempt.ratingOutcome && attempt.assisted && !attempt.wrong;
+    const rating = Math.max(100, Math.min(4000, progress.rating + (assisted ? 0 : Math.round(24 * ((clean ? 1 : 0) - expected)))));
     const day = dayKey(date), previous = progress.days[day] || { solved: 0, delta: 0 };
     const days = { ...progress.days, [day]: { solved: previous.solved + 1, delta: previous.delta + rating - progress.rating } };
     return { ...progress, current: attempt, rating, solved: progress.solved + 1, clean: progress.clean + Number(clean), streak: clean ? progress.streak + 1 : 0,
@@ -61,11 +69,38 @@ export function nearestPuzzle(puzzles: TrainingPuzzle[], progress: PuzzleProgres
     return puzzles.filter(p => !completed.has(p.id) && (progress.theme === 'all' || p.theme === progress.theme))
         .sort((a, b) => Math.abs(a.rating - target) - Math.abs(b.rating - target)).find(isPuzzle) || null;
 }
-export async function findNextPuzzle(manifest: PuzzleManifest, progress: PuzzleProgress, load: (file: string) => Promise<TrainingPuzzle[]>) {
-    for (const set of manifest.chunks.filter(set => progress.theme === 'all' || set.themes.includes(progress.theme))) {
-        if (!/^[a-zA-Z0-9_-]+\.json$/.test(set.file)) throw new Error('Некоректна адреса добірки');
-        const candidate = nearestPuzzle(await load(set.file), progress);
-        if (candidate) return candidate;
+export type PuzzleIndexEntry = Pick<TrainingPuzzle, 'id' | 'rating' | 'theme'> & { file: string };
+export async function findNextPuzzle(manifest: PuzzleManifest, progress: PuzzleProgress, load: (file: string) => Promise<TrainingPuzzle[]>, index?: PuzzleIndexEntry[]) {
+    const sets = manifest.chunks.filter(set => progress.theme === 'all' || set.themes.includes(progress.theme));
+    const files = new Set(sets.map(set => set.file));
+    for (const file of files) if (!/^[a-zA-Z0-9_-]+\.json$/.test(file)) throw new Error('Некоректна адреса добірки');
+    const target = progress.rating + ({ easier: -300, normal: 0, harder: 300 }[progress.difficulty]);
+    const completed = new Set(progress.completed);
+    if (index) {
+        const candidates = index.filter(p => files.has(p.file) && Number.isFinite(p.rating) && !completed.has(p.id) && (progress.theme === 'all' || p.theme === progress.theme))
+            .sort((a, b) => Math.abs(a.rating - target) - Math.abs(b.rating - target));
+        const loaded = new Map<string, TrainingPuzzle[]>();
+        for (const entry of candidates) {
+            if (!loaded.has(entry.file)) loaded.set(entry.file, await load(entry.file));
+            const puzzle = loaded.get(entry.file)!.find(p => p.id === entry.id && p.rating === entry.rating && p.theme === entry.theme && isPuzzle(p));
+            if (puzzle) return puzzle;
+        }
     }
-    return null;
+    // Old manifests still work, but compare all shards instead of taking the first.
+    let best: TrainingPuzzle | null = null;
+    for (const set of sets) {
+        const candidate = nearestPuzzle(await load(set.file), progress);
+        if (candidate && (!best || Math.abs(candidate.rating - target) < Math.abs(best.rating - target))) best = candidate;
+        if (best?.rating === target) break;
+    }
+    return best;
+}
+
+export function markAttemptWrong(attempt: Attempt, move: string): Attempt {
+    const mistakes = attempt.mistakes || [];
+    return { ...attempt, wrong: true, ratingOutcome: attempt.ratingOutcome || (attempt.assisted ? 'assisted' : 'failed'),
+        mistakes: mistakes.some(m => m.step === attempt.step && m.move === move) ? mistakes : [...mistakes, { step: attempt.step, move }].slice(-20) };
+}
+export function markAttemptAssisted(attempt: Attempt): Attempt {
+    return { ...attempt, assisted: true, ratingOutcome: attempt.ratingOutcome || (attempt.wrong ? 'failed' : 'assisted'), hintLevel: Math.min(2, attempt.hintLevel + 1) };
 }

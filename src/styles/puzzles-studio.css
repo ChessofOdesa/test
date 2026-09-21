@@ -51,9 +51,9 @@
 .puzzles-studio .puzzle-instruction { display: flex; align-items: center; gap: 14px; border-top: 1px solid #314a65; padding-top: 25px; margin-block: 22px; }
 .puzzles-studio .puzzle-instruction > span { display: grid; place-items: center; width: 56px; height: 56px; flex-shrink: 0; border-radius: 50%; background: #eef5fc; color: #102238; font-size: 40px; }
 .puzzles-studio .puzzle-instruction p { color: #b4cae1; font-size: 13px; margin-top: 4px; }
-.puzzles-studio .puzzle-status { min-height: 84px; display: grid; place-items: center; padding: 17px; border: 1px solid #304862; border-radius: 6px; background: #192e43; text-align: center; font-size: 14px; }
+.puzzles-studio .puzzle-status { min-height: 48px; margin-top: 12px; display: grid; place-items: center; padding: 17px; border: 1px solid #304862; border-radius: 6px; background: #192e43; text-align: center; font-size: 14px; }
 .puzzles-studio .puzzle-status.is-solved { color: #86ceff; border-color: #258bcc; }
-.puzzles-studio .puzzle-hint { width: 100%; min-height: 46px; margin-top: 22px; gap: 10px; border-color: #219cff; color: #b5e1ff; }
+.puzzles-studio .puzzle-hint { width: 100%; min-height: 46px; margin-top: 10px; gap: 10px; border-color: #219cff; color: #b5e1ff; }
 .puzzles-studio .puzzle-hint-note { font-size: 11px; color: #a5bad3; margin-top: 9px; }
 .puzzles-studio .puzzle-next-note { border-top: 1px solid #314a65; margin-top: 27px; padding-top: 23px; color: #adc4de; font-size: 13px; }
 .puzzles-studio .puzzle-complete-actions { display: grid; gap: 10px; margin-top: 20px; }
@@ -85,4 +85,16 @@
   .puzzles-studio .puzzle-board-footer > span { flex-basis: 100%; margin-bottom: 4px; }
   .puzzles-studio .puzzle-training { padding: 18px; }
   .puzzles-studio .puzzle-storage-error { grid-column: 1/-1; }
+}
+
+.puzzles-studio .puzzle-saved-button { width: 100%; gap: 6px; margin-top: 14px; padding-inline: 5px; }
+@media (max-width: 760px) {
+  .puzzles-studio .puzzle-stats { grid-template-columns: 1fr 1fr; gap: 8px 12px; padding: 12px; }
+  .puzzles-studio h1 { grid-column: 1; font-size: 23px; }
+  .puzzles-studio .puzzle-rating { grid-column: 1; grid-row: 2 / 4; }
+  .puzzles-studio .puzzle-rating > strong { font-size: 30px; }
+  .puzzles-studio .puzzle-stat-values { grid-column: 2; grid-row: 2 / 4; }
+  .puzzles-studio .puzzle-saved-button { grid-column: 2; grid-row: 1; margin: 0; min-height: 36px; }
+  .puzzles-studio .puzzle-stat-values dt { max-width: 100px; }
+  .puzzles-studio .puzzle-daily { gap: 2px; padding-top: 7px; }
 }

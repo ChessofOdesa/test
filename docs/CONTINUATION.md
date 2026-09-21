@@ -337,3 +337,37 @@ Validation: all 156 tests in 27 files pass (`--maxWorkers=2`), plus TypeScript,
 focused ESLint and production build. Added regressions for no-skip settings,
 persisted attempts/hints, unique rating changes, exhausted shards, bookmarks,
 board flip, supported Analysis FEN navigation and network retry.
+
+## Puzzle audit fixes — 2026-09-21
+
+This section supersedes the initial puzzle rating, selection and FEN-only behavior.
+
+- Accept legal immediate mates independent of the stored UCI answer. Persist the
+  accepted line so reload and Analysis retain the actual final board. A database
+  regression checks all 31 one-move puzzles with alternative mating moves.
+- Other unmatched legal moves use the existing Stockfish worker: compare the
+  stored move and the candidate with White-normalized scores, at least depth 14,
+  target 18 and 2.5 seconds per search. Accept within 30 cp or a confirmed winning
+  mate and continue a validated PV for the remaining exercise plies. A shallow,
+  failed, cancelled or incomplete search never marks the attempt wrong. This is
+  bounded engine validation, not a proof of all alternative solutions.
+- Freeze rating treatment at the first mistake or hint. A later hint cannot erase
+  a recorded failure; a hint used before a mistake starts neutral practice. Old
+  in-progress saves with both flags conservatively retain the mistake penalty.
+- Add a left-panel Saved dialog with removal and completed-puzzle Analysis links.
+  Unfinished attempts cannot be replaced or bypassed through the dialog.
+- Use the full rating/theme index to select globally and fetch the matching shard.
+  Regenerate after dataset changes with `node scripts/build-puzzle-index.mjs`.
+  Legacy manifests compare all available shards. Tests check index/data equality.
+- Pass the complete accepted solution and up to 20 unique wrong moves as PGN
+  variations through Analysis's existing navigation state. Test the actual parser,
+  including Black-to-move roots and errors on later plies.
+- Put status and hints beside the board, reduce mobile stats spacing, clarify the
+  clean-solution percentage, and identify the promotion piece in hints. Global
+  navigation/sidebar colors and the no-skip rule remain unchanged.
+
+Validation: 168 tests in 29 files, application TypeScript, focused ESLint and Vite
+production build pass. The actual bundled Stockfish WASM also ran in a Node VM:
+`ods-25`, forced `d1d8`, depth 14, `score mate 1`, `bestmove d1d8`.
+This engine check is not a browser/Worker integration test. Live rendering, touch
+and protected-preview QA remain unverified; do not claim a pixel-checked layout.
