@@ -1,4 +1,5 @@
 import { BoardSettingsProvider } from "@/contexts/BoardSettingsContext";
+import { TooltipProvider } from "@/components/ui/tooltip";
 import Analysis from "@/pages/AnalysisCenter";
 import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { MemoryRouter } from "react-router-dom";
@@ -29,12 +30,29 @@ vi.mock("@/lib/stockfish", () => ({
     }),
 }));
 
+class ResizeObserverStub { observe() {} unobserve() {} disconnect() {} }
+vi.stubGlobal("ResizeObserver", ResizeObserverStub);
 afterEach(cleanup);
 
 describe("Analysis Center", () => {
+    it("opens and edits a puzzle mistake from the initial position while retaining the main layout", async () => {
+        const pgn = '1. e4 (1. d4 {Моя помилка}) e5 2. Nf3 *';
+        render(<MemoryRouter initialEntries={[{ pathname: "/analysis", state: { pgn } }]}>
+            <BoardSettingsProvider><TooltipProvider><Analysis /></TooltipProvider></BoardSettingsProvider>
+        </MemoryRouter>);
+        await screen.findByTestId("analysis-board");
+        fireEvent.click(screen.getByRole("button", { name: "Усі варіанти" }));
+        fireEvent.click(screen.getByText("d4"));
+        expect(screen.getByTestId("analysis-board").getAttribute("data-fen")).toContain("3P4");
+        expect(screen.getByLabelText("Коментар до позиції")).toHaveValue("Моя помилка");
+        fireEvent.change(screen.getByLabelText("Коментар до позиції"), { target: { value: "Перевірена помилка" } });
+        expect(screen.getByLabelText("Коментар до позиції")).toHaveValue("Перевірена помилка");
+        expect(screen.getAllByLabelText("Навігація по партії")).toHaveLength(1);
+    });
+
     it("pins the only primary move navigator to the bottom of the right analysis panel", async () => {
         render(<MemoryRouter initialEntries={["/analysis"]}>
-            <BoardSettingsProvider><Analysis /></BoardSettingsProvider>
+            <BoardSettingsProvider><TooltipProvider><Analysis /></TooltipProvider></BoardSettingsProvider>
         </MemoryRouter>);
 
         expect(await screen.findByTestId("analysis-board")).toBeInTheDocument();
@@ -51,7 +69,7 @@ describe("Analysis Center", () => {
 
     it("keeps the shared move navigator available across all right-panel tabs", async () => {
         render(<MemoryRouter initialEntries={["/analysis"]}>
-            <BoardSettingsProvider><Analysis /></BoardSettingsProvider>
+            <BoardSettingsProvider><TooltipProvider><Analysis /></TooltipProvider></BoardSettingsProvider>
         </MemoryRouter>);
 
         await screen.findByTestId("analysis-board");
@@ -63,14 +81,14 @@ describe("Analysis Center", () => {
 
     it("keeps rare Analysis actions in one bottom More menu without a duplicate local toolbar", async () => {
         render(<MemoryRouter initialEntries={["/analysis"]}>
-            <BoardSettingsProvider><Analysis /></BoardSettingsProvider>
+            <BoardSettingsProvider><TooltipProvider><Analysis /></TooltipProvider></BoardSettingsProvider>
         </MemoryRouter>);
 
         await screen.findByTestId("analysis-board");
         expect(screen.queryByLabelText("Інструменти аналізу")).not.toBeInTheDocument();
         expect(screen.queryByRole("tab", { name: /Ходи/i })).not.toBeInTheDocument();
 
-        fireEvent.click(screen.getByRole("button", { name: "Додаткові дії аналізу" }));
+        fireEvent.keyDown(screen.getByRole("button", { name: "Додаткові дії аналізу" }), { key: "ArrowDown" });
         expect(screen.getByRole("menuitem", { name: "Нова позиція" })).toBeInTheDocument();
         expect(screen.getByRole("menuitem", { name: "Імпорт PGN" })).toBeInTheDocument();
         expect(screen.getByRole("menuitem", { name: "Відкрити PGN-файл" })).toBeInTheDocument();
@@ -80,7 +98,7 @@ describe("Analysis Center", () => {
 
     it("keeps analysis settings in one popover", async () => {
         render(<MemoryRouter initialEntries={["/analysis"]}>
-            <BoardSettingsProvider><Analysis /></BoardSettingsProvider>
+            <BoardSettingsProvider><TooltipProvider><Analysis /></TooltipProvider></BoardSettingsProvider>
         </MemoryRouter>);
 
         fireEvent.click(await screen.findByRole("button", { name: "Налаштувати движок" }));
@@ -94,7 +112,7 @@ describe("Analysis Center", () => {
 
     it("switches between simple and advanced Analysis UI without cluttering the default", async () => {
         render(<MemoryRouter initialEntries={["/analysis"]}>
-            <BoardSettingsProvider><Analysis /></BoardSettingsProvider>
+            <BoardSettingsProvider><TooltipProvider><Analysis /></TooltipProvider></BoardSettingsProvider>
         </MemoryRouter>);
 
         await screen.findByTestId("analysis-board");
@@ -114,7 +132,7 @@ describe("Analysis Center", () => {
 
     it("previews the best move from the simplified engine card", async () => {
         render(<MemoryRouter initialEntries={["/analysis"]}>
-            <BoardSettingsProvider><Analysis /></BoardSettingsProvider>
+            <BoardSettingsProvider><TooltipProvider><Analysis /></TooltipProvider></BoardSettingsProvider>
         </MemoryRouter>);
 
         const board = await screen.findByTestId("analysis-board");
@@ -131,7 +149,7 @@ describe("Analysis Center", () => {
 
     it("renders the compact screenshot-inspired Engine workspace", async () => {
         render(<MemoryRouter initialEntries={["/analysis"]}>
-            <BoardSettingsProvider><Analysis /></BoardSettingsProvider>
+            <BoardSettingsProvider><TooltipProvider><Analysis /></TooltipProvider></BoardSettingsProvider>
         </MemoryRouter>);
 
         await screen.findByTestId("analysis-board");
@@ -153,7 +171,7 @@ describe("Analysis Center", () => {
     it("runs full review from Overview and adds a real classification badge", async () => {
         const pgn = '[Event "Smoke"]\n[White "Тест білих"]\n[Black "Тест чорних"]\n[Result "*"]\n\n1. e4 e5 *';
         render(<MemoryRouter initialEntries={[{ pathname: "/analysis", state: { pgn } }]}>
-            <BoardSettingsProvider><Analysis /></BoardSettingsProvider>
+            <BoardSettingsProvider><TooltipProvider><Analysis /></TooltipProvider></BoardSettingsProvider>
         </MemoryRouter>);
 
         fireEvent.click(await screen.findByRole("tab", { name: /Огляд/i }));
@@ -182,7 +200,7 @@ describe("Analysis Center", () => {
             '1. e4 e5 2. Nf3 Nc6 1-0',
         ].join('\n');
         render(<MemoryRouter initialEntries={[{ pathname: "/analysis", state: { pgn } }]}>
-            <BoardSettingsProvider><Analysis /></BoardSettingsProvider>
+            <BoardSettingsProvider><TooltipProvider><Analysis /></TooltipProvider></BoardSettingsProvider>
         </MemoryRouter>);
 
         await screen.findByText("e4");
@@ -201,10 +219,10 @@ describe("Analysis Center", () => {
 
     it("imports PGN from the single More menu and returns to Engine", async () => {
         render(<MemoryRouter initialEntries={["/analysis"]}>
-            <BoardSettingsProvider><Analysis/></BoardSettingsProvider>
+            <BoardSettingsProvider><TooltipProvider><Analysis/></TooltipProvider></BoardSettingsProvider>
         </MemoryRouter>);
 
-        fireEvent.click(screen.getByRole("button", { name: "Додаткові дії аналізу" }));
+        fireEvent.keyDown(screen.getByRole("button", { name: "Додаткові дії аналізу" }), { key: "ArrowDown" });
         fireEvent.click(screen.getByRole("menuitem", { name: "Імпорт PGN" }));
         const editor = screen.getByRole("textbox", { name: "Paste PGN or FEN" });
         fireEvent.change(editor, { target: { value: '[Event "Import"]\n\n1. e4 e5 2. Nf3 Nc6 *' } });

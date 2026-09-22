@@ -14,6 +14,8 @@ import { buildSanLinePreview } from "@/features/analysis/preview";
 import { buildAnalysisPgn } from "@/features/analysis/pgnTree";
 import {
     START_FEN,
+    appendAnalysisLine,
+    updateRecordNode,
     buildRecordFromPgn,
     calculateAccuracy,
     classificationFromLoss,
@@ -340,7 +342,7 @@ export default function AnalysisCenter() {
     const whiteAccuracy = useMemo(() => sideAccuracy(record, "w"), [record]);
     const blackAccuracy = useMemo(() => sideAccuracy(record, "b"), [record]);
     const overallAccuracy = reviewedNodes.length ? calculateAccuracy(record.mainline) : null;
-    const hasVariations = renderedMoves.some(entry => entry.depth > 0);
+    const hasVariations = Boolean(record.rootVariations?.length) || renderedMoves.some(entry => entry.depth > 0);
     const whitePlayer = playerLabel(record, "white");
     const blackPlayer = playerLabel(record, "black");
     const topPlayer = flipped ? whitePlayer : blackPlayer;
@@ -608,43 +610,15 @@ export default function AnalysisCenter() {
     };
 
     const addVariationMove = useCallback((from: string, to: string, promotion?: "q" | "r" | "b" | "n") => {
-        if (linePreview) return false;
-        const chess = new Chess(currentFen);
+        if (linePreview || review.running) return false;
         try {
-            const move = chess.move({ from, to, promotion: promotion || "q" });
-            if (!move) return false;
-            const nextNode = createMoveNode({
-                san: move.san,
-                from: move.from,
-                to: move.to,
-                color: move.color,
-                promotion: move.promotion,
-            }, currentFen, chess.fen(), (currentNode?.ply || 0) + 1);
-
-            setRecord(current => {
-                if (!current.currentPath) {
-                    if (current.mainline.length === 0) return { ...current, mainline: [nextNode], currentPath: [0] };
-                    return current;
-                }
-                if (current.currentPath.length === 1 && current.currentPath[0] === current.mainline.length - 1) {
-                    const mainline = [...current.mainline, nextNode];
-                    return { ...current, mainline, currentPath: [mainline.length - 1] };
-                }
-                const path = current.currentPath;
-                const node = getNodeByPath(current.mainline, path);
-                const childIndex = node?.children.length || 0;
-                return {
-                    ...current,
-                    mainline: updateNodeAtPath(current.mainline, path, target => { target.children.push(nextNode); }),
-                    currentPath: [...path, childIndex],
-                };
-            });
+            const move = new Chess(currentFen).move({ from, to, promotion: promotion || "q" });
+            const next = appendAnalysisLine(record, [move.from + move.to + (move.promotion || "")]);
+            setRecord(next);
+            if (next.currentPath && next.currentPath.length > 1) setShowFullMoveTree(true);
             return true;
-        } catch {
-            return false;
-        }
-    }, [currentFen, currentNode?.ply, linePreview]);
-
+        } catch { return false; }
+    }, [currentFen, linePreview, record, review.running]);
 
     const handleAnalysisBoardMove = useCallback((from: string, to: string, promotion?: "q" | "r" | "b" | "n") => {
         if (!predictionMode) return addVariationMove(from, to, promotion);
@@ -690,12 +664,7 @@ export default function AnalysisCenter() {
     const updatePositionComment = useCallback((value: string) => {
         const selectedPath = record.currentPath;
         if (!selectedPath) return;
-        setRecord(current => ({
-            ...current,
-            mainline: updateNodeAtPath(current.mainline, selectedPath, node => {
-                node.comment = value;
-            }),
-        }));
+        setRecord(current => updateRecordNode(current, selectedPath, node => { node.comment = value; }));
     }, [record.currentPath]);
 
     const startFullReview = async () => {
@@ -775,6 +744,7 @@ export default function AnalysisCenter() {
         setRecord(current => ({
             ...current,
             mainline: stripVariations(current.mainline),
+            rootVariations: [],
             currentPath: current.currentPath && current.currentPath.length === 1 ? current.currentPath : null,
         }));
         setLinePreview(null);
@@ -874,56 +844,12 @@ export default function AnalysisCenter() {
     };
 
     const addEngineLineToVariations = (line: EngineLineView) => {
-        if (!record.currentPath || !currentNode || !line.pv.length) {
-            toast.info("Оберіть хід у партії, від якого потрібно зберегти варіант.");
-            return;
-        }
-        const basePath = [...record.currentPath];
-        const parent = getNodeByPath(record.mainline, basePath);
-        if (!parent) return;
-
-        const chess = new Chess(currentFen);
-        const nodes: AnalysisMoveNode[] = [];
-        for (const uci of line.pv.slice(0, 10)) {
-            if (uci.length < 4) break;
-            const fenBefore = chess.fen();
-            try {
-                const move = chess.move({
-                    from: uci.slice(0, 2),
-                    to: uci.slice(2, 4),
-                    promotion: (uci[4] as "q" | "r" | "b" | "n" | undefined) || "q",
-                });
-                if (!move) break;
-                nodes.push(createMoveNode(move, fenBefore, chess.fen(), currentNode.ply + nodes.length + 1));
-            } catch {
-                break;
-            }
-        }
-        if (!nodes.length) {
-            toast.info("Цю лінію не вдалося додати до варіантів.");
-            return;
-        }
-        for (let index = 0; index < nodes.length - 1; index += 1) nodes[index].children = [nodes[index + 1]];
-
-        const existingIndex = parent.children.findIndex(child => child.uci === nodes[0].uci);
-        if (existingIndex >= 0) {
-            navigateTo([...basePath, existingIndex]);
-            setTab("engine");
-            setShowFullMoveTree(true);
-            toast.info("Такий варіант уже є в дереві.");
-            return;
-        }
-
-        const childIndex = parent.children.length;
-        setRecord(current => ({
-            ...current,
-            mainline: updateNodeAtPath(current.mainline, basePath, target => { target.children.push(nodes[0]); }),
-            currentPath: [...basePath, childIndex],
-        }));
-        setLinePreview(null);
-        setTab("engine");
-        setShowFullMoveTree(true);
-        toast.success("Лінію Stockfish додано до варіантів.");
+        if (review.running || !line.pv.length) return;
+        try {
+            setRecord(appendAnalysisLine(record, line.pv.slice(0, 10)));
+            setLinePreview(null); setTab("engine"); setShowFullMoveTree(true);
+            toast.success("Лінію Stockfish додано до варіантів.");
+        } catch { toast.error("Цю лінію не вдалося додати до варіантів."); }
     };
 
     const bestMoveArrow = useMemo<[Square, Square, string?][]>(() => {
@@ -1200,7 +1126,7 @@ export default function AnalysisCenter() {
                                                             <button
                                                                 type="button"
                                                                 className="analysis-engine-line-add-v3"
-                                                                disabled={!record.currentPath}
+                                                                disabled={review.running}
                                                                 onClick={() => addEngineLineToVariations(line)}
                                                                 aria-label={"Додати варіант Stockfish " + line.rank + " до дерева"}
                                                             >

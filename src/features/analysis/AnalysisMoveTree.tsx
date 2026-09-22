@@ -1,21 +1,22 @@
+import { createPortal } from "react-dom";
+import { nextAnalysisPath } from "./navigation";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuLabel, DropdownMenuRadioGroup, DropdownMenuRadioItem, DropdownMenuSeparator, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import {
     START_FEN,
-    cloneNodes,
     findOpening,
     formatCp,
-    getNodeByPath,
+    getRecordNode,
     isSamePath,
-    removeNodeAtPath,
-    updateNodeAtPath,
+    removeRecordNode,
+    updateRecordNode,
     type AnalysisMoveNode,
     type AnalysisRecord,
     type MoveClassification,
 } from "@/features/analysis/model";
-import { promoteVariationPath } from "@/features/analysis/branching";
+import { promoteRecordVariation } from "@/features/analysis/branching";
 import { cn } from "@/lib/utils";
 import {
     BookOpen,
@@ -31,11 +32,11 @@ import {
     Search,
     Trash2,
 } from "lucide-react";
-import { useEffect, useMemo, useState, type CSSProperties, type Dispatch, type SetStateAction } from "react";
+import { useEffect, useMemo, useRef, useState, type CSSProperties, type Dispatch, type SetStateAction } from "react";
 import { toast } from "sonner";
 import "@/styles/analysis-move-tree.css";
 
-type MoveFilter = "all" | "errors" | "variations" | "comments";
+type MoveFilter = "all" | "errors" | "variations" | "comments" | "mine";
 
 type MovePathEntry = {
     path: number[];
@@ -71,20 +72,10 @@ const FILTER_LABELS: Record<MoveFilter, string> = {
     errors: "Тільки помилки",
     variations: "Тільки варіанти",
     comments: "З коментарями",
+    mine: "Тільки мої ходи",
 };
 
 const ERROR_CLASSIFICATIONS = new Set<MoveClassification>(["inaccuracy", "mistake", "blunder"]);
-
-function cloneRecord(record: AnalysisRecord): AnalysisRecord {
-    return {
-        ...record,
-        headers: { ...record.headers },
-        currentPath: record.currentPath ? [...record.currentPath] : null,
-        mainline: cloneNodes(record.mainline),
-        historyStack: [...record.historyStack],
-        futureStack: [...record.futureStack],
-    };
-}
 
 function pairEntries(entries: MovePathEntry[]): MovePair[] {
     const pairs = new Map<number, MovePair>();
@@ -129,12 +120,11 @@ function countVariations(mainline: AnalysisMoveNode[]) {
 
 function collectLineNodes(record: AnalysisRecord, path: number[] | null): AnalysisMoveNode[] {
     if (!path?.length) return [];
-    const nodes = record.mainline.slice(0, path[0] + 1);
-    let current = record.mainline[path[0]];
-    for (let index = 1; index < path.length; index += 1) {
-        current = current?.children[path[index]];
-        if (!current) break;
-        nodes.push(current);
+    const nodes = path[0] === -1 ? [] : record.mainline.slice(0, path[0] + 1);
+    for (let length = 2; length <= path.length; length += 1) {
+        const node = getRecordNode(record, path.slice(0, length));
+        if (!node) break;
+        nodes.push(node);
     }
     return nodes;
 }
@@ -177,14 +167,51 @@ export default function AnalysisMoveTree({
     onNavigate,
     onOpenEngine,
     onPreviewBestMove,
+    focusBranch = false,
+    followSelection = true,
+    suspended = false,
+    navigationTarget,
+    compact = false,
 }: {
     record: AnalysisRecord;
     setRecord: Dispatch<SetStateAction<AnalysisRecord>>;
     onNavigate: (path: number[] | null) => void;
     onOpenEngine: () => void;
     onPreviewBestMove?: () => void;
+    focusBranch?: boolean;
+    followSelection?: boolean;
+    suspended?: boolean;
+    navigationTarget?: HTMLElement | null;
+    compact?: boolean;
 }) {
+    const treeRef = useRef<HTMLDivElement | null>(null);
+    const manualScrollUntil = useRef(0);
+    const previousFollowSelection = useRef(followSelection);
+    const hasMoves = record.mainline.length > 0;
+    const selectionKey = record.currentPath?.join('.') || '';
+    const revealSelected = () => {
+        const selected = treeRef.current?.querySelector<HTMLElement>('[aria-current="step"]');
+        const container = treeRef.current?.closest<HTMLElement>('.analysis-panel-body');
+        if (!selected || !container) return;
+        const a = selected.getBoundingClientRect(), b = container.getBoundingClientRect();
+        const delta = a.top < b.top ? a.top - b.top - 12 : a.bottom > b.bottom ? a.bottom - b.bottom + 12 : 0;
+        if (delta) { if (container.scrollBy) container.scrollBy({ top: delta, behavior: window.matchMedia('(prefers-reduced-motion: reduce)').matches ? 'auto' : 'smooth' }); else container.scrollTop += delta; }
+    };
+    useEffect(() => {
+        const container = treeRef.current?.closest('.analysis-panel-body');
+        const pause = () => { manualScrollUntil.current = Date.now() + 3500; };
+        const keyPause = (event: Event) => { if (['PageUp', 'PageDown', 'Home', 'End'].includes((event as KeyboardEvent).key)) pause(); };
+        container?.addEventListener('keydown', keyPause);
+        container?.addEventListener('wheel', pause, { passive: true }); container?.addEventListener('touchmove', pause, { passive: true });
+        return () => { container?.removeEventListener('keydown', keyPause); container?.removeEventListener('wheel', pause); container?.removeEventListener('touchmove', pause); };
+    }, [hasMoves]);
+    useEffect(() => {
+        if (followSelection && !previousFollowSelection.current) manualScrollUntil.current = 0;
+        previousFollowSelection.current = followSelection;
+        if (followSelection && Date.now() >= manualScrollUntil.current) revealSelected();
+    }, [followSelection, selectionKey]);
     const [filter, setFilter] = useState<MoveFilter>("all");
+    const [ownColor, setOwnColor] = useState<"w" | "b">("w");
     const [variationsCollapsed, setVariationsCollapsed] = useState(false);
     const [showDeepVariations, setShowDeepVariations] = useState(false);
     const [commentPath, setCommentPath] = useState<number[] | null>(null);
@@ -195,26 +222,26 @@ export default function AnalysisMoveTree({
     const [autoplay, setAutoplay] = useState(false);
     const [autoplaySpeed, setAutoplaySpeed] = useState("1");
 
-    const opening = useMemo(() => findOpening(record.mainline), [record.mainline]);
-    const variationCount = useMemo(() => countVariations(record.mainline), [record.mainline]);
+    const opening = useMemo(() => record.rootFen === START_FEN ? findOpening(record.mainline) : null, [record.rootFen, record.mainline]);
+    const variationCount = useMemo(() => countVariations(record.mainline) + (record.rootVariations || []).reduce((count, root) => count + 1 + countNestedVariations(root), 0), [record.mainline, record.rootVariations]);
     const selectedNode = useMemo(
-        () => record.currentPath ? getNodeByPath(record.mainline, record.currentPath) : null,
-        [record.currentPath, record.mainline],
+        () => record.currentPath ? getRecordNode(record, record.currentPath) : null,
+        [record],
     );
     const moveCount = new Set(record.mainline.map(node => node.moveNumber)).size;
     const currentMainlineIndex = record.currentPath?.[0] ?? -1;
-    const branchesCollapsed = variationsCollapsed && filter !== "variations";
+    const branchesCollapsed = variationsCollapsed && filter !== "variations" && !focusBranch;
 
     const mainPairs = useMemo(() => {
         const entries = record.mainline.map((node, index) => ({ node, path: [index] }));
         return pairEntries(entries).filter(pair => {
-            if (filter === "all") return true;
+            if (filter === "all" || filter === "mine") return true;
             const nodes = [pair.white?.node, pair.black?.node].filter(Boolean) as AnalysisMoveNode[];
             if (filter === "errors") return nodes.some(node => node.classification && ERROR_CLASSIFICATIONS.has(node.classification));
-            if (filter === "variations") return nodes.some(node => node.children.length > 0);
+            if (filter === "variations") return nodes.some(node => node.children.length > 0 || node === record.mainline[0] && Boolean(record.rootVariations?.length));
             return nodes.some(node => Boolean(node.comment.trim()));
         });
-    }, [filter, record.mainline]);
+    }, [filter, record.mainline, record.rootVariations]);
 
     const nextErrorIndex = useMemo(() => {
         const afterCurrent = record.mainline.findIndex((node, index) => index > currentMainlineIndex && node.classification && ERROR_CLASSIFICATIONS.has(node.classification));
@@ -223,22 +250,15 @@ export default function AnalysisMoveTree({
     }, [currentMainlineIndex, record.mainline]);
 
     useEffect(() => {
-        if (!autoplay) return;
+        if (!autoplay || suspended) return;
         const delay = autoplaySpeed === "0.5" ? 2000 : autoplaySpeed === "2" ? 500 : 1000;
         const timer = window.setTimeout(() => {
-            const index = record.currentPath?.[0] ?? -1;
-            if (record.currentPath && record.currentPath.length > 1) {
-                setAutoplay(false);
-                return;
-            }
-            if (index >= record.mainline.length - 1) {
-                setAutoplay(false);
-                return;
-            }
-            onNavigate([index + 1]);
+            const next = nextAnalysisPath(record, record.currentPath);
+            if (!next) { setAutoplay(false); return; }
+            onNavigate(next);
         }, delay);
         return () => window.clearTimeout(timer);
-    }, [autoplay, autoplaySpeed, onNavigate, record.currentPath, record.mainline.length]);
+    }, [autoplay, autoplaySpeed, onNavigate, record, suspended]);
 
     useEffect(() => {
         if (!record.mainline.length) setAutoplay(false);
@@ -254,6 +274,7 @@ export default function AnalysisMoveTree({
     };
 
     const startComment = (path: number[], node: AnalysisMoveNode) => {
+        setAutoplay(false);
         setCommentPath(path);
         setCommentDraft(node.comment);
     };
@@ -261,12 +282,7 @@ export default function AnalysisMoveTree({
     const saveComment = () => {
         if (!commentPath) return;
         const draft = commentDraft.trim();
-        setRecord(current => ({
-            ...current,
-            mainline: updateNodeAtPath(current.mainline, commentPath, node => {
-                node.comment = draft;
-            }),
-        }));
+        setRecord(current => updateRecordNode(current, commentPath, node => { node.comment = draft; }));
         setCommentPath(null);
         toast.success(draft ? "Коментар збережено." : "Коментар видалено.");
     };
@@ -281,31 +297,20 @@ export default function AnalysisMoveTree({
             }
         }
         const rootPath = path.slice(0, rootLength);
-        const snapshot = cloneRecord(record);
-        const fallbackPath = rootPath.length === 2 ? [rootPath[0]] : rootPath.slice(0, -1);
+        const fallbackPath = rootPath.length === 2 ? (rootPath[0] === -1 ? null : [rootPath[0]]) : rootPath.slice(0, -1);
         setRecord(current => ({
-            ...current,
-            mainline: removeNodeAtPath(current.mainline, rootPath),
+            ...removeRecordNode(current, rootPath),
             currentPath: fallbackPath,
         }));
-        toast("Варіант видалено", {
-            action: {
-                label: "Скасувати",
-                onClick: () => setRecord(snapshot),
-            },
-        });
+        toast("Варіант видалено. Відновити можна кнопкою «Скасувати зміну».");
     };
 
     const promoteVariation = () => {
         if (!promotePath || promotePath.length < 2) return;
-        const promoted = promoteVariationPath(record.mainline, promotePath);
+        const promoted = promoteRecordVariation(record, promotePath);
         if (!promoted) return;
 
-        setRecord(current => ({
-            ...current,
-            mainline: promoted.mainline,
-            currentPath: promoted.currentPath,
-        }));
+        setRecord(promoted);
         setPromotePath(null);
         toast.success("Варіант став основною лінією. Стара лінія збережена як варіант.");
     };
@@ -365,15 +370,16 @@ export default function AnalysisMoveTree({
     };
 
     const renderMoveCell = (entry: MovePathEntry | null, isLastMainline = false, inVariation = false) => {
-        if (!entry) return <div className="analysis-move-cell is-empty" />;
+        if (!entry || filter === "mine" && entry.node.color !== ownColor) return <div className="analysis-move-cell is-empty" />;
         const node = entry.node;
         const selected = isSamePath(entry.path, record.currentPath);
-        const isBook = !inVariation && opening && node.ply <= opening.matchedPly;
+        const isBook = !node.classification && !inVariation && opening && node.ply <= opening.matchedPly;
         return (
             <div className={cn("analysis-move-cell", selected && "is-selected")}>
-                <button type="button" className="analysis-move-token" onClick={() => onNavigate(entry.path)}>
+                <button type="button" className="analysis-move-token" aria-current={selected ? "step" : undefined} onClick={() => onNavigate(entry.path)}>
                     <span>{node.san}</span>
                     {selected && <span className="analysis-selected-dot" aria-hidden="true" />}
+                    {node.bookmark && <span className="analysis-bookmark-mark" aria-label="Закладка">◆</span>}
                     {node.nag && <em className="analysis-user-nag" title="PGN-анотація користувача">{node.nag}</em>}
                     {isBook && <BookOpen size={13} className="analysis-book-mark" aria-label="Теорія" />}
                     {node.classification && (
@@ -391,6 +397,10 @@ export default function AnalysisMoveTree({
                         </DropdownMenuTrigger>
                         <DropdownMenuContent align="end" className="w-56">
                             {entry.path.length > 1 && <DropdownMenuItem onSelect={() => setPromotePath(entry.path)}><GitBranch size={15} className="mr-2" />Зробити основною лінією</DropdownMenuItem>}
+                            <DropdownMenuLabel>Закладка позиції</DropdownMenuLabel>
+                            <DropdownMenuRadioGroup value={node.bookmark || 'none'} onValueChange={value => setRecord(current => updateRecordNode(current, entry.path, target => { target.bookmark = value === 'none' ? undefined : value as AnalysisMoveNode['bookmark']; }))}>
+                                <DropdownMenuRadioItem value="important">Важливо</DropdownMenuRadioItem><DropdownMenuRadioItem value="check">Перевірити</DropdownMenuRadioItem><DropdownMenuRadioItem value="opening">Дебютна ідея</DropdownMenuRadioItem><DropdownMenuRadioItem value="none">Без закладки</DropdownMenuRadioItem>
+                            </DropdownMenuRadioGroup><DropdownMenuSeparator />
                             <DropdownMenuItem onSelect={() => startComment(entry.path, node)}><MessageSquare size={15} className="mr-2" />{node.comment ? "Редагувати коментар" : "Додати коментар"}</DropdownMenuItem>
                             <DropdownMenuItem onSelect={() => void copyText(node.fenAfter, "FEN")}><span className="mr-2 font-mono text-xs">FEN</span>Копіювати FEN</DropdownMenuItem>
                             <DropdownMenuItem onSelect={() => void copyText(formatLine(collectLineNodes(record, entry.path)), "Лінію")}><span className="mr-2 font-mono text-xs">PGN</span>Копіювати лінію</DropdownMenuItem>
@@ -404,7 +414,10 @@ export default function AnalysisMoveTree({
     };
 
     const renderBranch = (root: AnalysisMoveNode, rootPath: number[], depth: number, key: string) => {
-        if (depth > 3 && !showDeepVariations) {
+        if (focusBranch && !rootPath.every((index, n) => record.currentPath?.[n] === index)) {
+            return <button key={key} type="button" className="analysis-collapsed-variations" onClick={() => onNavigate(rootPath)}>Відкрити {moveLabel(root)}</button>;
+        }
+        if (depth > 3 && !showDeepVariations && !focusBranch) {
             return (
                 <button key={key} type="button" className="analysis-show-deep-variations" onClick={() => setShowDeepVariations(true)}>
                     <GitBranch size={13} />Показати всі варіанти
@@ -451,12 +464,14 @@ export default function AnalysisMoveTree({
         return entry.node.children.map((child, childIndex) => renderBranch(child, [...entry.path, childIndex], 1, `${entry.node.id}-${child.id}`));
     };
 
+    const autoplayButton = <button type="button" disabled={suspended} onClick={() => setAutoplay(value => !value)} aria-label={autoplay ? "Зупинити Auto-play" : "Auto-play партії"}>{autoplay ? <Pause size={20} /> : <Play size={20} />}</button>;
+
     if (!record.mainline.length) {
         const fenOnly = record.rootFen !== START_FEN;
         return (
             <div className="analysis-move-tree analysis-move-tree-empty">
                 <div className="analysis-move-tree-header">
-                    <div><strong>Ходи</strong><span>{fenOnly ? "Аналіз позиції" : "Нова партія"}</span></div>
+                    <div><strong>Ходи партії</strong><span>{fenOnly ? "Аналіз позиції" : "Нова партія"}</span></div>
                 </div>
                 <div className="analysis-empty-state compact">
                     <GitBranch size={28} />
@@ -468,16 +483,17 @@ export default function AnalysisMoveTree({
     }
 
     return (
-        <div className="analysis-move-tree">
+        <div ref={treeRef} className="analysis-move-tree">
             <div className="analysis-move-tree-header">
                 <div>
-                    <strong>Ходи</strong>
+                    <strong>Ходи партії</strong>
                     <span>{pluralMoves(moveCount)}{variationCount ? ` · ${pluralVariations(variationCount)}` : ""}</span>
                 </div>
                 <div className="analysis-move-tree-actions">
+                    {followSelection && <button type="button" aria-label="Показати вибраний хід" onClick={() => { manualScrollUntil.current = 0; revealSelected(); }}>До ходу</button>}
                     {nextErrorIndex >= 0 && <button type="button" className="analysis-next-error" onClick={() => onNavigate([nextErrorIndex])}>Наступна помилка <ChevronRight size={13} /></button>}
-                    {variationCount > 0 && filter !== "variations" && <button type="button" onClick={() => setVariationsCollapsed(value => !value)} aria-label={variationsCollapsed ? "Розгорнути варіанти" : "Згорнути варіанти"}>{variationsCollapsed ? <ChevronRight size={15} /> : <ChevronDown size={15} />}</button>}
-                    <button type="button" onClick={() => setAutoplay(value => !value)} aria-label={autoplay ? "Зупинити Auto-play" : "Auto-play партії"}>{autoplay ? <Pause size={15} /> : <Play size={15} />}</button>
+                    {variationCount > 0 && filter !== "variations" && !focusBranch && <button type="button" onClick={() => setVariationsCollapsed(value => !value)} aria-label={variationsCollapsed ? "Розгорнути варіанти" : "Згорнути варіанти"}>{variationsCollapsed ? <ChevronRight size={15} /> : <ChevronDown size={15} />}</button>}
+                    {navigationTarget ? createPortal(autoplayButton, navigationTarget) : autoplayButton}
                     <DropdownMenu>
                         <DropdownMenuTrigger asChild><button type="button" aria-label="Швидкість Auto-play"><span className="analysis-speed-label">{autoplaySpeed}x</span></button></DropdownMenuTrigger>
                         <DropdownMenuContent align="end">
@@ -507,6 +523,7 @@ export default function AnalysisMoveTree({
                                 <DropdownMenuRadioItem value="errors">Тільки помилки</DropdownMenuRadioItem>
                                 <DropdownMenuRadioItem value="variations">Тільки варіанти</DropdownMenuRadioItem>
                                 <DropdownMenuRadioItem value="comments">З коментарями</DropdownMenuRadioItem>
+                                <DropdownMenuRadioItem value="mine">Тільки мої ходи</DropdownMenuRadioItem>
                             </DropdownMenuRadioGroup>
                         </DropdownMenuContent>
                     </DropdownMenu>
@@ -528,11 +545,12 @@ export default function AnalysisMoveTree({
             {filter !== "all" && (
                 <div className="analysis-active-filter">
                     <span>{FILTER_LABELS[filter]}</span>
+                    {filter === "mine" && <select aria-label="Мій колір" value={ownColor} onChange={event => setOwnColor(event.target.value as "w" | "b")}><option value="w">Білі</option><option value="b">Чорні</option></select>}
                     <button type="button" onClick={() => setFilter("all")}>Скинути</button>
                 </div>
             )}
 
-            {renderSelectedInspector()}
+            {compact ? <details className="analysis-move-details"><summary>Деталі вибраного ходу</summary>{renderSelectedInspector()}</details> : renderSelectedInspector()}
 
             <div className="analysis-mainline-label">Основна партія</div>
             <div className="analysis-inline-move-list" aria-label="Список ходів">
@@ -546,8 +564,13 @@ export default function AnalysisMoveTree({
                                 {renderMoveCell(pair.white, pair.white?.path[0] === lastIndex)}
                                 {renderMoveCell(pair.black, pair.black?.path[0] === lastIndex)}
                             </div>
+                            {pair.number === record.mainline[0]?.moveNumber && Boolean(record.rootVariations?.length) && (
+                                branchesCollapsed
+                                    ? <button type="button" className="analysis-collapsed-variations" onClick={() => setVariationsCollapsed(false)}><GitBranch size={13} />{pluralVariations(record.rootVariations!.length)}</button>
+                                    : record.rootVariations!.map((root, index) => renderBranch(root, [-1, index], 1, `root-${root.id}`))
+                            )}
                             {entries.map(entry => <div key={`${entry.node.id}-branches`}>{renderBranchesForEntry(entry)}</div>)}
-                            {entries.filter(entry => entry.node.comment.trim() && !isSamePath(entry.path, record.currentPath)).map(entry => (
+                            {entries.filter(entry => entry.node.comment.trim() && (filter !== "mine" || entry.node.color === ownColor) && !isSamePath(entry.path, record.currentPath)).map(entry => (
                                 <button key={`${entry.node.id}-comment`} type="button" className="analysis-move-comment" onClick={() => onNavigate(entry.path)}><MessageSquare size={12} /><span>{entry.node.comment}</span></button>
                             ))}
                         </div>
@@ -567,7 +590,7 @@ export default function AnalysisMoveTree({
                         <DialogTitle>Коментар до ходу</DialogTitle>
                         <DialogDescription>Коментар зберігається разом із цим ходом і не змішується з оцінкою Stockfish.</DialogDescription>
                     </DialogHeader>
-                    <textarea className="analysis-comment-editor" value={commentDraft} onChange={event => setCommentDraft(event.target.value)} maxLength={500} placeholder="Наприклад: Тут я розглядав 2.exd5." />
+                    <textarea aria-label="Коментар до ходу" className="analysis-comment-editor" value={commentDraft} onChange={event => setCommentDraft(event.target.value)} maxLength={500} placeholder="Наприклад: Тут я розглядав 2.exd5." />
                     <DialogFooter>
                         <Button variant="outline" onClick={() => setCommentPath(null)}>Скасувати</Button>
                         <Button onClick={saveComment}>Зберегти</Button>
