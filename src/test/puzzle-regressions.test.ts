@@ -1,4 +1,4 @@
-import { readFileSync } from 'node:fs';
+import { readFileSync, readdirSync } from 'node:fs';
 import { Chess } from 'chess.js';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { playPuzzleMove, type TrainingPuzzle } from '@/features/puzzles/model';
@@ -54,6 +54,8 @@ describe('Puzzle audit regressions', () => {
         expect((await findNextPuzzle(manifest, { ...freshProgress(), completed: ['two.json'] }, load, index))?.id).toBe('one.json');
     });
     it('keeps the shipped rating index consistent with every puzzle', () => {
+        // Static directory indexes take precedence over Vercel's SPA rewrite.
+        expect(readdirSync('public/puzzles').filter(file => /^index\./i.test(file))).toEqual([]);
         const manifest = JSON.parse(readFileSync('public/puzzles/manifest.json', 'utf8'));
         const index = JSON.parse(readFileSync(`public/puzzles/${manifest.indexFile}`, 'utf8'));
         const expected = manifest.chunks.flatMap(({ file }: { file: string }) => JSON.parse(readFileSync(`public/puzzles/${file}`, 'utf8')).map((p: TrainingPuzzle) => ({ id: p.id, rating: p.rating, theme: p.theme, file })));

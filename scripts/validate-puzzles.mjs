@@ -1,9 +1,10 @@
 // Validate the shipped corpus and its lookup index without network access.
 import assert from 'node:assert/strict';
-import { readFile } from 'node:fs/promises';
+import { readFile, readdir } from 'node:fs/promises';
 import { Chess } from 'chess.js';
 
 const root = new URL('../public/puzzles/', import.meta.url);
+assert(!(await readdir(root)).some(file => /^index\./i.test(file)), 'A directory index shadows the /puzzles SPA route on Vercel');
 const read = async file => JSON.parse(await readFile(new URL(file, root), 'utf8'));
 const manifest = await read('manifest.json');
 const ids = new Set(), positions = new Set(), themes = new Set(), expectedIndex = [];
