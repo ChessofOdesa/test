@@ -9,7 +9,7 @@ export type PuzzleProgress = {
     completed: string[]; saved: TrainingPuzzle[];
     days: Record<string, { solved: number; delta: number }>;
     ratingRange: { min: number; max: number } | null;
-    current: Attempt | null; theme: string; difficulty: Difficulty; goal: number;
+    current: Attempt | null; theme: string; selectedThemes?: string[]; difficulty: Difficulty; goal: number;
 };
 export const freshProgress = (): PuzzleProgress => ({ rating: 1500, solved: 0, clean: 0, streak: 0, completed: [], saved: [], days: {}, current: null, ratingRange: null, theme: 'all', difficulty: 'normal', goal: 10 });
 export function dayKey(date = new Date()) { return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`; }
@@ -49,7 +49,8 @@ export function readProgress(): PuzzleProgress {
         if (a && validExtras && isPuzzle(a.puzzle) && integer(a.step, line.length) && (a.step % 2 === 0 || a.step === line.length) && typeof a.wrong === 'boolean' && typeof a.assisted === 'boolean' && integer(a.hintLevel, 2) && (!a.hintLevel || a.assisted) && a.complete === (a.step === line.length) && completed.includes(a.puzzle.id) === a.complete) current = a;
         const range = raw.ratingRange;
         const ratingRange = range && integer(range.min, 4000) && integer(range.max, 4000) && range.min >= 100 && range.min <= range.max ? { min: range.min, max: range.max } : null;
-        return { ...fresh, ratingRange, rating: raw.rating, solved: raw.solved, clean: raw.clean, streak: raw.streak, completed, days, current,
+        const selectedThemes = Array.isArray(raw.selectedThemes) ? [...new Set(raw.selectedThemes.filter((t: unknown) => typeof t === 'string' && t.length > 0 && t.length < 100 && t !== 'all'))].slice(0, 50) as string[] : undefined;
+        return { ...fresh, selectedThemes, ratingRange, rating: raw.rating, solved: raw.solved, clean: raw.clean, streak: raw.streak, completed, days, current,
             saved: Array.isArray(raw.saved) ? raw.saved.slice(0, 500).filter(isPuzzle) : [],
             theme: typeof raw.theme === 'string' ? raw.theme : 'all', difficulty: ['easier', 'normal', 'harder'].includes(raw.difficulty) ? raw.difficulty : 'normal', goal: [5, 10, 20, 30].includes(raw.goal) ? raw.goal : 10 };
     } catch { return fresh; }
@@ -66,21 +67,28 @@ export function finishAttempt(progress: PuzzleProgress, attempt: Attempt, date =
     return { ...progress, current: attempt, rating, solved: progress.solved + 1, clean: progress.clean + Number(clean), streak: clean ? progress.streak + 1 : 0,
         completed: [...progress.completed, attempt.puzzle.id], days: Object.fromEntries(Object.entries(days).sort(([a], [b]) => a.localeCompare(b)).slice(-366)) };
 }
+export function selectedPuzzleThemes(progress: PuzzleProgress): string[] {
+    return progress.selectedThemes ?? (progress.theme === 'all' ? [] : [progress.theme]);
+}
+export function matchesPuzzleTheme(theme: string, progress: PuzzleProgress) {
+    const selected = selectedPuzzleThemes(progress);
+    return !selected.length || selected.includes(theme);
+}
 export function nearestPuzzle(puzzles: TrainingPuzzle[], progress: PuzzleProgress) {
     const target = progress.rating + ({ easier: -300, normal: 0, harder: 300 }[progress.difficulty]);
     const completed = new Set(progress.completed);
-    return puzzles.filter(p => !completed.has(p.id) && inRatingRange(p.rating, progress.ratingRange) && (progress.theme === 'all' || p.theme === progress.theme))
+    return puzzles.filter(p => !completed.has(p.id) && inRatingRange(p.rating, progress.ratingRange) && matchesPuzzleTheme(p.theme, progress))
         .sort((a, b) => Math.abs(a.rating - target) - Math.abs(b.rating - target)).find(isPuzzle) || null;
 }
 export type PuzzleIndexEntry = Pick<TrainingPuzzle, 'id' | 'rating' | 'theme'> & { file: string };
 export async function findNextPuzzle(manifest: PuzzleManifest, progress: PuzzleProgress, load: (file: string) => Promise<TrainingPuzzle[]>, index?: PuzzleIndexEntry[]) {
-    const sets = manifest.chunks.filter(set => progress.theme === 'all' || set.themes.includes(progress.theme));
+    const sets = manifest.chunks.filter(set => set.themes.some(theme => matchesPuzzleTheme(theme, progress)));
     const files = new Set(sets.map(set => set.file));
     for (const file of files) if (!/^[a-zA-Z0-9_-]+\.json$/.test(file)) throw new Error('Некоректна адреса добірки');
     const target = progress.rating + ({ easier: -300, normal: 0, harder: 300 }[progress.difficulty]);
     const completed = new Set(progress.completed);
     if (index) {
-        const candidates = index.filter(p => files.has(p.file) && Number.isFinite(p.rating) && !completed.has(p.id) && inRatingRange(p.rating, progress.ratingRange) && (progress.theme === 'all' || p.theme === progress.theme))
+        const candidates = index.filter(p => files.has(p.file) && Number.isFinite(p.rating) && !completed.has(p.id) && inRatingRange(p.rating, progress.ratingRange) && matchesPuzzleTheme(p.theme, progress))
             .sort((a, b) => Math.abs(a.rating - target) - Math.abs(b.rating - target));
         const loaded = new Map<string, TrainingPuzzle[]>();
         for (const entry of candidates) {

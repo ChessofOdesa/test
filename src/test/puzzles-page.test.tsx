@@ -1,3 +1,4 @@
+import type { ReactNode } from 'react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { MemoryRouter, useLocation } from 'react-router-dom';
@@ -7,7 +8,7 @@ import Puzzles from '@/pages/Puzzles';
 import { Chess } from 'chess.js';
 import { verifyAlternative } from '@/features/puzzles/verifyAlternative';
 import { freshProgress, saveProgress, readProgress } from '@/features/puzzles/training';
-vi.mock('@/features/puzzles/PuzzleReview', () => ({ PuzzleReview: () => <div>Розбір задачі</div> }));
+vi.mock('@/features/puzzles/PuzzleReview', () => ({ PuzzleReview: ({ actions }: { actions?: ReactNode }) => <div>Розбір задачі{actions}</div> }));
 vi.mock('@/features/puzzles/verifyAlternative', () => ({ verifyAlternative: vi.fn(async () => null) }));
 vi.mock('@/components/ChessBoard', () => ({ default: (p: { displayFen: string; onMove: (a: string,b: string) => boolean; interactive: boolean; flipped: boolean; lastMoveSquares?: string[] }) => <div data-testid="puzzle-board" data-fen={p.displayFen} data-flipped={String(p.flipped)} data-last-move={p.lastMoveSquares?.join('')}>{['e2e4','d2d4','g1f3'].map(move => <button key={move} disabled={!p.interactive} onClick={() => p.onMove(move.slice(0,2),move.slice(2,4))}>{move}</button>)}</div> }));
 const puzzles = [
@@ -18,18 +19,19 @@ function Location() { const location = useLocation(); return <output data-testid
 function open(path = "/puzzles") { const client = new QueryClient({ defaultOptions: { queries: { retry: false } } }); return render(<MemoryRouter initialEntries={[path]}><QueryClientProvider client={client}><BoardSettingsProvider><Puzzles /><Location /></BoardSettingsProvider></QueryClientProvider></MemoryRouter>); }
 beforeEach(() => {
     vi.mocked(verifyAlternative).mockReset().mockResolvedValue(null);
-    vi.stubGlobal('ResizeObserver', class { observe() {} disconnect() {} });
+    vi.stubGlobal('ResizeObserver', class { observe() {} unobserve() {} disconnect() {} });
     vi.stubGlobal('fetch', vi.fn(async (path: string) => ({ ok: true, json: async () => path.includes('manifest') ? { count: 2, themes: ['Тактика','Мат'], chunks: [{ file: 'one.json', count: 2, themes: ['Тактика','Мат'] }] } : puzzles })));
 });
 afterEach(() => { cleanup(); localStorage.clear(); vi.unstubAllGlobals(); });
 describe('Puzzle studio', () => {
     it('puts the title in the stats panel, removes rejected controls and prevents skipping by settings', async () => {
         open(); await screen.findByTestId('puzzle-board');
-        expect(within(screen.getByRole('complementary', { name: 'Рейтинг задач' })).getByRole('heading', { name: 'Задачі' })).toBeInTheDocument();
+        expect(within(screen.getByRole('complementary', { name: 'Рейтинг гравця' })).getByRole('heading', { name: 'Задачі' })).toBeInTheDocument();
         expect(screen.queryByRole('tab')).not.toBeInTheDocument();
         for (const name of ['Пропустити','Наступна задача','Записати варіант','Почати заново']) expect(screen.queryByRole('button', { name })).not.toBeInTheDocument();
         fireEvent.click(screen.getByRole('button', { name: 'Вибрати тему задач' }));
         fireEvent.click(within(screen.getByRole('dialog')).getByRole('button', { name: 'Мат' }));
+        fireEvent.click(screen.getByRole('button', { name: 'Застосувати теми' }));
         fireEvent.click(screen.getByRole('button', { name: 'Складніше' }));
         expect(readProgress().current?.puzzle.id).toBe('a');
         fireEvent.click(screen.getByRole('button', { name: 'e2e4' }));
@@ -64,10 +66,9 @@ describe('Puzzle studio', () => {
 
     it('keeps the task, rating and themes on the left, hints on the right, and persists a popup choice without skipping', async () => {
         const view = open(); await screen.findByTestId('puzzle-board');
-        const left = within(screen.getByRole('complementary', { name: 'Рейтинг задач' }));
+        const left = within(screen.getByRole('complementary', { name: 'Рейтинг гравця' }));
         expect(left.getByText('1500')).toBeInTheDocument();
-        expect(left.getByRole('heading', { name: 'Поточна задача' })).toBeInTheDocument();
-        expect(left.getByText('Знайди найкращий хід.')).toBeInTheDocument();
+        expect(left.getByText('Складність задач')).toBeInTheDocument();
         for (const text of ['Розв’язано', 'Сьогодні', 'Серія правильних', 'Без помилок і підказок', 'Про рейтинг']) expect(left.queryByText(text)).not.toBeInTheDocument();
         expect(screen.queryByRole('button', { name: /Зберегти|Збережені/ })).not.toBeInTheDocument();
         expect(within(screen.getByRole('complementary', { name: 'Керування тренуванням' })).getByRole('button', { name: 'Підказка' })).toBeInTheDocument();
@@ -76,8 +77,9 @@ describe('Puzzle studio', () => {
         expect(within(screen.getByTestId('puzzle-board')).getByText('e2e4')).toBeDisabled();
         expect(within(screen.getByRole('dialog')).getByRole('button', { name: 'Змішані задачі' })).toHaveAttribute('aria-pressed', 'true');
         fireEvent.click(within(screen.getByRole('dialog')).getByRole('button', { name: 'Мат' }));
+        fireEvent.click(screen.getByRole('button', { name: 'Застосувати теми' }));
         expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
-        expect(readProgress().theme).toBe('Мат');
+        expect(readProgress().selectedThemes).toEqual(['Мат']);
         expect(readProgress().current?.puzzle.id).toBe('a');
         view.unmount(); open();
         await waitFor(() => expect(screen.getByRole('button', { name: 'Вибрати тему задач' })).toBeEnabled());
@@ -85,8 +87,26 @@ describe('Puzzle studio', () => {
         expect(within(screen.getByRole('dialog')).getByRole('button', { name: 'Мат' })).toHaveAttribute('aria-pressed', 'true');
         fireEvent.keyDown(screen.getByRole('dialog'), { key: 'Escape', code: 'Escape' });
         await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument());
-        expect(readProgress().theme).toBe('Мат');
+        expect(readProgress().selectedThemes).toEqual(['Мат']);
         expect(screen.getByRole('button', { name: 'e2e4' })).toBeEnabled();
+    });
+    it('searches and applies several themes together, cancelling a draft leaves the selection intact', async () => {
+        open(); await screen.findByTestId('puzzle-board');
+        fireEvent.click(screen.getByRole('button', { name: 'Вибрати тему задач' }));
+        fireEvent.change(screen.getByLabelText('Пошук теми'), { target: { value: 'мат' } });
+        expect(within(screen.getByRole('dialog')).queryByRole('button', { name: 'Тактика' })).not.toBeInTheDocument();
+        fireEvent.click(screen.getByRole('button', { name: 'Мат' }));
+        fireEvent.change(screen.getByLabelText('Пошук теми'), { target: { value: '' } });
+        fireEvent.click(screen.getByRole('button', { name: 'Тактика' }));
+        expect(readProgress().selectedThemes).toBeUndefined();
+        fireEvent.click(screen.getByRole('button', { name: 'Застосувати теми' }));
+        expect(readProgress().selectedThemes).toEqual(['Мат', 'Тактика']);
+        expect(readProgress().current?.puzzle.id).toBe('a');
+        fireEvent.click(screen.getByRole('button', { name: 'Вибрати тему задач' }));
+        fireEvent.click(screen.getByRole('button', { name: 'Змішані задачі' }));
+        fireEvent.keyDown(screen.getByRole('dialog'), { key: 'Escape' });
+        await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument());
+        expect(readProgress().selectedThemes).toEqual(['Мат', 'Тактика']);
     });
     it('locks hints while checking and leaves rating and mistakes unchanged on engine failure', async () => {
         let reject!: (error: Error) => void;
@@ -138,7 +158,6 @@ describe('Puzzle studio', () => {
     });
     it('queues an explicit range without replacing the puzzle and allows resetting to automatic difficulty', async () => {
         open(); await screen.findByTestId('puzzle-board');
-        fireEvent.click(screen.getByText('Точний діапазон'));
         fireEvent.change(screen.getByLabelText('Мінімальний рейтинг задач'), { target: { value: '1750' } });
         fireEvent.change(screen.getByLabelText('Максимальний рейтинг задач'), { target: { value: '1850' } });
         fireEvent.click(screen.getByRole('button', { name: 'Застосувати діапазон' }));
@@ -154,7 +173,7 @@ describe('Puzzle studio', () => {
         match.mockImplementation(query => ({ ...original, matches: query === '(max-width: 760px)' }));
         try {
             open(); await screen.findByTestId('puzzle-board');
-            const summary = screen.getByText('Налаштування складності');
+            const summary = screen.getByText('Складність задач');
             expect(summary.parentElement).not.toHaveAttribute('open');
             expect(screen.getByRole('button', { name: 'Підказка' })).toBeEnabled();
             fireEvent.click(summary); expect(summary.parentElement).toHaveAttribute('open');
