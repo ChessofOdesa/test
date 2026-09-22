@@ -6,6 +6,9 @@ export interface TrainingPuzzle {
     title: string;
     theme: string;
     rating: number;
+    sourceId?: string;
+    tags?: string[];
+    setupMove?: string;
 }
 export interface PuzzleSet {
     file: string;
@@ -16,6 +19,7 @@ export interface PuzzleManifest {
     count: number;
     themes: string[];
     chunks: PuzzleSet[];
+    indexFile?: string;
 }
 export function applySolutionMove(chess: Chess, uci: string) { return chess.move({ from: uci.slice(0, 2), to: uci.slice(2, 4), promotion: uci[4] }); }
 export function playPuzzleMove(fen: string, solution: string[], index: number, from: string, to: string, promotion = "q") {
@@ -25,6 +29,11 @@ export function playPuzzleMove(fen: string, solution: string[], index: number, f
     try {
         const move = chess.move({ from, to, promotion });
         const actual = move.from + move.to + (move.promotion || "");
+        // A legal checkmate ends the exercise even if its stored line differs.
+        if (chess.isCheckmate()) {
+            const line = [...solution.slice(0, index), actual];
+            return { fen: chess.fen(), index: line.length, complete: true, line };
+        }
         if (actual !== expected)
             return null;
         let next = index + 1;
@@ -32,7 +41,7 @@ export function playPuzzleMove(fen: string, solution: string[], index: number, f
             applySolutionMove(chess, solution[next]);
             next++;
         }
-        return { fen: chess.fen(), index: next, complete: next >= solution.length };
+        return { fen: chess.fen(), index: next, complete: next >= solution.length, line: solution };
     }
     catch {
         return null;

@@ -1,4 +1,4 @@
-import { getNodeByPath, type AnalysisRecord } from "@/features/analysis/model";
+import { getRecordNode, type AnalysisRecord } from "@/features/analysis/model";
 
 export function previousAnalysisPath(record: AnalysisRecord, path: number[] | null): number[] | null {
     if (!path?.length) return null;
@@ -7,7 +7,7 @@ export function previousAnalysisPath(record: AnalysisRecord, path: number[] | nu
         if (index <= 0 || index >= record.mainline.length) return null;
         return [index - 1];
     }
-    if (path.length === 2) return [path[0]];
+    if (path.length === 2) return path[0] === -1 ? null : [path[0]];
     return path.slice(0, -1);
 }
 
@@ -20,7 +20,7 @@ export function nextAnalysisPath(record: AnalysisRecord, path: number[] | null):
         return index >= 0 && index < record.mainline.length - 1 ? [index + 1] : null;
     }
 
-    const node = getNodeByPath(record.mainline, path);
+    const node = getRecordNode(record, path);
     if (!node?.children[0]) return null;
     return [...path, 0];
 }
@@ -30,7 +30,7 @@ export function lastAnalysisPath(record: AnalysisRecord, path: number[] | null):
     if (!path || path.length <= 1) return [record.mainline.length - 1];
 
     const result = [...path];
-    let node = getNodeByPath(record.mainline, result);
+    let node = getRecordNode(record, result);
     if (!node) return [record.mainline.length - 1];
 
     while (node.children[0]) {
@@ -49,7 +49,7 @@ export function analysisNavigationLabel(record: AnalysisRecord, path: number[] |
 
     const current = path.length - 1;
     let total = current;
-    let node = getNodeByPath(record.mainline, path);
+    let node = getRecordNode(record, path);
     while (node?.children[0]) {
         total += 1;
         node = node.children[0];
