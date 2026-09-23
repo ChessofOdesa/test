@@ -179,6 +179,32 @@ describe('Puzzle studio', () => {
             fireEvent.click(summary); expect(summary.parentElement).toHaveAttribute('open');
         } finally { match.mockRestore(); }
     });
+    it('recovers from an empty filter without showing instructions for a nonexistent puzzle', async () => {
+        saveProgress({ ...freshProgress(), ratingRange: { min: 4000, max: 4000 } });
+        open(); await screen.findByText('Немає нових задач за вибраною темою та діапазоном.');
+        expect(screen.queryByText('Знайди найкращий хід')).not.toBeInTheDocument();
+        expect(screen.queryByText('Наступна задача стане доступною після розв’язання.')).not.toBeInTheDocument();
+        fireEvent.click(screen.getByRole('button', { name: 'Автоматична складність' }));
+        fireEvent.click(screen.getByRole('button', { name: 'Завантажити вибрану добірку' }));
+        await screen.findByTestId('puzzle-board');
+        expect(readProgress().current?.puzzle.id).toBe('a');
+    });
+    it('blocks repeated next clicks while a new shard is pending and rates completion only once', async () => {
+        const done = { puzzle: puzzles[0], step: 3, complete: true, wrong: false, assisted: false, hintLevel: 0 };
+        saveProgress({ ...freshProgress(), current: done, completed: ['a'], solved: 1, clean: 1 });
+        let resolve!: (value: Response) => void;
+        vi.mocked(fetch).mockImplementation(async path => String(path).includes('manifest')
+            ? { ok: true, json: async () => ({ count: 2, themes: ['Тактика','Мат'], chunks: [{ file: 'one.json', count: 2, themes: ['Тактика','Мат'] }] }) } as Response
+            : new Promise<Response>(done => { resolve = done; }));
+        open(); await waitFor(() => expect(screen.getByRole('button', { name: 'Наступна задача' })).toBeEnabled());
+        fireEvent.click(screen.getByRole('button', { name: 'Наступна задача' }));
+        fireEvent.click(screen.getByRole('button', { name: 'Наступна задача' }));
+        expect(screen.getByRole('button', { name: 'Наступна задача' })).toBeDisabled();
+        expect(readProgress().solved).toBe(1);
+        resolve({ ok: true, json: async () => puzzles } as Response);
+        await waitFor(() => expect(readProgress().current?.puzzle.id).toBe('b'));
+        expect(vi.mocked(fetch).mock.calls.filter(([p]) => String(p).includes('one.json'))).toHaveLength(1);
+    });
     it('reports a load error and retries rather than leaving an endless loader', async () => {
         vi.mocked(fetch).mockResolvedValueOnce({ ok: false } as Response);
         open(); const retry = await screen.findByRole('button', { name: 'Повторити завантаження' });
