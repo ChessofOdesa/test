@@ -40,3 +40,22 @@ describe('Puzzle ranges and links',()=>{
         expect(lastAttemptMove({...attempt,step:3})).toEqual(['g1','f3']);
     });
 });
+
+it('selects the union of themes in indexed and legacy selection and migrates saved single themes', async () => {
+    const { freshProgress, findNextPuzzle, readProgress, saveProgress, selectedPuzzleThemes } = await import('@/features/puzzles/training');
+    const { Chess } = await import('chess.js');
+    const base = { fen: new Chess().fen(), solution: ['e2e4'], title: 'Test' };
+    const puzzles = [{ ...base, id: 'a', theme: 'Вилка', rating: 1400 }, { ...base, id: 'b', theme: 'Мат', rating: 1500 }, { ...base, id: 'c', theme: 'Зв’язка', rating: 1490 }];
+    const manifest = { count: 3, themes: ['Вилка','Мат','Зв’язка'], chunks: [{ file:'set.json', count:3, themes:['Вилка','Мат','Зв’язка'] }] };
+    const progress = { ...freshProgress(), selectedThemes: ['Вилка','Зв’язка'] };
+    const index = puzzles.map(p => ({id:p.id, rating:p.rating, theme:p.theme, file:'set.json'}));
+    for (const lookup of [undefined, index]) {
+        expect((await findNextPuzzle(manifest, progress, async () => puzzles, lookup))?.id).toBe('c');
+        expect((await findNextPuzzle(manifest, { ...progress, completed:['c'] }, async () => puzzles, lookup))?.id).toBe('a');
+    }
+    saveProgress({...freshProgress(), theme:'Мат'});
+    expect(selectedPuzzleThemes(readProgress())).toEqual(['Мат']);
+    saveProgress(progress);
+    expect(readProgress().selectedThemes).toEqual(['Вилка','Зв’язка']);
+    localStorage.clear();
+});
