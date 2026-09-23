@@ -16,7 +16,7 @@ export function ThemePicker({ themes, selected, count, disabled, open, onOpenCha
         <div className="puzzle-theme-chips">{selected.length ? selected.map(theme => <button type="button" key={theme} disabled={disabled} aria-label={`Прибрати тему ${theme}`} onClick={() => onChange(selected.filter(t => t !== theme))}>{theme}<X size={14} /></button>) : <span>Змішані задачі</span>}</div>
         <Dialog open={open} onOpenChange={changeOpen}>
             <DialogTrigger asChild><Button variant="outline" className="puzzle-theme-button" aria-label="Вибрати тему задач" disabled={disabled}><Plus size={18} />Обрати теми</Button></DialogTrigger>
-            <DialogContent className="puzzle-theme-dialog">
+            <DialogContent closeLabel="Закрити" className="puzzle-theme-dialog">
                 <DialogHeader><DialogTitle>Теми задач</DialogTitle><DialogDescription>{count.toLocaleString('uk-UA')} задач · {themes.length} тем</DialogDescription></DialogHeader>
                 <label className="puzzle-theme-search"><Search size={18} /><input aria-label="Пошук теми" placeholder="Пошук теми…" value={query} onChange={e => setQuery(e.target.value)} /></label>
                 <button type="button" className="puzzle-theme-all" aria-label="Змішані задачі" aria-pressed={!draft.length} onClick={() => setDraft([])}><Layers size={22} /><span>Змішані задачі<small>Усі теми</small></span>{!draft.length && <Check size={20} />}</button>
@@ -24,6 +24,6 @@ export function ThemePicker({ themes, selected, count, disabled, open, onOpenCha
                 <footer><p>Обрано: {draft.length || 'усі'} · Зміни діють із наступної задачі.</p><Button disabled={disabled} onClick={() => { onChange(draft); changeOpen(false); }}>Застосувати теми</Button></footer>
             </DialogContent>
         </Dialog>
-        <p className="puzzle-theme-count">{selected.length ? `Обрано ${selected.length} теми` : `${count.toLocaleString('uk-UA')} задач · ${themes.length} тем`}</p>
+        <p className="puzzle-theme-count">{selected.length ? `Обрано тем: ${selected.length} · ${count.toLocaleString('uk-UA')} задач` : `${count.toLocaleString('uk-UA')} задач · ${themes.length} тем`}</p>
     </section>;
 }

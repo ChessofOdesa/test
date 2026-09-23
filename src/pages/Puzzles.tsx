@@ -39,6 +39,7 @@ export default function Puzzles() {
     const [storageOk, setStorageOk] = useState(true);
     const [loading, setLoading] = useState(false), [error, setError] = useState(''), [empty, setEmpty] = useState(false);
     const [feedback, setFeedback] = useState(''), [flipped, setFlipped] = useState(false), [boardSize, setBoardSize] = useState(480);
+    const nextPending = useRef(false);
     const boardWrap = useRef<HTMLDivElement>(null), requestId = useRef(0), alive = useRef(true);
     const settings = useBoardSettings(), client = useQueryClient(), navigate = useNavigate();
     const manifest = useQuery({ queryKey: ['puzzle-manifest'], queryFn: ({ signal }) => loadJson<PuzzleManifest>('/puzzles/manifest.json', signal), staleTime: Infinity });
@@ -52,7 +53,8 @@ export default function Puzzles() {
         return () => observer.disconnect();
     }, []);
     const loadNext = useCallback(async () => {
-        if (!manifest.data || latest.current.current && !latest.current.current.complete) return;
+        if (!manifest.data || nextPending.current || latest.current.current && !latest.current.current.complete) return;
+        nextPending.current = true;
         const id = ++requestId.current;
         const snapshot = latest.current;
         setLoading(true); setError(''); setEmpty(false);
@@ -70,7 +72,7 @@ export default function Puzzles() {
             commit({ ...latest.current, current: puzzle ? { puzzle, step: alreadySolved ? puzzle.solution.length : 0, wrong: false, assisted: alreadySolved, hintLevel: 0, complete: alreadySolved } : null });
             setEmpty(!puzzle); setFeedback(''); setFeedbackKind('neutral'); setPreview(null); setMoveMark(null); setFlipped(false);
         } catch (error) { if (alive.current && id === requestId.current) setError(error instanceof Error ? error.message : 'Не вдалося завантажити задачу. Спробуйте ще раз.'); }
-        finally { if (alive.current && id === requestId.current) setLoading(false); }
+        finally { nextPending.current = false; if (alive.current && id === requestId.current) setLoading(false); }
     }, [manifest.data, client, commit, sharedId, setSearchParams]);
     useEffect(() => {
         const current = latest.current.current;
@@ -125,7 +127,7 @@ export default function Puzzles() {
     const palette = settings.theme.id === 'odesa' ? { light: '#eee9d3', dark: '#708b9c' } : settings.theme;
     const direction = puzzle?.fen.split(' ')[1] === 'b';
     const failedRating = attempt?.ratingOutcome === 'failed' || !attempt?.ratingOutcome && attempt?.wrong;
-    const status = complete ? failedRating ? 'Задачу завершено. Помилку враховано в рейтингу.' : attempt?.assisted ? 'Розв’язано з підказкою. Рейтинг не змінено.' : 'Задачу розв’язано правильно!' : feedback || (attempt?.hintLevel ? `Підказку показано на дошці.${bestMove?.[4] ? ' Перетворення: ' + ({ q: 'ферзь', r: 'тура', b: 'слон', n: 'кінь' }[bestMove[4]] || '') + '.' : ''}` : 'Знайди найкращий хід');
+    const status = !puzzle ? (busy ? 'Завантаження задачі…' : empty ? 'Зміни тему або діапазон і завантаж добірку.' : 'Задача поки недоступна.') : complete ? failedRating ? 'Задачу завершено. Помилку враховано в рейтингу.' : attempt?.assisted ? 'Розв’язано з підказкою. Рейтинг не змінено.' : 'Задачу розв’язано правильно!' : feedback || (attempt?.hintLevel ? `Підказку показано на дошці.${bestMove?.[4] ? ' Перетворення: ' + ({ q: 'ферзь', r: 'тура', b: 'слон', n: 'кінь' }[bestMove[4]] || '') + '.' : ''}` : 'Знайди найкращий хід');
     return <div className="puzzles-studio">
         <aside className="puzzle-stats puzzle-card" aria-label="Рейтинг гравця">
             <h1>Задачі</h1>
@@ -151,13 +153,14 @@ export default function Puzzles() {
         <aside className="puzzle-training puzzle-card" aria-label="Керування тренуванням">
 
 
-            {!complete && <div className="puzzle-help"><Button className="puzzle-hint" variant="outline" disabled={!puzzle || busy || attempt?.hintLevel === 2} onClick={hint}><Lightbulb size={21} />{attempt?.hintLevel === 1 ? 'Показати хід' : 'Підказка'}</Button><p className="puzzle-hint-note">{failedRating ? 'Підказка не скасує вже допущену помилку.' : 'Підказка переведе спробу в навчальну.'}</p></div>}
+            {!complete && <div className="puzzle-help"><Button className="puzzle-hint" variant="outline" disabled={!puzzle || busy || attempt?.hintLevel === 2} onClick={hint}><Lightbulb size={21} />{attempt?.hintLevel === 2 ? 'Хід показано' : attempt?.hintLevel === 1 ? 'Показати хід' : 'Підказка'}</Button><p className="puzzle-hint-note">{failedRating ? 'Підказка не скасує вже допущену помилку.' : 'Підказка переведе спробу в навчальну.'}</p></div>}
+            {loading && <p role="status" className="puzzle-next-note">Завантаження задачі…</p>}
             {(error || manifest.isError) && <div role="alert" className="puzzle-load-error">{error || 'Не вдалося завантажити базу задач.'}<Button variant="outline" onClick={() => { if (manifest.isError) void manifest.refetch(); else void loadNext(); }}>Повторити завантаження</Button></div>}
             {complete && attempt && <PuzzleReview key={puzzle!.id} attempt={attempt} onPreview={setPreview} blocked={themeOpen || shareOpen} actions={<div className="puzzle-complete-actions"><Button disabled={busy} onClick={() => void loadNext()}>Наступна задача<ArrowRight size={18} /></Button><Button variant="outline" onClick={() => navigate('/analysis', { state: { pgn: puzzleAnalysisPgn(puzzle!, attempt!) } })}>Відкрити в аналізі</Button></div>} />}
             {empty && <Button disabled={busy} onClick={() => void loadNext()}>Завантажити вибрану добірку</Button>}
             {sharedId && sharedHandled.current !== sharedId && <div className="puzzle-shared-note"><p>{attempt && !complete ? 'Спільна задача відкриється після завершення поточної.' : 'Відкриття спільної задачі.'}</p><Button variant="ghost" onClick={() => { setSearchParams({}, { replace: true }); setError(''); }}>Скасувати відкриття посилання</Button></div>}
-            {!complete && <p className="puzzle-next-note">Наступна задача стане доступною після розв’язання.</p>}
+            {puzzle && !complete && <p className="puzzle-next-note">Наступна задача стане доступною після розв’язання.</p>}
         </aside>
-        <Dialog open={shareOpen} onOpenChange={setShareOpen}><DialogContent className="max-w-sm"><DialogHeader><DialogTitle>Поділитися задачею</DialogTitle><DialogDescription>Посилання відкриє цю позицію. Розв’язання стане доступним після завершення.</DialogDescription></DialogHeader><input aria-label="Посилання на задачу" className="w-full rounded border bg-transparent p-2 text-sm" readOnly value={puzzle ? puzzleLink(puzzle.id, window.location.href) : ''} onFocus={event => event.target.select()} /><p role="status">{shareMessage}</p></DialogContent></Dialog>
+        <Dialog open={shareOpen} onOpenChange={setShareOpen}><DialogContent closeLabel="Закрити" className="max-w-sm"><DialogHeader><DialogTitle>Поділитися задачею</DialogTitle><DialogDescription>Посилання відкриє цю позицію. Розв’язання стане доступним після завершення.</DialogDescription></DialogHeader><input aria-label="Посилання на задачу" className="w-full rounded border bg-transparent p-2 text-sm" readOnly value={puzzle ? puzzleLink(puzzle.id, window.location.href) : ''} onFocus={event => event.target.select()} /><p role="status">{shareMessage}</p></DialogContent></Dialog>
     </div>;
 }
