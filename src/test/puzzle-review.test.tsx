@@ -20,8 +20,13 @@ describe('Puzzle engine review', () => {
         }
     });
     it('explains the idea, previews any ply on the existing board, and replays an error plus the engine response', async () => {
-        const preview = vi.fn(); render(<PuzzleReview attempt={attempt} onPreview={preview} />);
+        const preview = vi.fn(); render(<PuzzleReview attempt={{...attempt, ratingBefore:1500}} rating={1488} onPreview={preview} />);
+        expect(screen.getByText('1500 → 1488')).toBeInTheDocument();
+        expect(screen.getByText('-12')).toBeInTheDocument();
+        expect(screen.getByText('Тактика')).toBeInTheDocument();
+        expect(screen.getByText(/e4\s+e5\s+Nf3/)).toBeInTheDocument();
         await screen.findByText(/Варіант Stockfish починається з e4/);
+        expect(screen.getByText('Пояснення')).toBeInTheDocument();
         fireEvent.click(screen.getByRole('button', { name: 'e5' }));
         expect(preview.mock.lastCall?.[0].squares).toEqual(['e7','e5']);
         const game = new Chess(preview.mock.lastCall?.[0].fen); expect(game.get('e5')?.color).toBe('b');
