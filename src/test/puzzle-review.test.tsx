@@ -37,6 +37,11 @@ describe('Puzzle engine review', () => {
         fireEvent.click(screen.getByRole('button', { name: 'd4' }));
         expect(preview.mock.lastCall?.[0].squares).toEqual(['d2','d4']);
     });
+    it('shows an assisted zero rating change neutrally', () => {
+        render(<PuzzleReview attempt={{ ...attempt, wrong: false, assisted: true, ratingBefore: 1500 }} rating={1500} onPreview={vi.fn()} />);
+        expect(screen.getByText('1500 → 1500')).toBeInTheDocument();
+        expect(screen.getByText('без змін')).toHaveClass('is-unchanged');
+    });
     it('cancels a pending review when leaving and offers retry on a worker failure', async () => {
         vi.mocked(analyzeFenWithStockfish).mockRejectedValueOnce(new Error('Failed to initialize Stockfish.'));
         const view=render(<PuzzleReview attempt={attempt} onPreview={vi.fn()} />);

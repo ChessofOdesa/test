@@ -45,7 +45,7 @@ describe('Puzzle studio', () => {
         const view = open(); await screen.findByTestId('puzzle-board');
         fireEvent.click(screen.getByRole('button', { name: 'd2d4' }));
         await waitFor(() => expect(readProgress().current?.wrong).toBe(true));
-        expect(document.querySelector('.puzzle-move-mark.is-wrong')).toHaveAttribute('data-square', 'd2');
+        expect(document.querySelector('.puzzle-move-mark.is-wrong')).toHaveAttribute('data-square', 'd4');
         fireEvent.click(screen.getByRole('button', { name: 'Підказка' }));
         fireEvent.click(screen.getByRole('button', { name: 'e2e4' }));
         expect(document.querySelector('.puzzle-move-mark.is-correct')).toHaveAttribute('data-square', 'e4');
