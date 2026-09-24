@@ -33,9 +33,10 @@ describe('Puzzle engine review', () => {
         expect(preview.mock.lastCall?.[0].squares).toEqual(['d2','d4']);
     });
     it('cancels a pending review when leaving and offers retry on a worker failure', async () => {
-        vi.mocked(analyzeFenWithStockfish).mockRejectedValueOnce(new Error('offline'));
+        vi.mocked(analyzeFenWithStockfish).mockRejectedValueOnce(new Error('Failed to initialize Stockfish.'));
         const view=render(<PuzzleReview attempt={attempt} onPreview={vi.fn()} />);
-        await screen.findByText('offline');
+        await screen.findByText('Розбір недоступний. Спробуй повторити.');
+        expect(screen.queryByText('Failed to initialize Stockfish.')).not.toBeInTheDocument();
         let signal: AbortSignal | undefined;
         vi.mocked(analyzeFenWithStockfish).mockImplementationOnce(async (_fen,_depth,_output,_timeout,options) => { signal=options?.signal; return new Promise(()=>{}); });
         fireEvent.click(screen.getByRole('button', { name:'Повторити розбір' }));

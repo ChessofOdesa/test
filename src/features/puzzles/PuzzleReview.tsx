@@ -13,7 +13,13 @@ export function PuzzleReview({ attempt, onPreview, actions, blocked = false }: {
         controller.current?.abort(); const task = new AbortController(); controller.current = task;
         setBusy(true); setError(''); setReview(null); setPly(null); setLineIndex(0); onPreview(null);
         try { const result = await reviewPuzzle(attempt, mistake, task.signal, { depth, multiPv }); if (!task.signal.aborted) setReview(result); }
-        catch (error) { if (!task.signal.aborted) setError(error instanceof Error ? error.message : 'Розбір недоступний.'); }
+        catch (error) {
+            if (!task.signal.aborted) {
+                const message = error instanceof Error ? error.message : '';
+                const expected = ['Спочатку заверши задачу.', 'Хід не знайдено.', 'Недостатньо даних Stockfish. Спробуй повторити розбір.', 'Stockfish недоступний. Оновіть сторінку та повторіть аналіз.'];
+                setError(expected.includes(message) ? message : 'Розбір недоступний. Спробуй повторити.');
+            }
+        }
         finally { if (!task.signal.aborted) setBusy(false); }
     }, [attempt, depth, multiPv, onPreview]);
     useEffect(() => { if (enabled) void load(selected); else { controller.current?.abort(); setBusy(false); } return () => controller.current?.abort(); }, [load, selected, enabled]);
