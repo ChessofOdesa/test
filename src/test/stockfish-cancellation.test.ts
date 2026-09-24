@@ -58,3 +58,27 @@ it("honours deeper time-bounded review searches and releases only an idle worker
     expect((await pending).depth).toBe(13);
     releaseIdleStockfishWorker(); expect(worker.terminated).toBe(true);
 });
+
+it("requests separate worker variations, preserves their exact scores and resets MultiPV on the next job", async () => {
+    vi.resetModules(); EngineWorker.instances = []; vi.stubGlobal("Worker", EngineWorker);
+    const { default: analyze, releaseIdleStockfishWorker } = await import("@/lib/stockfish");
+    const black = start.replace(" w ", " b ");
+    const pending = analyze(black, 18, undefined, 8000, { workerOnly: true, movetime: 1500, multiPv: 3 });
+    const worker = EngineWorker.instances[0]; worker.receive("uciok"); worker.receive("readyok");
+    expect(worker.sent).toContain("setoption name MultiPV value 3");
+    worker.receive("info depth 18 multipv 1 score cp 45 nodes 300 time 120 pv e7e5 e2e4");
+    worker.receive("info depth 18 multipv 3 score mate -3 pv c7c5");
+    worker.receive("info depth 18 multipv 2 score cp 12 pv d7d5");
+    worker.receive("info depth 19 multipv 2 score cp 80 lowerbound pv d7d5");
+    worker.receive("info depth 20 multipv 1 score cp 100");
+    worker.receive("bestmove e7e5");
+    const result = await pending;
+    expect(result.scoreCp).toBe(-45); expect(result.depth).toBe(18); expect(result.pv).toEqual(["e7e5", "e2e4"]);
+    expect(result.lines?.map(line => [line.multipv, line.scoreCp, line.scoreMate, line.depth])).toEqual([[1,-45,null,18],[2,-12,null,18],[3,null,3,18]]);
+    const single = analyze(start, 14, undefined, 8000, { workerOnly: true, movetime: 1000 });
+    worker.receive("readyok");
+    expect(worker.sent).toContain("setoption name MultiPV value 1");
+    worker.receive("info depth 14 score cp 10 pv g1f3"); worker.receive("bestmove g1f3");
+    expect((await single).lines).toHaveLength(1);
+    releaseIdleStockfishWorker();
+});
