@@ -110,7 +110,7 @@ export default function Puzzles() {
         void verifyAlternative(current, uci, controller.signal).then(verified => {
             if (!alive.current || controller.signal.aborted || latest.current.current !== current) return;
             if (verified) acceptMove(current, verified);
-            else { setMoveMark({ square: from, correct: false }); commit({ ...latest.current, current: markAttemptWrong(current, uci) }); setFeedbackKind('wrong'); setFeedback('Спробуйте ще.'); }
+            else { setMoveMark({ square: to, correct: false }); commit({ ...latest.current, current: markAttemptWrong(current, uci) }); setFeedbackKind('wrong'); setFeedback('Спробуйте ще.'); }
         }).catch(() => {
             if (alive.current && !controller.signal.aborted && latest.current.current === current) setFeedback('Stockfish не підтвердив оцінку. Штрафу немає. Повтори хід для перевірки або спробуй інший.');
         }).finally(() => { if (checkController.current === controller) { checkController.current = null; if (alive.current) setChecking(false); } });
@@ -132,7 +132,7 @@ export default function Puzzles() {
     const palette = settings.theme.id === 'odesa' ? { light: '#eee9d3', dark: '#708b9c' } : settings.theme;
     const direction = puzzle?.fen.split(' ')[1] === 'b';
     const failedRating = attempt?.ratingOutcome === 'failed' || !attempt?.ratingOutcome && attempt?.wrong;
-    const status = !puzzle ? '' : complete ? failedRating ? 'Задачу завершено. Помилку враховано в рейтингу.' : attempt?.assisted ? 'Розв’язано з підказкою. Рейтинг не змінено.' : 'Задачу розв’язано!' : feedback || (attempt?.hintLevel ? `Підказку показано на дошці.${bestMove?.[4] ? ' Перетворення: ' + ({ q: 'ферзь', r: 'тура', b: 'слон', n: 'кінь' }[bestMove[4]] || '') + '.' : ''}` : '');
+    const status = !puzzle ? '' : complete ? 'Задачу розв’язано' : feedback || (attempt?.hintLevel ? `Підказку показано на дошці.${bestMove?.[4] ? ' Перетворення: ' + ({ q: 'ферзь', r: 'тура', b: 'слон', n: 'кінь' }[bestMove[4]] || '') + '.' : ''}` : '');
     const ratingChange = complete && attempt?.ratingBefore !== undefined ? progress.rating - attempt.ratingBefore : null;
     return <div className="puzzles-studio">
         <aside className="puzzle-stats puzzle-card" aria-label="Рейтинг гравця">
@@ -142,7 +142,7 @@ export default function Puzzles() {
             <details className="puzzle-training-settings" open={!window.matchMedia('(max-width: 760px)').matches}><summary>Складність задач</summary>
             <fieldset className="puzzle-difficulty" disabled={busy}><legend>Складність</legend><div>{([['easier', 'Легше'], ['normal', 'Мій рівень'], ['harder', 'Складніше']] as const).map(([value, label]) => <button type="button" key={value} aria-pressed={!progress.ratingRange && progress.difficulty === value} onClick={() => commit({ ...latest.current, difficulty: value as Difficulty, ratingRange: null })}>{label}</button>)}</div></fieldset>
             <RatingRange key={progress.ratingRange ? `${progress.ratingRange.min}-${progress.ratingRange.max}` : 'auto'} value={progress.ratingRange} disabled={busy} onChange={ratingRange => commit({ ...latest.current, ratingRange })} />
-            <p className="puzzle-next-settings">Для наступної задачі · Вибір рівня скидає діапазон.</p>
+            <p className="puzzle-next-settings">Налаштування діють із наступної задачі.</p>
             </details>
             {!storageOk && <p role="alert" className="puzzle-storage-error">Не вдалося зберегти прогрес. Не закривайте сторінку, щоб не втратити поточну спробу.</p>}
         </aside>
@@ -156,10 +156,10 @@ export default function Puzzles() {
             {(status || preview) && <div className={`puzzle-status is-${complete ? 'correct' : feedbackKind}`} role="status">{complete || feedbackKind === 'correct' ? <Check aria-hidden="true" size={19} /> : feedbackKind === 'wrong' ? <XCircle aria-hidden="true" size={19} /> : <Info aria-hidden="true" size={19} />}<span>{preview ? 'Перегляд варіанта Stockfish' : status}</span></div>}
             <div className="puzzle-board-footer"><Button variant="ghost" title="Перевернути дошку" disabled={!puzzle} onClick={() => setFlipped(value => !value)}><FlipVertical size={17} />Перевернути</Button><Button variant="ghost" title="Поділитися задачею" disabled={!puzzle} onClick={() => void share()}><Share2 size={17} />Поділитися</Button></div>
         </section>
-        <aside className="puzzle-training puzzle-card" aria-label="Керування тренуванням">
+        <aside className={`puzzle-training puzzle-card${complete ? ' has-review' : ''}`} aria-label="Керування тренуванням">
 
 
-            {!complete && <div className="puzzle-help"><Button className="puzzle-hint" variant="outline" disabled={!puzzle || busy || attempt?.hintLevel === 2} onClick={hint}><Lightbulb size={20} />{attempt?.hintLevel === 2 ? 'Хід показано' : attempt?.hintLevel === 1 ? 'Показати хід' : 'Підказка'}</Button>{puzzle && <div className="puzzle-attempt-status"><strong>Спроба триває</strong><span>{attempt?.step ? 'Знайдіть продовження.' : 'Знайдіть найкращий хід.'}</span><div className="puzzle-attempt-meta"><span>Помилки <b>{Math.max(Number(Boolean(attempt?.wrong)), attempt?.mistakes?.length || 0)}</b></span>{attempt?.assisted && <span>Підказку використано</span>}</div>{failedRating && <small>Підказка не скасує допущену помилку.</small>}</div>}</div>}
+            {!complete && <div className="puzzle-help"><Button className="puzzle-hint" variant="outline" disabled={!puzzle || busy || attempt?.hintLevel === 2} onClick={hint}><Lightbulb size={20} />{attempt?.hintLevel === 2 ? 'Хід показано' : attempt?.hintLevel === 1 ? 'Показати хід' : 'Підказка'}</Button>{puzzle && <div className="puzzle-attempt-status"><strong>Спроба триває</strong><span>{attempt?.step ? 'Знайдіть продовження.' : 'Знайдіть найкращий хід.'}</span><div className="puzzle-attempt-meta"><span>Помилки <b>{Math.max(Number(Boolean(attempt?.wrong)), attempt?.mistakes?.length || 0)}</b></span><span>Підказка <b>{attempt?.assisted ? 'використана' : 'не використана'}</b></span></div>{failedRating && <small>Підказка не скасує допущену помилку.</small>}</div>}</div>}
             {loading && <p role="status" className="puzzle-next-note">Завантаження задачі…</p>}
             {(error || manifest.isError) && <div role="alert" className="puzzle-load-error">{error || 'Не вдалося завантажити базу задач.'}<Button variant="outline" onClick={() => { if (manifest.isError) void manifest.refetch(); else void loadNext(); }}>Повторити завантаження</Button></div>}
             {complete && attempt && <PuzzleReview key={puzzle!.id} attempt={attempt} rating={progress.rating} onPreview={setPreview} blocked={themeOpen || shareOpen} actions={<div className="puzzle-complete-actions"><Button disabled={busy} onClick={() => void loadNext()}>Наступна задача<ArrowRight size={18} /></Button><Button variant="outline" onClick={() => navigate('/analysis', { state: { pgn: puzzleAnalysisPgn(puzzle!, attempt!) } })}>Відкрити в аналізі</Button></div>} />}
