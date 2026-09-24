@@ -13,7 +13,7 @@ import { playPuzzleMove, type PuzzleManifest, type TrainingPuzzle } from '@/feat
 import { attemptFen, lastAttemptMove, markAttemptWrong, markAttemptAssisted, findNextPuzzle, finishAttempt, readProgress, saveProgress, type Attempt, type PuzzleIndexEntry, type Difficulty, type PuzzleProgress, selectedPuzzleThemes } from '@/features/puzzles/training';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { Chess, type Square } from 'chess.js';
-import { ArrowRight, UserRound, Check, FlipVertical, Lightbulb, Share2, XCircle, Info } from 'lucide-react';
+import { ArrowRight, UserRound, Check, FlipVertical, Lightbulb, Share2, XCircle, Info, Target } from 'lucide-react';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import '@/styles/puzzles-studio.css';
@@ -134,11 +134,12 @@ export default function Puzzles() {
     const failedRating = attempt?.ratingOutcome === 'failed' || !attempt?.ratingOutcome && attempt?.wrong;
     const status = !puzzle ? '' : complete ? 'Задачу розв’язано' : feedback || (attempt?.hintLevel ? `Підказку показано на дошці.${bestMove?.[4] ? ' Перетворення: ' + ({ q: 'ферзь', r: 'тура', b: 'слон', n: 'кінь' }[bestMove[4]] || '') + '.' : ''}` : '');
     const ratingChange = complete && attempt?.ratingBefore !== undefined ? progress.rating - attempt.ratingBefore : null;
+    const selectedThemes = selectedPuzzleThemes(progress);
     return <div className="puzzles-studio">
         <aside className="puzzle-stats puzzle-card" aria-label="Рейтинг гравця">
             <h1>Задачі</h1>
             <div className="puzzle-rating" title="Ваш рейтинг у тренуванні задач на цьому пристрої"><span><UserRound size={19} />Рейтинг гравця</span><div className="puzzle-rating-value"><strong>{progress.rating}</strong>{ratingChange !== null && ratingChange !== 0 && <small className={ratingChange < 0 ? 'is-negative' : ''}>{ratingChange > 0 ? '+' : ''}{ratingChange}</small>}</div></div>
-            <ThemePicker themes={manifest.data?.themes || []} count={manifest.data?.count || 0} selected={selectedPuzzleThemes(progress)} disabled={busy} open={themeOpen} onOpenChange={setThemeOpen} onChange={selectedThemes => commit({ ...latest.current, theme: 'all', selectedThemes })} />
+            <ThemePicker themes={manifest.data?.themes || []} count={manifest.data?.count || 0} selected={selectedThemes} disabled={busy} open={themeOpen} onOpenChange={setThemeOpen} onChange={nextThemes => commit({ ...latest.current, theme: 'all', selectedThemes: nextThemes })} />
             <details className="puzzle-training-settings" open={!window.matchMedia('(max-width: 760px)').matches}><summary>Складність задач</summary>
             <fieldset className="puzzle-difficulty" disabled={busy}><legend>Складність</legend><div>{([['easier', 'Легше'], ['normal', 'Мій рівень'], ['harder', 'Складніше']] as const).map(([value, label]) => <button type="button" key={value} aria-pressed={!progress.ratingRange && progress.difficulty === value} onClick={() => commit({ ...latest.current, difficulty: value as Difficulty, ratingRange: null })}>{label}</button>)}</div></fieldset>
             <RatingRange key={progress.ratingRange ? `${progress.ratingRange.min}-${progress.ratingRange.max}` : 'auto'} value={progress.ratingRange} disabled={busy} onChange={ratingRange => commit({ ...latest.current, ratingRange })} />
@@ -157,9 +158,15 @@ export default function Puzzles() {
             <div className="puzzle-board-footer"><Button variant="ghost" title="Перевернути дошку" disabled={!puzzle} onClick={() => setFlipped(value => !value)}><FlipVertical size={17} />Перевернути</Button><Button variant="ghost" title="Поділитися задачею" disabled={!puzzle} onClick={() => void share()}><Share2 size={17} />Поділитися</Button></div>
         </section>
         <aside className={`puzzle-training puzzle-card${complete ? ' has-review' : ''}`} aria-label="Керування тренуванням">
-
-
-            {!complete && <div className="puzzle-help"><Button className="puzzle-hint" variant="outline" disabled={!puzzle || busy || attempt?.hintLevel === 2} onClick={hint}><Lightbulb size={20} />{attempt?.hintLevel === 2 ? 'Хід показано' : attempt?.hintLevel === 1 ? 'Показати хід' : 'Підказка'}</Button>{puzzle && <div className="puzzle-attempt-status"><strong>Спроба триває</strong><span>{attempt?.step ? 'Знайдіть продовження.' : 'Знайдіть найкращий хід.'}</span><div className="puzzle-attempt-meta"><span>Помилки <b>{Math.max(Number(Boolean(attempt?.wrong)), attempt?.mistakes?.length || 0)}</b></span><span>Підказка <b>{attempt?.assisted ? 'використана' : 'не використана'}</b></span></div>{failedRating && <small>Підказка не скасує допущену помилку.</small>}</div>}</div>}
+            {!complete && <div className="puzzle-help">
+                <div className="puzzle-companion-head"><span>Тренування</span>{puzzle && <span className="puzzle-live-indicator">Задача активна</span>}</div>
+                <Button className="puzzle-hint" variant="outline" disabled={!puzzle || busy || attempt?.hintLevel === 2} onClick={hint}><Lightbulb size={20} />{attempt?.hintLevel === 2 ? 'Хід показано' : attempt?.hintLevel === 1 ? 'Показати хід' : 'Підказка'}</Button>
+                {puzzle && <>
+                    <div className="puzzle-attempt-status"><span className="puzzle-section-label">Спроба</span><strong>Спроба триває</strong><span>{attempt?.step ? 'Знайдіть продовження.' : 'Знайдіть найкращий хід.'}</span><div className="puzzle-attempt-meta"><span>Помилки <b>{Math.max(Number(Boolean(attempt?.wrong)), attempt?.mistakes?.length || 0)}</b></span><span>Підказка <b>{attempt?.assisted ? 'використана' : 'не використана'}</b></span></div>{failedRating && <small>Підказка не скасує допущену помилку.</small>}</div>
+                    <div className="puzzle-context"><span className="puzzle-section-label">Позиція</span><div><span>Рейтинг задачі</span><strong>{puzzle.rating}</strong></div><div><span>Наступна добірка</span><strong>{selectedThemes.length === 0 ? 'Змішані задачі' : selectedThemes.length === 1 ? selectedThemes[0] : `Обрано тем: ${selectedThemes.length}`}</strong></div></div>
+                    <p className="puzzle-training-tip"><Target size={16} aria-hidden="true" /><span>Перевір шахи, взяття та загрози.</span></p>
+                </>}
+            </div>}
             {loading && <p role="status" className="puzzle-next-note">Завантаження задачі…</p>}
             {(error || manifest.isError) && <div role="alert" className="puzzle-load-error">{error || 'Не вдалося завантажити базу задач.'}<Button variant="outline" onClick={() => { if (manifest.isError) void manifest.refetch(); else void loadNext(); }}>Повторити завантаження</Button></div>}
             {complete && attempt && <PuzzleReview key={puzzle!.id} attempt={attempt} rating={progress.rating} onPreview={setPreview} blocked={themeOpen || shareOpen} actions={<div className="puzzle-complete-actions"><Button disabled={busy} onClick={() => void loadNext()}>Наступна задача<ArrowRight size={18} /></Button><Button variant="outline" onClick={() => navigate('/analysis', { state: { pgn: puzzleAnalysisPgn(puzzle!, attempt!) } })}>Відкрити в аналізі</Button></div>} />}
