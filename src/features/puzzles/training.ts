@@ -3,7 +3,7 @@ import { applySolutionMove, type TrainingPuzzle, type PuzzleManifest } from './m
 
 export const PUZZLE_PROGRESS_KEY = 'coo.puzzles.training.v1';
 export type Difficulty = 'easier' | 'normal' | 'harder';
-export type Attempt = { puzzle: TrainingPuzzle; step: number; wrong: boolean; assisted: boolean; hintLevel: number; complete: boolean; line?: string[]; ratingOutcome?: 'failed' | 'assisted'; mistakes?: { step: number; move: string }[] };
+export type Attempt = { puzzle: TrainingPuzzle; step: number; wrong: boolean; assisted: boolean; hintLevel: number; complete: boolean; line?: string[]; ratingOutcome?: 'failed' | 'assisted'; ratingBefore?: number; mistakes?: { step: number; move: string }[] };
 export type PuzzleProgress = {
     rating: number; solved: number; clean: number; streak: number;
     completed: string[]; saved: TrainingPuzzle[];
@@ -42,6 +42,7 @@ export function readProgress(): PuzzleProgress {
         const line = a?.line || a?.puzzle?.solution;
         const validExtras = a && (!a.line || isPuzzle({ ...a.puzzle, solution: a.line })) &&
             (!a.ratingOutcome || ['failed', 'assisted'].includes(a.ratingOutcome)) &&
+            (a.ratingBefore === undefined || integer(a.ratingBefore, 4000) && a.ratingBefore >= 100) &&
             (!a.mistakes || Array.isArray(a.mistakes) && a.mistakes.length <= 20 && a.mistakes.every((m: { step: number; move: string }) => {
                 if (!m || !integer(m.step, a.step) || m.step % 2 !== 0 || typeof m.move !== 'string' || !/^[a-h][1-8][a-h][1-8][qrbn]?$/.test(m.move)) return false;
                 try { const game = new Chess(a.puzzle.fen); for (const move of line.slice(0, m.step)) applySolutionMove(game, move); applySolutionMove(game, m.move); return true; } catch { return false; }
@@ -64,7 +65,7 @@ export function finishAttempt(progress: PuzzleProgress, attempt: Attempt, date =
     const rating = Math.max(100, Math.min(4000, progress.rating + (assisted ? 0 : Math.round(24 * ((clean ? 1 : 0) - expected)))));
     const day = dayKey(date), previous = progress.days[day] || { solved: 0, delta: 0 };
     const days = { ...progress.days, [day]: { solved: previous.solved + 1, delta: previous.delta + rating - progress.rating } };
-    return { ...progress, current: attempt, rating, solved: progress.solved + 1, clean: progress.clean + Number(clean), streak: clean ? progress.streak + 1 : 0,
+    return { ...progress, current: { ...attempt, ratingBefore: progress.rating }, rating, solved: progress.solved + 1, clean: progress.clean + Number(clean), streak: clean ? progress.streak + 1 : 0,
         completed: [...progress.completed, attempt.puzzle.id], days: Object.fromEntries(Object.entries(days).sort(([a], [b]) => a.localeCompare(b)).slice(-366)) };
 }
 export function selectedPuzzleThemes(progress: PuzzleProgress): string[] {

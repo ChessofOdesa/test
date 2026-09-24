@@ -143,7 +143,7 @@ describe('Puzzle studio', () => {
         expect(readProgress().current?.puzzle.id).toBe('a');
         fireEvent.click(screen.getByRole('button', { name: 'e2e4' }));
         expect(screen.getByTestId('puzzle-board')).toHaveAttribute('data-last-move', 'e7e5');
-        expect(screen.getByText('Правильно. Знайдіть наступний хід.').parentElement).toHaveClass('is-correct');
+        expect(screen.getByText('Правильно! Продовжуйте.').parentElement).toHaveClass('is-correct');
         fireEvent.click(screen.getByRole('button', { name: 'g1f3' }));
         fireEvent.click(screen.getByRole('button', { name: 'Наступна задача' }));
         await waitFor(() => expect(readProgress().current?.puzzle.id).toBe('b'));
@@ -158,6 +158,10 @@ describe('Puzzle studio', () => {
     });
     it('queues an explicit range without replacing the puzzle and allows resetting to automatic difficulty', async () => {
         open(); await screen.findByTestId('puzzle-board');
+        const range = screen.getByText('Точний діапазон').closest('details')!;
+        expect(range).not.toHaveAttribute('open');
+        fireEvent.click(screen.getByText('Точний діапазон'));
+        expect(range).toHaveAttribute('open');
         fireEvent.change(screen.getByLabelText('Мінімальний рейтинг задач'), { target: { value: '1750' } });
         fireEvent.change(screen.getByLabelText('Максимальний рейтинг задач'), { target: { value: '1850' } });
         fireEvent.click(screen.getByRole('button', { name: 'Застосувати діапазон' }));
@@ -166,6 +170,15 @@ describe('Puzzle studio', () => {
         fireEvent.click(screen.getByRole('button', { name: 'Наступна задача' }));
         await waitFor(() => expect(readProgress().current?.puzzle.id).toBe('b'));
         fireEvent.click(screen.getByRole('button', { name: 'Легше' })); expect(readProgress().ratingRange).toBeNull();
+    });
+    it('shows useful attempt context without duplicating the initial board instruction or exposing an answer', async () => {
+        open(); await screen.findByTestId('puzzle-board');
+        const right = within(screen.getByRole('complementary', { name: 'Керування тренуванням' }));
+        expect(right.getByText('Спроба триває')).toBeInTheDocument();
+        expect(right.getByText('Помилки')).toBeInTheDocument();
+        expect(screen.queryByText('Знайди найкращий хід')).not.toBeInTheDocument();
+        expect(screen.queryByRole('status', { name: /варіант Stockfish/i })).not.toBeInTheDocument();
+        expect(right.queryByText('Розбір задачі')).not.toBeInTheDocument();
     });
     it('starts mobile difficulty collapsed while keeping hints available', async () => {
         const match = vi.spyOn(window, 'matchMedia');

@@ -9,12 +9,14 @@ describe('Puzzle progress', () => {
         const now = new Date(2026, 8, 20, 12), initial = freshProgress();
         const result = finishAttempt(initial, done, now);
         expect(result.rating).toBe(1512); expect(result.clean).toBe(1); expect(result.streak).toBe(1);
+        expect(result.current?.ratingBefore).toBe(1500);
         expect(result.days[dayKey(now)]).toEqual({ solved: 1, delta: 12 });
         expect(finishAttempt(result, done, now)).toBe(result);
     });
     it('does not reward retries or assisted solutions', () => {
         const failed = finishAttempt(freshProgress(), { ...done, wrong: true });
         expect(failed.rating).toBe(1488); expect(failed.clean).toBe(0); expect(failed.streak).toBe(0);
+        expect(failed.current?.ratingBefore).toBe(1500);
         const assisted = finishAttempt(freshProgress(), { ...done, assisted: true });
         expect(assisted.rating).toBe(1500); expect(assisted.clean).toBe(0); expect(assisted.solved).toBe(1);
     });
