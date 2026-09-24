@@ -102,6 +102,7 @@ describe('Puzzle studio', () => {
         fireEvent.click(screen.getByRole('button', { name: 'Застосувати теми' }));
         expect(readProgress().selectedThemes).toEqual(['Мат', 'Тактика']);
         expect(readProgress().current?.puzzle.id).toBe('a');
+        expect(within(screen.getByRole('complementary', { name: 'Керування тренуванням' })).getByText('Обрано тем: 2')).toBeInTheDocument();
         fireEvent.click(screen.getByRole('button', { name: 'Вибрати тему задач' }));
         fireEvent.click(screen.getByRole('button', { name: 'Змішані задачі' }));
         fireEvent.keyDown(screen.getByRole('dialog'), { key: 'Escape' });
@@ -176,6 +177,9 @@ describe('Puzzle studio', () => {
         const right = within(screen.getByRole('complementary', { name: 'Керування тренуванням' }));
         expect(right.getByText('Спроба триває')).toBeInTheDocument();
         expect(right.getByText('Помилки')).toBeInTheDocument();
+        expect(right.getByText('Рейтинг задачі').nextElementSibling).toHaveTextContent('1500');
+        expect(right.getByText('Змішані задачі')).toBeInTheDocument();
+        expect(right.getByText('Перевір шахи, взяття та загрози.')).toBeInTheDocument();
         expect(screen.queryByText('Знайди найкращий хід')).not.toBeInTheDocument();
         expect(screen.queryByRole('status', { name: /варіант Stockfish/i })).not.toBeInTheDocument();
         expect(right.queryByText('Розбір задачі')).not.toBeInTheDocument();
