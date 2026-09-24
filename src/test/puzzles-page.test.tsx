@@ -210,4 +210,14 @@ describe('Puzzle studio', () => {
         open(); const retry = await screen.findByRole('button', { name: 'Повторити завантаження' });
         fireEvent.click(retry); await screen.findByTestId('puzzle-board');
     });
+    it('shows a Ukrainian error and preserves retry when the puzzle shard fetch rejects', async () => {
+        const regularFetch = vi.mocked(fetch).getMockImplementation()!;
+        vi.mocked(fetch).mockImplementationOnce(regularFetch).mockRejectedValueOnce(new TypeError('Failed to fetch'));
+        open();
+        const alert = await screen.findByRole('alert');
+        expect(alert).toHaveTextContent('Не вдалося завантажити задачу. Спробуйте ще раз.');
+        expect(alert).not.toHaveTextContent('Failed to fetch');
+        fireEvent.click(within(alert).getByRole('button', { name: 'Повторити завантаження' }));
+        await screen.findByTestId('puzzle-board');
+    });
 });

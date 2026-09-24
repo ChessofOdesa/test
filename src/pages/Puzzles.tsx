@@ -71,7 +71,12 @@ export default function Puzzles() {
             const alreadySolved = Boolean(puzzle && snapshot.completed.includes(puzzle.id));
             commit({ ...latest.current, current: puzzle ? { puzzle, step: alreadySolved ? puzzle.solution.length : 0, wrong: false, assisted: alreadySolved, hintLevel: 0, complete: alreadySolved } : null });
             setEmpty(!puzzle); setFeedback(''); setFeedbackKind('neutral'); setPreview(null); setMoveMark(null); setFlipped(false);
-        } catch (error) { if (alive.current && id === requestId.current) setError(error instanceof Error ? error.message : 'Не вдалося завантажити задачу. Спробуйте ще раз.'); }
+        } catch (error) {
+            if (alive.current && id === requestId.current) {
+                const message = error instanceof Error ? error.message : '';
+                setError(['Не вдалося завантажити задачі', 'Некоректний індекс задач'].includes(message) ? message : 'Не вдалося завантажити задачу. Спробуйте ще раз.');
+            }
+        }
         finally { nextPending.current = false; if (alive.current && id === requestId.current) setLoading(false); }
     }, [manifest.data, client, commit, sharedId, setSearchParams]);
     useEffect(() => {
