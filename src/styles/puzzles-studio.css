@@ -14,6 +14,7 @@
 .puzzles-studio .puzzle-rating-value { display: flex; align-items: baseline; gap: 9px; }
 .puzzles-studio .puzzle-rating-value small, .puzzles-studio .puzzle-review-facts small { color: #91ecad; font-size: 13px; font-weight: 700; }
 .puzzles-studio .puzzle-rating-value .is-negative, .puzzles-studio .puzzle-review-facts .is-negative { color: #ffb4a3; }
+.puzzles-studio .puzzle-review-facts .is-unchanged { color: #aec2d4; font-size: 11px; font-weight: 500; }
 .puzzles-studio .puzzle-rating > span { display: flex; gap: 8px; align-items: center; font-size: 16px; font-weight: 600; }
 .puzzles-studio .puzzle-rating-value > strong { font-size: 29px; line-height: 1.15; font-variant-numeric: tabular-nums; }
 .puzzles-studio .puzzle-theme-chips { display: flex; flex-wrap: wrap; gap: 6px; margin: 6px 0 9px; font-size: 13px; }

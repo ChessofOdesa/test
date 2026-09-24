@@ -48,7 +48,7 @@ export function PuzzleReview({ attempt, rating, onPreview, actions, blocked = fa
         <div className="puzzle-review-summary">
             <div className="puzzle-result-heading"><Check size={21} aria-hidden="true" /><strong>{attempt.wrong ? 'Завершено з помилкою' : attempt.assisted ? 'Розв’язано з підказкою' : 'Задачу розв’язано'}</strong></div>
             <div className="puzzle-review-facts">
-                {rating !== undefined && <div><span>Рейтинг</span><strong>{attempt.ratingBefore !== undefined ? `${attempt.ratingBefore} → ${rating}` : rating}</strong>{ratingChange !== null && <small className={ratingChange < 0 ? 'is-negative' : ''}>{ratingChange > 0 ? '+' : ''}{ratingChange}</small>}</div>}
+                {rating !== undefined && <div><span>Рейтинг</span><strong>{attempt.ratingBefore !== undefined ? `${attempt.ratingBefore} → ${rating}` : rating}</strong>{ratingChange !== null && <small className={ratingChange < 0 ? 'is-negative' : ratingChange === 0 ? 'is-unchanged' : ''}>{ratingChange === 0 ? 'без змін' : `${ratingChange > 0 ? '+' : ''}${ratingChange}`}</small>}</div>}
                 <div><span>Тема</span><strong>{attempt.puzzle.theme}</strong></div>
             </div>
             <div className="puzzle-best-line"><span>Найкраще продовження</span><p>{solution.slice(0, 6).join('  ')}{solution.length > 6 ? ' …' : ''}</p></div>
