@@ -10,7 +10,7 @@ import { verifyAlternative } from '@/features/puzzles/verifyAlternative';
 import { freshProgress, saveProgress, readProgress } from '@/features/puzzles/training';
 vi.mock('@/features/puzzles/PuzzleReview', () => ({ PuzzleReview: ({ actions }: { actions?: ReactNode }) => <div>Розбір задачі{actions}</div> }));
 vi.mock('@/features/puzzles/verifyAlternative', () => ({ verifyAlternative: vi.fn(async () => null) }));
-vi.mock('@/components/ChessBoard', () => ({ default: (p: { displayFen: string; onMove: (a: string,b: string) => boolean; interactive: boolean; flipped: boolean; lastMoveSquares?: string[]; animationDuration?: number; captureFadeSquare?: string }) => <div data-testid="puzzle-board" data-fen={p.displayFen} data-flipped={String(p.flipped)} data-last-move={p.lastMoveSquares?.join('')} data-animation={p.animationDuration} data-capture={p.captureFadeSquare}>{['e2e4','d2d4','g1f3','e4d5'].map(move => <button key={move} disabled={!p.interactive} onClick={() => p.onMove(move.slice(0,2),move.slice(2,4))}>{move}</button>)}</div> }));
+vi.mock('@/components/ChessBoard', () => ({ default: (p: { displayFen: string; onMove: (a: string,b: string) => boolean; interactive: boolean; flipped: boolean; playerColor?: string; enableMoveSounds?: boolean; lastMoveSquares?: string[]; animationDuration?: number; captureFadeSquare?: string }) => <div data-testid="puzzle-board" data-fen={p.displayFen} data-flipped={String(p.flipped)} data-player={p.playerColor} data-sound={String(p.enableMoveSounds)} data-last-move={p.lastMoveSquares?.join('')} data-animation={p.animationDuration} data-capture={p.captureFadeSquare}>{['e2e4','d2d4','g1f3','e4d5'].map(move => <button key={move} disabled={!p.interactive} onClick={() => p.onMove(move.slice(0,2),move.slice(2,4))}>{move}</button>)}</div> }));
 const puzzles = [
     { id: 'a', fen: new Chess().fen(), solution: ['e2e4','e7e5','g1f3'], rating: 1500, theme: 'Тактика', title: 'A' },
     { id: 'b', fen: new Chess().fen(), solution: ['d2d4'], rating: 1800, theme: 'Мат', title: 'B' }
@@ -58,9 +58,10 @@ describe('Puzzle studio', () => {
         expect(screen.getByTestId('puzzle-board')).toHaveAttribute('data-fen', final.fen());
         expect(screen.getByRole('button', { name: 'g1f3' })).toBeEnabled();
     });
-    it('puts the title in the stats panel, removes rejected controls and prevents skipping by settings', async () => {
+    it('places the title in the page toolbar, removes rejected controls and prevents skipping by settings', async () => {
         open(); await screen.findByTestId('puzzle-board');
-        expect(within(screen.getByRole('complementary', { name: 'Рейтинг гравця' })).getByRole('heading', { name: 'Задачі' })).toBeInTheDocument();
+        expect(screen.getByRole('heading', { name: 'Задачі' })).toBeInTheDocument();
+        expect(screen.getByRole('button', { name: 'Налаштування задач' })).toBeInTheDocument();
         expect(screen.queryByRole('tab')).not.toBeInTheDocument();
         for (const name of ['Пропустити','Наступна задача','Записати варіант','Почати заново']) expect(screen.queryByRole('button', { name })).not.toBeInTheDocument();
         fireEvent.click(screen.getByRole('button', { name: 'Вибрати тему задач' }));
@@ -74,6 +75,7 @@ describe('Puzzle studio', () => {
         await waitFor(() => expect(screen.getByRole('button', { name: 'g1f3' })).toBeEnabled());
         fireEvent.click(screen.getByRole('button', { name: 'g1f3' }));
         expect(readProgress().rating).toBe(1512);
+        expect(within(screen.getByRole('complementary', { name: 'Рейтинг гравця' })).getByText('Серія 1')).toBeInTheDocument();
         fireEvent.click(await screen.findByRole('button', { name: 'Наступна задача' }));
         await waitFor(() => expect(readProgress().current?.puzzle.id).toBe('b'));
     });
@@ -108,9 +110,9 @@ describe('Puzzle studio', () => {
         const view = open(); await screen.findByTestId('puzzle-board');
         const left = within(screen.getByRole('complementary', { name: 'Рейтинг гравця' }));
         expect(left.getByText('1500')).toBeInTheDocument();
-        expect(left.getByText('Налаштування')).toBeInTheDocument();
-        expect(left.getByText('Налаштування').closest('summary')).toHaveTextContent('Мій рівень');
-        for (const text of ['Розв’язано', 'Сьогодні', 'Серія правильних', 'Без помилок і підказок', 'Про рейтинг']) expect(left.queryByText(text)).not.toBeInTheDocument();
+        expect(left.getByText('Серія 0')).toBeInTheDocument();
+        expect(left.getByRole('button', { name: 'Мій рівень' })).toHaveAttribute('aria-pressed', 'true');
+        for (const text of ['Розв’язано', 'Сьогодні', 'Про рейтинг']) expect(left.queryByText(text)).not.toBeInTheDocument();
         expect(screen.queryByRole('button', { name: /Зберегти|Збережені/ })).not.toBeInTheDocument();
         expect(within(screen.getByRole('complementary', { name: 'Керування тренуванням' })).getByRole('button', { name: 'Підказка' })).toBeInTheDocument();
         expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
@@ -201,18 +203,19 @@ describe('Puzzle studio', () => {
     });
     it('queues an explicit range without replacing the puzzle and allows resetting to automatic difficulty', async () => {
         open(); await screen.findByTestId('puzzle-board');
-        const settings = screen.getByText('Налаштування').closest('details')!;
-        expect(settings).not.toHaveAttribute('open');
-        fireEvent.click(screen.getByText('Налаштування'));
-        expect(settings).toHaveAttribute('open');
-        const range = screen.getByText('Точний діапазон').closest('details')!;
+        expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+        fireEvent.click(screen.getByRole('button', { name: 'Налаштування задач' }));
+        const dialog = within(screen.getByRole('dialog'));
+        const range = dialog.getByText('Точний діапазон').closest('details')!;
         expect(range).not.toHaveAttribute('open');
-        fireEvent.click(screen.getByText('Точний діапазон'));
+        fireEvent.click(dialog.getByText('Точний діапазон'));
         expect(range).toHaveAttribute('open');
         fireEvent.change(screen.getByLabelText('Мінімальний рейтинг задач'), { target: { value: '1750' } });
         fireEvent.change(screen.getByLabelText('Максимальний рейтинг задач'), { target: { value: '1850' } });
         fireEvent.click(screen.getByRole('button', { name: 'Застосувати діапазон' }));
         expect(readProgress().ratingRange).toEqual({ min: 1750, max: 1850 }); expect(readProgress().current?.puzzle.id).toBe('a');
+        fireEvent.keyDown(screen.getByRole('dialog'), { key: 'Escape' });
+        await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument());
         fireEvent.click(screen.getByRole('button', { name: 'e2e4' }));
         await waitFor(() => expect(screen.getByRole('button', { name: 'g1f3' })).toBeEnabled());
         fireEvent.click(screen.getByRole('button', { name: 'g1f3' }));
@@ -234,26 +237,54 @@ describe('Puzzle studio', () => {
         expect(screen.queryByRole('status', { name: /варіант Stockfish/i })).not.toBeInTheDocument();
         expect(right.queryByText('Розбір задачі')).not.toBeInTheDocument();
     });
-    it('starts mobile difficulty collapsed while keeping hints available', async () => {
+    it('keeps the mobile advanced range behind the settings dialog while hints remain available', async () => {
         const match = vi.spyOn(window, 'matchMedia');
         const original = window.matchMedia('(max-width: 760px)');
         match.mockImplementation(query => ({ ...original, matches: query === '(max-width: 760px)' }));
         try {
             open(); await screen.findByTestId('puzzle-board');
-            const summary = screen.getByText('Налаштування');
-            expect(summary.closest('details')).not.toHaveAttribute('open');
+            expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
             expect(screen.getByRole('button', { name: 'Підказка' })).toBeEnabled();
-            fireEvent.click(summary); expect(summary.closest('details')).toHaveAttribute('open');
+            fireEvent.click(screen.getByRole('button', { name: 'Налаштування задач' }));
+            expect(within(screen.getByRole('dialog')).getByText('Точний діапазон').closest('details')).not.toHaveAttribute('open');
         } finally { match.mockRestore(); }
+    });
+    it('keeps puzzle appearance preferences on this device and never reveals engine scores before completion', async () => {
+        const view = open(); await screen.findByTestId('puzzle-board');
+        expect(screen.getByTestId('puzzle-board')).toHaveAttribute('data-player', 'w');
+        expect(screen.queryByText('Stockfish')).not.toBeInTheDocument();
+        fireEvent.click(screen.getByRole('button', { name: 'Налаштування задач' }));
+        const dialog = within(screen.getByRole('dialog'));
+        fireEvent.change(dialog.getByLabelText('Фон сторінки'), { target: { value: 'blue' } });
+        fireEvent.change(dialog.getByLabelText('Колір дошки'), { target: { value: 'wood' } });
+        fireEvent.click(dialog.getByLabelText('Звуки ходів'));
+        fireEvent.click(dialog.getByLabelText('Анімація ходів'));
+        fireEvent.click(dialog.getByLabelText('Показувати підказки'));
+        fireEvent.keyDown(screen.getByRole('dialog'), { key: 'Escape' });
+        await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument());
+        expect(screen.getByTestId('puzzle-board')).toHaveAttribute('data-animation', '0');
+        expect(screen.getByTestId('puzzle-board')).toHaveAttribute('data-sound', 'true');
+        expect(document.querySelector('.puzzles-studio')).toHaveClass('is-blue-background');
+        expect(screen.queryByRole('button', { name: 'Підказка' })).not.toBeInTheDocument();
+        view.unmount(); open(); await screen.findByTestId('puzzle-board');
+        fireEvent.click(screen.getByRole('button', { name: 'Налаштування задач' }));
+        const reopened = within(screen.getByRole('dialog'));
+        expect(reopened.getByLabelText('Фон сторінки')).toHaveValue('blue');
+        expect(reopened.getByLabelText('Колір дошки')).toHaveValue('wood');
+        expect(reopened.getByLabelText('Звуки ходів')).toBeChecked();
+        expect(reopened.getByLabelText('Анімація ходів')).not.toBeChecked();
+        expect(reopened.getByLabelText('Показувати підказки')).not.toBeChecked();
     });
     it('recovers from an empty filter without showing instructions for a nonexistent puzzle', async () => {
         saveProgress({ ...freshProgress(), ratingRange: { min: 4000, max: 4000 } });
         open(); await screen.findByText('Немає нових задач за вибраною темою та діапазоном.');
         expect(screen.queryByText('Знайди найкращий хід')).not.toBeInTheDocument();
         expect(screen.queryByText('Наступна задача стане доступною після розв’язання.')).not.toBeInTheDocument();
-        fireEvent.click(screen.getByText('Налаштування'));
-        fireEvent.click(screen.getByText(/Точний діапазон/));
+        fireEvent.click(screen.getByRole('button', { name: 'Налаштування задач' }));
+        fireEvent.click(within(screen.getByRole('dialog')).getByText(/Точний діапазон/));
         fireEvent.click(screen.getByRole('button', { name: 'Автоматична складність' }));
+        fireEvent.keyDown(screen.getByRole('dialog'), { key: 'Escape' });
+        await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument());
         fireEvent.click(screen.getByRole('button', { name: 'Завантажити вибрану добірку' }));
         await screen.findByTestId('puzzle-board');
         expect(readProgress().current?.puzzle.id).toBe('a');
