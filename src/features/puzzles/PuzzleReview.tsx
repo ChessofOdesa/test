@@ -26,6 +26,7 @@ export function PuzzleReview({ attempt, rating, onPreview, actions, blocked = fa
     const line = review?.lines[lineIndex];
     const solution = framesForLine(attempt.puzzle.fen, attempt.line || attempt.puzzle.solution).slice(1).map(frame => frame.san);
     const ratingChange = attempt.ratingBefore !== undefined && rating !== undefined ? rating - attempt.ratingBefore : null;
+    const mistakeCount = Math.max(Number(Boolean(attempt.wrong)), attempt.mistakes?.length || 0);
     const show = useCallback((row: number, next: number) => {
         const frame = review?.lines[row]?.frames[next];
         if (frame) { setLineIndex(row); setPly(next); onPreview(frame); }
@@ -46,14 +47,14 @@ export function PuzzleReview({ attempt, rating, onPreview, actions, blocked = fa
     return <section className="puzzle-review" aria-label="Розбір задачі">
         <div className="puzzle-review-scroll">
         <div className="puzzle-review-summary">
-            <span className="puzzle-review-kicker">Підсумок задачі</span>
-            <div className={`puzzle-result-heading${attempt.wrong ? ' is-wrong' : attempt.assisted ? ' is-assisted' : ''}`}><Check size={21} aria-hidden="true" /><strong>{attempt.wrong ? 'Завершено з помилкою' : attempt.assisted ? 'Розв’язано з підказкою' : 'Задачу розв’язано'}</strong></div>
+            <div className={`puzzle-result-heading${attempt.wrong ? ' is-wrong' : attempt.assisted ? ' is-assisted' : ''}`}><Check size={21} aria-hidden="true" /><strong>{attempt.wrong ? 'Завершено з помилкою' : attempt.assisted ? 'Розв’язано з підказкою' : 'Розв’язано'}</strong></div>
+            <p className="puzzle-review-meta">{mistakeCount} {mistakeCount === 1 ? 'помилка' : mistakeCount >= 2 && mistakeCount <= 4 ? 'помилки' : 'помилок'} · {attempt.assisted ? 'З підказкою' : 'Без підказки'}</p>
             <div className="puzzle-review-facts">
-                {rating !== undefined && <div><span>Рейтинг</span><strong>{attempt.ratingBefore !== undefined ? `${attempt.ratingBefore} → ${rating}` : rating}</strong>{ratingChange !== null && <small className={ratingChange < 0 ? 'is-negative' : ratingChange === 0 ? 'is-unchanged' : ''}>{ratingChange === 0 ? 'без змін' : `${ratingChange > 0 ? '+' : ''}${ratingChange}`}</small>}</div>}
+                {rating !== undefined && <div className="puzzle-player-rating"><span>Рейтинг гравця</span><strong>{attempt.ratingBefore !== undefined ? `${attempt.ratingBefore} → ${rating}` : rating}</strong>{ratingChange !== null && <small className={ratingChange < 0 ? 'is-negative' : ratingChange === 0 ? 'is-unchanged' : ''}>{ratingChange === 0 ? 'без змін' : `${ratingChange > 0 ? '+' : ''}${ratingChange}`}</small>}</div>}
                 <div><span>Тема</span><strong>{attempt.puzzle.theme}</strong></div>
+                <div><span>Рейтинг задачі</span><strong>{attempt.puzzle.rating}</strong></div>
             </div>
             <div className="puzzle-best-line"><span>Найкраще продовження</span><p>{solution.slice(0, 6).join('  ')}{solution.length > 6 ? ' …' : ''}</p></div>
-            {review?.explanation && <div className="puzzle-review-explanation"><span>Пояснення</span><p>{review.explanation}</p></div>}
         </div>
         <div className="puzzle-engine-panel">
             <header className={`puzzle-engine-header${busy ? ' is-loading' : ''}`}><Button variant="ghost" className="puzzle-power" title={enabled ? 'Вимкнути Stockfish' : 'Увімкнути Stockfish'} aria-label={enabled ? 'Вимкнути Stockfish' : 'Увімкнути Stockfish'} aria-pressed={enabled} onClick={() => setEnabled(!enabled)}><Power size={19} /></Button><div><h2>Stockfish</h2><small>{busy ? 'Розрахунок…' : !enabled ? 'На паузі' : review?.depth ? `Глибина ${review.depth} · варіантів ${review.lines.length}` : 'Розбір позиції'}</small></div><span className="puzzle-engine-score" title="Оцінка з боку білих">{line?.score || '—'}</span><Button variant="ghost" title="Налаштування Stockfish" aria-label="Налаштування Stockfish" aria-expanded={settings} onClick={() => setSettings(!settings)}><SlidersHorizontal size={19} /></Button></header>
