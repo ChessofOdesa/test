@@ -78,6 +78,22 @@ describe("shared board interaction", () => {
         expect(moved).toHaveBeenLastCalledWith("g1", "f3", "q");
         expect(moved).toHaveBeenCalledTimes(2);
     });
+    it("allows dragging only the puzzle side, clears click selection on pickup and snaps an invalid drop back", () => {
+        const position = "4k3/4p3/8/8/8/8/4P3/4K3 b - - 0 1";
+        const moved = vi.fn(() => true);
+        mountBoard({ initialFen: position, displayFen: position, playerColor: "b", onMove: moved });
+        expect(surface.props.isDraggablePiece({ piece: "wP", sourceSquare: "e2" })).toBe(false);
+        expect(surface.props.isDraggablePiece({ piece: "bP", sourceSquare: "e7" })).toBe(true);
+        act(() => surface.props.onSquareClick("e7"));
+        expect(surface.props.customSquareStyles.e7.boxShadow).toContain("selected");
+        act(() => surface.props.onPieceDragBegin("bP", "e7"));
+        expect(surface.props.customSquareStyles.e7?.boxShadow).toBeUndefined();
+        act(() => expect(surface.props.onPieceDrop("e2", "e4")).toBe(false));
+        expect(moved).not.toHaveBeenCalled();
+        act(() => expect(surface.props.onPieceDrop("e7", "e5")).toBe(true));
+        expect(moved).toHaveBeenCalledOnce();
+        expect(moved).toHaveBeenCalledWith("e7", "e5", "q");
+    });
     it("recovers corrupted stored board preferences", () => {
         localStorage.setItem("coo.board.preferences", "null");
         mountBoard({ initialFen: start });

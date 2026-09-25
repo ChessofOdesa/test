@@ -44,6 +44,13 @@ describe('Puzzle engine review', () => {
         expect(screen.getByText('1500 → 1500')).toBeInTheDocument();
         expect(screen.getByText('без змін')).toHaveClass('is-unchanged');
     });
+    it('hides numeric engine evaluation without removing real variation moves', async () => {
+        render(<PuzzleReview attempt={attempt} showEvaluation={false} onPreview={vi.fn()} />);
+        await screen.findByRole('button', { name: 'e5' });
+        expect(screen.getByRole('button', { name: 'e4' })).toBeInTheDocument();
+        expect(screen.queryByText('+0.32')).not.toBeInTheDocument();
+        expect(document.querySelector('.puzzle-engine-score')).not.toBeInTheDocument();
+    });
     it('cancels a pending review when leaving and offers retry on a worker failure', async () => {
         vi.mocked(analyzeFenWithStockfish).mockRejectedValueOnce(new Error('Failed to initialize Stockfish.'));
         const view=render(<PuzzleReview attempt={attempt} onPreview={vi.fn()} />);
