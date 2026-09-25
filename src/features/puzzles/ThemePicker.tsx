@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { Check, Layers, Plus, Search, X } from 'lucide-react';
+import { Check, Layers, Search, X } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog';
 import { THEME_IDEAS } from './review';
@@ -12,10 +12,10 @@ export function ThemePicker({ themes, selected, count, disabled, open, onOpenCha
     const changeOpen = (next: boolean) => { if (next) { setDraft(selected); setQuery(''); } onOpenChange(next); };
     const filtered = themes.filter(theme => theme.toLocaleLowerCase('uk').includes(query.trim().toLocaleLowerCase('uk')));
     return <section className="puzzle-theme-picker">
-        <h2>Теми задач</h2>
+        <h2>Тема</h2>
         <div className="puzzle-theme-chips">{selected.length ? selected.map(theme => <button type="button" key={theme} disabled={disabled} aria-label={`Прибрати тему ${theme}`} onClick={() => onChange(selected.filter(t => t !== theme))}>{theme}<X size={14} /></button>) : <span>Змішані задачі</span>}</div>
         <Dialog open={open} onOpenChange={changeOpen}>
-            <DialogTrigger asChild><Button variant="outline" className="puzzle-theme-button" aria-label="Вибрати тему задач" disabled={disabled}><Plus size={18} />Обрати теми</Button></DialogTrigger>
+            <DialogTrigger asChild><Button variant="outline" className="puzzle-theme-button" aria-label="Вибрати тему задач" disabled={disabled}>Змінити теми</Button></DialogTrigger>
             <DialogContent closeLabel="Закрити" className="puzzle-theme-dialog">
                 <DialogHeader><DialogTitle>Теми задач</DialogTitle><DialogDescription>{count.toLocaleString('uk-UA')} задач · {themes.length} тем</DialogDescription></DialogHeader>
                 <label className="puzzle-theme-search"><Search size={18} /><input aria-label="Пошук теми" placeholder="Пошук теми…" value={query} onChange={e => setQuery(e.target.value)} /></label>
