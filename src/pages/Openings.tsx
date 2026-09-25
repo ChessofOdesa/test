@@ -5,7 +5,8 @@ import { readGrowthState, recordOpeningDrill } from "@/lib/growth-system";
 import { OPENINGS, type Opening, type OpeningLine } from "@/lib/openings-data";
 import { Chess } from "chess.js";
 import { AnimatePresence, motion } from "framer-motion";
-import { BookOpen, ChevronRight, RotateCcw, Shield, Star, Swords, Target, Zap } from "lucide-react";
+import { ChevronRight, RotateCcw, Shield, Star, Swords, Target, Zap } from "lucide-react";
+import { OpeningsIcon } from "@/components/icons/chess";
 import { useCallback, useState } from "react";
 const STYLE_ICONS: Record<string, typeof Swords> = {
     aggressive: Zap,
@@ -116,7 +117,7 @@ export default function Openings() {
         <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }}>
           <div className="mb-8">
             <h1 className="text-3xl font-display font-bold text-foreground flex items-center gap-3">
-              <BookOpen className="text-primary"/> Дебютний тренер
+              <OpeningsIcon size={26} className="text-primary" aria-hidden="true"/> Дебютний тренер
             </h1>
             <p className="text-muted-foreground font-body mt-1">Вивчайте дебюти та їх варіанти з інтерактивною дошкою</p>
           </div>
@@ -233,7 +234,7 @@ export default function Openings() {
                       </p>
                     </div>)}
                 </>) : (<div className="bg-gradient-card rounded-xl p-12 border border-border text-center">
-                  <BookOpen size={48} className="text-muted-foreground mx-auto mb-4"/>
+                  <OpeningsIcon size={32} className="text-muted-foreground mx-auto mb-4" aria-hidden="true"/>
                   <h3 className="font-display font-semibold text-foreground mb-2">Оберіть дебют</h3>
                   <p className="text-sm text-muted-foreground font-body">
                     Натисніть на будь-який дебют зліва, щоб почати тренування

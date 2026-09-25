@@ -4,7 +4,8 @@ import { LESSON_LEVEL_META, LESSON_LEVELS, type LessonLevel, type LessonProgress
 import { createCleanLessonDiagramFen, firstAvailableLesson, getLessonStatus, getLevelLessons, isLessonUnlocked, LessonWorkspaceMode, LEVEL_ORDER, MoveState, normalizeMove, PrimaryButton, readProgress, StatCard, StatusBadge, TODAY_KEY, writeProgress } from '@/features/lessons/model';
 import { cn } from "@/lib/utils";
 import { Chess, type Square } from "chess.js";
-import { ArrowLeft, ArrowRight, BookOpen, Brain, CheckCircle2, ChevronRight, Eye, Flame, GraduationCap, Lock, Medal, Play, RotateCcw, Sparkles, Target, Trophy, Zap } from "lucide-react";
+import { ArrowLeft, ArrowRight, Brain, CheckCircle2, ChevronRight, Eye, Flame, Lock, Medal, Play, RotateCcw, Sparkles, Target, Trophy, Zap } from "lucide-react";
+import { LessonsIcon } from "@/components/icons/chess";
 import { useEffect, useMemo, useState } from "react";
 export default function Lessons() {
     const [progress, setProgress] = useState<LessonProgressState>(() => readProgress());
@@ -316,7 +317,7 @@ export default function Lessons() {
           {mode === "level-selection" ? (<div className="grid min-h-full place-items-center p-5">
               <section className="w-full max-w-4xl rounded-2xl border border-border bg-gradient-to-br from-white/[0.09] to-white/[0.025] p-6 text-center shadow-sm">
                 <div className="mx-auto mb-5 grid h-16 w-16 place-items-center rounded-2xl bg-accent text-primary">
-                  <GraduationCap className="h-8 w-8"/>
+                  <LessonsIcon size={32} aria-hidden="true"/>
                 </div>
                 <h1 className="text-4xl font-black tracking-tight text-foreground md:text-5xl">Уроки</h1>
                 <p className="mx-auto mt-3 max-w-2xl text-base leading-7 text-muted-foreground">
@@ -326,7 +327,7 @@ export default function Lessons() {
                 <div className="mt-7 grid gap-3 md:grid-cols-3">
                   {LEVEL_ORDER.map((level) => (<button key={level} type="button" onClick={() => selectLevel(level)} className="rounded-2xl border border-border bg-card p-5 text-left transition hover:-translate-y-0.5 hover:border-primary hover:bg-card focus:outline-none focus:ring-2 focus:ring-primary">
                       <div className="mb-4 grid h-11 w-11 place-items-center rounded-2xl bg-accent text-primary">
-                        <BookOpen className="h-5 w-5"/>
+                        <LessonsIcon size={20} aria-hidden="true"/>
                       </div>
                       <h2 className="text-xl font-black text-foreground">{LESSON_LEVEL_META[level].title}</h2>
                       <p className="mt-2 text-sm leading-6 text-muted-foreground">{LESSON_LEVEL_META[level].description}</p>
