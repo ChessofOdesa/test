@@ -223,6 +223,7 @@ describe('Puzzle studio', () => {
         expect(right.getByText('Рейтинг задачі').nextElementSibling).toHaveTextContent('1500');
         expect(right.getByText('Змішані задачі')).toBeInTheDocument();
         expect(right.getByText('Перевір шахи, взяття та загрози.')).toBeInTheDocument();
+        expect(within(screen.getByRole('region', { name: 'Дошка задачі' })).queryByText('0')).not.toBeInTheDocument();
         expect(screen.queryByText('Знайди найкращий хід')).not.toBeInTheDocument();
         expect(screen.queryByRole('status', { name: /варіант Stockfish/i })).not.toBeInTheDocument();
         expect(right.queryByText('Розбір задачі')).not.toBeInTheDocument();
