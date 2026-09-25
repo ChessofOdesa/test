@@ -19,21 +19,23 @@ describe('Puzzle engine review', () => {
             await expect(reviewPuzzle(attempt, null, new AbortController().signal)).rejects.toThrow();
         }
     });
-    it('explains the idea, previews any ply on the existing board, and replays an error plus the engine response', async () => {
+    it('shows a concise result, previews any ply on the existing board, and replays an error plus the engine response', async () => {
         const preview = vi.fn(); render(<PuzzleReview attempt={{...attempt, ratingBefore:1500}} rating={1488} onPreview={preview} />);
         expect(screen.getByText('1500 → 1488')).toBeInTheDocument();
         expect(screen.getByText('-12')).toBeInTheDocument();
         expect(screen.getByText('Тактика')).toBeInTheDocument();
         expect(screen.getByText(/e4\s+e5\s+Nf3/)).toBeInTheDocument();
-        await screen.findByText(/Варіант Stockfish починається з e4/);
-        expect(screen.getByText('Пояснення')).toBeInTheDocument();
+        await screen.findByRole('button', { name: 'e5' });
+        expect(screen.queryByText('Пояснення')).not.toBeInTheDocument();
+        expect(screen.queryByText('Підсумок задачі')).not.toBeInTheDocument();
+        expect(screen.getByText('Рейтинг задачі').nextElementSibling).toHaveTextContent('1500');
         fireEvent.click(screen.getByRole('button', { name: 'e5' }));
         expect(preview.mock.lastCall?.[0].squares).toEqual(['e7','e5']);
         const game = new Chess(preview.mock.lastCall?.[0].fen); expect(game.get('e5')?.color).toBe('b');
         fireEvent.click(screen.getByRole('button', { name: 'До розв’язання' })); expect(preview.mock.lastCall?.[0]).toBeNull();
         vi.mocked(analyzeFenWithStockfish).mockResolvedValueOnce({ ...result, bestmove:'d7d5', pv:['d7d5','c2c4'],scoreCp:-80 });
         fireEvent.click(screen.getByRole('button', { name: 'Помилка d4' }));
-        await screen.findByText(/Після d4 Stockfish знаходить відповідь d5/);
+        await screen.findByRole('button', { name: 'd5' });
         fireEvent.click(screen.getByRole('button', { name: 'd4' }));
         expect(preview.mock.lastCall?.[0].squares).toEqual(['d2','d4']);
     });

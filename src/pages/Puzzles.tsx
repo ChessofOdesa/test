@@ -13,7 +13,7 @@ import { playPuzzleMove, type PuzzleManifest, type TrainingPuzzle } from '@/feat
 import { attemptFen, lastAttemptMove, markAttemptWrong, markAttemptAssisted, findNextPuzzle, finishAttempt, readProgress, saveProgress, type Attempt, type PuzzleIndexEntry, type Difficulty, type PuzzleProgress, selectedPuzzleThemes } from '@/features/puzzles/training';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { Chess, type Square } from 'chess.js';
-import { ArrowRight, UserRound, Check, FlipVertical, Lightbulb, Share2, XCircle, Info, Target } from 'lucide-react';
+import { ArrowRight, UserRound, Check, FlipVertical, Lightbulb, Share2, XCircle, Info, Target, Settings2 } from 'lucide-react';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import '@/styles/puzzles-studio.css';
@@ -165,22 +165,24 @@ export default function Puzzles() {
     const bestMove = attempt && (attempt.line || attempt.puzzle.solution)[attempt.step];
     const palette = settings.theme.id === 'odesa' ? { light: '#eee9d3', dark: '#708b9c' } : settings.theme;
     const direction = puzzle?.fen.split(' ')[1] === 'b';
-    const failedRating = attempt?.ratingOutcome === 'failed' || !attempt?.ratingOutcome && attempt?.wrong;
     const status = !puzzle ? '' : complete ? presentedFen ? 'Правильно!' : 'Задачу розв’язано' : feedback || (attempt?.hintLevel ? `Підказку показано на дошці.${bestMove?.[4] ? ' Перетворення: ' + ({ q: 'ферзь', r: 'тура', b: 'слон', n: 'кінь' }[bestMove[4]] || '') + '.' : ''}` : '');
     const ratingChange = complete && attempt?.ratingBefore !== undefined ? progress.rating - attempt.ratingBefore : null;
     const shownRating = complete && presentedFen && attempt?.ratingBefore !== undefined ? attempt.ratingBefore : progress.rating;
     const selectedThemes = selectedPuzzleThemes(progress);
     const boardBlack = Boolean(direction !== flipped);
     const reviewReady = complete && !presentedFen;
+    const difficultyLabel = progress.ratingRange ? `${progress.ratingRange.min}–${progress.ratingRange.max}` : ({ easier: 'Легше', normal: 'Мій рівень', harder: 'Складніше' } as const)[progress.difficulty];
+    const mistakeCount = Math.max(Number(Boolean(attempt?.wrong)), attempt?.mistakes?.length || 0);
     return <div className="puzzles-studio">
         <aside className="puzzle-stats puzzle-card" aria-label="Рейтинг гравця">
             <h1>Задачі</h1>
             <div className="puzzle-rating" title="Ваш рейтинг у тренуванні задач на цьому пристрої"><span><UserRound size={19} />Рейтинг гравця</span><div className="puzzle-rating-value"><strong key={shownRating} className={ratingChange !== null && !presentedFen ? 'has-changed' : ''}>{shownRating}</strong>{ratingChange !== null && ratingChange !== 0 && !presentedFen && <small className={ratingChange < 0 ? 'is-negative' : ''}>{ratingChange > 0 ? '+' : ''}{ratingChange}</small>}</div></div>
             <ThemePicker themes={manifest.data?.themes || []} count={manifest.data?.count || 0} selected={selectedThemes} disabled={busy} open={themeOpen} onOpenChange={setThemeOpen} onChange={nextThemes => commit({ ...latest.current, theme: 'all', selectedThemes: nextThemes })} />
-            <details className="puzzle-training-settings" open={!window.matchMedia('(max-width: 760px)').matches}><summary>Складність задач</summary>
+            <details className="puzzle-training-settings"><summary><span><Settings2 size={17} aria-hidden="true" />Налаштування</span><small>{difficultyLabel}</small></summary>
+            <span className="puzzle-settings-label">Складність задач</span>
             <fieldset className="puzzle-difficulty" disabled={busy}><legend>Складність</legend><div>{([['easier', 'Легше'], ['normal', 'Мій рівень'], ['harder', 'Складніше']] as const).map(([value, label]) => <button type="button" key={value} aria-pressed={!progress.ratingRange && progress.difficulty === value} onClick={() => commit({ ...latest.current, difficulty: value as Difficulty, ratingRange: null })}>{label}</button>)}</div></fieldset>
             <RatingRange key={progress.ratingRange ? `${progress.ratingRange.min}-${progress.ratingRange.max}` : 'auto'} value={progress.ratingRange} disabled={busy} onChange={ratingRange => commit({ ...latest.current, ratingRange })} />
-            <p className="puzzle-next-settings">Налаштування діють із наступної задачі.</p>
+            <p className="puzzle-next-settings">Зміни діють із наступної задачі.</p>
             </details>
             {!storageOk && <p role="alert" className="puzzle-storage-error">Не вдалося зберегти прогрес. Не закривайте сторінку, щоб не втратити поточну спробу.</p>}
         </aside>
@@ -197,11 +199,11 @@ export default function Puzzles() {
         </section>
         <aside className={`puzzle-training puzzle-card${reviewReady ? ' has-review' : ''}`} aria-label="Керування тренуванням">
             {!complete && <div className="puzzle-help">
-                <div className="puzzle-companion-head"><span>Тренування</span>{puzzle && <span className="puzzle-live-indicator">Задача активна</span>}</div>
+                {puzzle && <div className="puzzle-companion-head"><span className="puzzle-live-indicator">Задача активна</span></div>}
                 <Button className="puzzle-hint" variant="outline" disabled={!puzzle || busy || attempt?.hintLevel === 2} onClick={hint}><Lightbulb size={20} />{attempt?.hintLevel === 2 ? 'Хід показано' : attempt?.hintLevel === 1 ? 'Показати хід' : 'Підказка'}</Button>
                 {puzzle && <>
-                    <div className="puzzle-attempt-status"><span className="puzzle-section-label">Спроба</span><strong>Спроба триває</strong><span>{attempt?.step ? 'Знайдіть продовження.' : 'Знайдіть найкращий хід.'}</span><div className="puzzle-attempt-meta"><span>Помилки <b>{Math.max(Number(Boolean(attempt?.wrong)), attempt?.mistakes?.length || 0)}</b></span><span>Підказка <b>{attempt?.assisted ? 'використана' : 'не використана'}</b></span></div>{failedRating && <small>Підказка не скасує допущену помилку.</small>}</div>
-                    <div className="puzzle-context"><span className="puzzle-section-label">Позиція</span><div><span>Рейтинг задачі</span><strong>{puzzle.rating}</strong></div><div><span>Наступна добірка</span><strong>{selectedThemes.length === 0 ? 'Змішані задачі' : selectedThemes.length === 1 ? selectedThemes[0] : `Обрано тем: ${selectedThemes.length}`}</strong></div></div>
+                    <div className="puzzle-attempt-meta" aria-label="Статус задачі"><span><b>{mistakeCount}</b> {mistakeCount === 1 ? 'помилка' : mistakeCount >= 2 && mistakeCount <= 4 ? 'помилки' : 'помилок'}</span><span>{attempt?.assisted ? 'З підказкою' : 'Без підказки'}</span></div>
+                    <div className="puzzle-context"><span>Рейтинг задачі</span><strong>{puzzle.rating}</strong></div>
                     <p className="puzzle-training-tip"><Target size={16} aria-hidden="true" /><span>Перевір шахи, взяття та загрози.</span></p>
                 </>}
             </div>}
