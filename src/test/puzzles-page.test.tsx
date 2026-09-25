@@ -108,7 +108,8 @@ describe('Puzzle studio', () => {
         const view = open(); await screen.findByTestId('puzzle-board');
         const left = within(screen.getByRole('complementary', { name: 'Рейтинг гравця' }));
         expect(left.getByText('1500')).toBeInTheDocument();
-        expect(left.getByText('Складність задач')).toBeInTheDocument();
+        expect(left.getByText('Налаштування')).toBeInTheDocument();
+        expect(left.getByText('Налаштування').closest('summary')).toHaveTextContent('Мій рівень');
         for (const text of ['Розв’язано', 'Сьогодні', 'Серія правильних', 'Без помилок і підказок', 'Про рейтинг']) expect(left.queryByText(text)).not.toBeInTheDocument();
         expect(screen.queryByRole('button', { name: /Зберегти|Збережені/ })).not.toBeInTheDocument();
         expect(within(screen.getByRole('complementary', { name: 'Керування тренуванням' })).getByRole('button', { name: 'Підказка' })).toBeInTheDocument();
@@ -142,7 +143,7 @@ describe('Puzzle studio', () => {
         fireEvent.click(screen.getByRole('button', { name: 'Застосувати теми' }));
         expect(readProgress().selectedThemes).toEqual(['Мат', 'Тактика']);
         expect(readProgress().current?.puzzle.id).toBe('a');
-        expect(within(screen.getByRole('complementary', { name: 'Керування тренуванням' })).getByText('Обрано тем: 2')).toBeInTheDocument();
+        expect(within(screen.getByRole('complementary', { name: 'Рейтинг гравця' })).getByText(/Обрано тем: 2/)).toBeInTheDocument();
         fireEvent.click(screen.getByRole('button', { name: 'Вибрати тему задач' }));
         fireEvent.click(screen.getByRole('button', { name: 'Змішані задачі' }));
         fireEvent.keyDown(screen.getByRole('dialog'), { key: 'Escape' });
@@ -200,6 +201,10 @@ describe('Puzzle studio', () => {
     });
     it('queues an explicit range without replacing the puzzle and allows resetting to automatic difficulty', async () => {
         open(); await screen.findByTestId('puzzle-board');
+        const settings = screen.getByText('Налаштування').closest('details')!;
+        expect(settings).not.toHaveAttribute('open');
+        fireEvent.click(screen.getByText('Налаштування'));
+        expect(settings).toHaveAttribute('open');
         const range = screen.getByText('Точний діапазон').closest('details')!;
         expect(range).not.toHaveAttribute('open');
         fireEvent.click(screen.getByText('Точний діапазон'));
@@ -218,10 +223,11 @@ describe('Puzzle studio', () => {
     it('shows useful attempt context without duplicating the initial board instruction or exposing an answer', async () => {
         open(); await screen.findByTestId('puzzle-board');
         const right = within(screen.getByRole('complementary', { name: 'Керування тренуванням' }));
-        expect(right.getByText('Спроба триває')).toBeInTheDocument();
-        expect(right.getByText('Помилки')).toBeInTheDocument();
+        expect(right.getByText('Задача активна')).toBeInTheDocument();
+        expect(right.getByLabelText('Статус задачі')).toHaveTextContent('0 помилок');
+        expect(right.getByText('Без підказки')).toBeInTheDocument();
         expect(right.getByText('Рейтинг задачі').nextElementSibling).toHaveTextContent('1500');
-        expect(right.getByText('Змішані задачі')).toBeInTheDocument();
+        for (const text of ['Тренування', 'Спроба', 'Спроба триває', 'Позиція']) expect(right.queryByText(text)).not.toBeInTheDocument();
         expect(right.getByText('Перевір шахи, взяття та загрози.')).toBeInTheDocument();
         expect(within(screen.getByRole('region', { name: 'Дошка задачі' })).queryByText('0')).not.toBeInTheDocument();
         expect(screen.queryByText('Знайди найкращий хід')).not.toBeInTheDocument();
@@ -234,10 +240,10 @@ describe('Puzzle studio', () => {
         match.mockImplementation(query => ({ ...original, matches: query === '(max-width: 760px)' }));
         try {
             open(); await screen.findByTestId('puzzle-board');
-            const summary = screen.getByText('Складність задач');
-            expect(summary.parentElement).not.toHaveAttribute('open');
+            const summary = screen.getByText('Налаштування');
+            expect(summary.closest('details')).not.toHaveAttribute('open');
             expect(screen.getByRole('button', { name: 'Підказка' })).toBeEnabled();
-            fireEvent.click(summary); expect(summary.parentElement).toHaveAttribute('open');
+            fireEvent.click(summary); expect(summary.closest('details')).toHaveAttribute('open');
         } finally { match.mockRestore(); }
     });
     it('recovers from an empty filter without showing instructions for a nonexistent puzzle', async () => {
@@ -245,6 +251,8 @@ describe('Puzzle studio', () => {
         open(); await screen.findByText('Немає нових задач за вибраною темою та діапазоном.');
         expect(screen.queryByText('Знайди найкращий хід')).not.toBeInTheDocument();
         expect(screen.queryByText('Наступна задача стане доступною після розв’язання.')).not.toBeInTheDocument();
+        fireEvent.click(screen.getByText('Налаштування'));
+        fireEvent.click(screen.getByText(/Точний діапазон/));
         fireEvent.click(screen.getByRole('button', { name: 'Автоматична складність' }));
         fireEvent.click(screen.getByRole('button', { name: 'Завантажити вибрану добірку' }));
         await screen.findByTestId('puzzle-board');
