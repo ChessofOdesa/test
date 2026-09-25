@@ -10,7 +10,7 @@ import { verifyAlternative } from '@/features/puzzles/verifyAlternative';
 import { freshProgress, saveProgress, readProgress } from '@/features/puzzles/training';
 vi.mock('@/features/puzzles/PuzzleReview', () => ({ PuzzleReview: ({ actions }: { actions?: ReactNode }) => <div>Розбір задачі{actions}</div> }));
 vi.mock('@/features/puzzles/verifyAlternative', () => ({ verifyAlternative: vi.fn(async () => null) }));
-vi.mock('@/components/ChessBoard', () => ({ default: (p: { displayFen: string; onMove: (a: string,b: string) => boolean; interactive: boolean; flipped: boolean; lastMoveSquares?: string[] }) => <div data-testid="puzzle-board" data-fen={p.displayFen} data-flipped={String(p.flipped)} data-last-move={p.lastMoveSquares?.join('')}>{['e2e4','d2d4','g1f3'].map(move => <button key={move} disabled={!p.interactive} onClick={() => p.onMove(move.slice(0,2),move.slice(2,4))}>{move}</button>)}</div> }));
+vi.mock('@/components/ChessBoard', () => ({ default: (p: { displayFen: string; onMove: (a: string,b: string) => boolean; interactive: boolean; flipped: boolean; lastMoveSquares?: string[]; animationDuration?: number; captureFadeSquare?: string }) => <div data-testid="puzzle-board" data-fen={p.displayFen} data-flipped={String(p.flipped)} data-last-move={p.lastMoveSquares?.join('')} data-animation={p.animationDuration} data-capture={p.captureFadeSquare}>{['e2e4','d2d4','g1f3','e4d5'].map(move => <button key={move} disabled={!p.interactive} onClick={() => p.onMove(move.slice(0,2),move.slice(2,4))}>{move}</button>)}</div> }));
 const puzzles = [
     { id: 'a', fen: new Chess().fen(), solution: ['e2e4','e7e5','g1f3'], rating: 1500, theme: 'Тактика', title: 'A' },
     { id: 'b', fen: new Chess().fen(), solution: ['d2d4'], rating: 1800, theme: 'Мат', title: 'B' }
@@ -24,6 +24,40 @@ beforeEach(() => {
 });
 afterEach(() => { cleanup(); localStorage.clear(); vi.unstubAllGlobals(); });
 describe('Puzzle studio', () => {
+    it('displays the player move before the automatic reply without delaying saved progress', async () => {
+        open(); await screen.findByTestId('puzzle-board');
+        fireEvent.click(screen.getByRole('button', { name: 'e2e4' }));
+        const afterPlayer = new Chess(); afterPlayer.move('e4');
+        expect(screen.getByTestId('puzzle-board')).toHaveAttribute('data-fen', afterPlayer.fen());
+        expect(readProgress().current?.step).toBe(2);
+        expect(screen.getByRole('button', { name: 'g1f3' })).toBeDisabled();
+        afterPlayer.move('e5');
+        await waitFor(() => expect(screen.getByTestId('puzzle-board')).toHaveAttribute('data-fen', afterPlayer.fen()));
+        expect(screen.getByRole('button', { name: 'g1f3' })).toBeEnabled();
+    });
+    it('fades a captured piece without changing the recorded move', async () => {
+        const puzzle = { id: 'capture', fen: '4k3/8/8/3p4/4P3/8/8/4K3 w - - 0 1', solution: ['e4d5'], rating: 1500, theme: 'Тактика', title: 'Capture' };
+        saveProgress({ ...freshProgress(), current: { puzzle, step: 0, complete: false, wrong: false, assisted: false, hintLevel: 0 } });
+        expect(readProgress().current?.puzzle.id).toBe('capture');
+        open(); await screen.findByTestId('puzzle-board');
+        expect(screen.getByTestId('puzzle-board')).toHaveAttribute('data-fen', puzzle.fen);
+        await waitFor(() => expect(screen.getByRole('button', { name: 'e4d5' })).toBeEnabled());
+        fireEvent.click(screen.getByRole('button', { name: 'e4d5' }));
+        expect(readProgress().current?.step).toBe(1);
+        expect(screen.getByTestId('puzzle-board')).toHaveAttribute('data-capture', 'd5');
+        expect(readProgress().current?.complete).toBe(true);
+        expect(screen.queryByRole('button', { name: 'Наступна задача' })).not.toBeInTheDocument();
+        expect(await screen.findByRole('button', { name: 'Наступна задача' })).toBeEnabled();
+    });
+    it('removes board travel and reply delay for reduced motion', async () => {
+        vi.stubGlobal('matchMedia', (media: string) => ({ media, matches: media.includes('prefers-reduced-motion'), addEventListener: vi.fn(), removeEventListener: vi.fn() }));
+        open(); await screen.findByTestId('puzzle-board');
+        expect(screen.getByTestId('puzzle-board')).toHaveAttribute('data-animation', '0');
+        fireEvent.click(screen.getByRole('button', { name: 'e2e4' }));
+        const final = new Chess(); final.move('e4'); final.move('e5');
+        expect(screen.getByTestId('puzzle-board')).toHaveAttribute('data-fen', final.fen());
+        expect(screen.getByRole('button', { name: 'g1f3' })).toBeEnabled();
+    });
     it('puts the title in the stats panel, removes rejected controls and prevents skipping by settings', async () => {
         open(); await screen.findByTestId('puzzle-board');
         expect(within(screen.getByRole('complementary', { name: 'Рейтинг гравця' })).getByRole('heading', { name: 'Задачі' })).toBeInTheDocument();
@@ -36,9 +70,11 @@ describe('Puzzle studio', () => {
         expect(readProgress().current?.puzzle.id).toBe('a');
         fireEvent.click(screen.getByRole('button', { name: 'e2e4' }));
         expect(screen.queryByRole('button', { name: 'Наступна задача' })).not.toBeInTheDocument();
+        expect(screen.getByRole('button', { name: 'g1f3' })).toBeDisabled();
+        await waitFor(() => expect(screen.getByRole('button', { name: 'g1f3' })).toBeEnabled());
         fireEvent.click(screen.getByRole('button', { name: 'g1f3' }));
         expect(readProgress().rating).toBe(1512);
-        fireEvent.click(screen.getByRole('button', { name: 'Наступна задача' }));
+        fireEvent.click(await screen.findByRole('button', { name: 'Наступна задача' }));
         await waitFor(() => expect(readProgress().current?.puzzle.id).toBe('b'));
     });
     it('persists wrong moves, hints and the position across remount without awarding a clean success', async () => {
@@ -49,9 +85,11 @@ describe('Puzzle studio', () => {
         fireEvent.click(screen.getByRole('button', { name: 'Підказка' }));
         fireEvent.click(screen.getByRole('button', { name: 'e2e4' }));
         expect(document.querySelector('.puzzle-move-mark.is-correct')).toHaveAttribute('data-square', 'e4');
-        const fen = screen.getByTestId('puzzle-board').getAttribute('data-fen');
+        const transitionalFen = screen.getByTestId('puzzle-board').getAttribute('data-fen');
         view.unmount(); open();
-        expect(screen.getByTestId('puzzle-board')).toHaveAttribute('data-fen', fen);
+        const savedFen = new Chess(); savedFen.move('e4'); savedFen.move('e5');
+        expect(screen.getByTestId('puzzle-board')).toHaveAttribute('data-fen', savedFen.fen());
+        expect(screen.getByTestId('puzzle-board')).not.toHaveAttribute('data-fen', transitionalFen);
         await waitFor(() => expect(screen.getByRole('button', { name: 'g1f3' })).toBeEnabled());
         fireEvent.click(screen.getByRole('button', { name: 'g1f3' }));
         expect(readProgress().rating).toBe(1488); expect(readProgress().clean).toBe(0); expect(readProgress().solved).toBe(1);
@@ -59,8 +97,10 @@ describe('Puzzle studio', () => {
     it('flips the board and opens the full solution in analysis after completion', async () => {
         open(); await screen.findByTestId('puzzle-board');
         fireEvent.click(screen.getByRole('button', { name: 'Перевернути' })); expect(screen.getByTestId('puzzle-board')).toHaveAttribute('data-flipped','true');
-        fireEvent.click(screen.getByRole('button', { name: 'e2e4' })); fireEvent.click(screen.getByRole('button', { name: 'g1f3' }));
-        fireEvent.click(screen.getByRole('button', { name: 'Відкрити в аналізі' }));
+        fireEvent.click(screen.getByRole('button', { name: 'e2e4' }));
+        await waitFor(() => expect(screen.getByRole('button', { name: 'g1f3' })).toBeEnabled());
+        fireEvent.click(screen.getByRole('button', { name: 'g1f3' }));
+        fireEvent.click(await screen.findByRole('button', { name: 'Відкрити в аналізі' }));
         const game = new Chess(); game.loadPgn(screen.getByTestId('location').textContent!); expect(game.history()).toEqual(['e4', 'e5', 'Nf3']);
     });
 
@@ -143,10 +183,11 @@ describe('Puzzle studio', () => {
         await waitFor(() => expect(screen.getByRole('button', { name: 'e2e4' })).toBeEnabled());
         expect(readProgress().current?.puzzle.id).toBe('a');
         fireEvent.click(screen.getByRole('button', { name: 'e2e4' }));
-        expect(screen.getByTestId('puzzle-board')).toHaveAttribute('data-last-move', 'e7e5');
+        expect(screen.getByTestId('puzzle-board')).toHaveAttribute('data-last-move', '');
+        await waitFor(() => expect(screen.getByTestId('puzzle-board')).toHaveAttribute('data-last-move', 'e7e5'));
         expect(screen.getByText('Правильно! Продовжуйте.').parentElement).toHaveClass('is-correct');
         fireEvent.click(screen.getByRole('button', { name: 'g1f3' }));
-        fireEvent.click(screen.getByRole('button', { name: 'Наступна задача' }));
+        fireEvent.click(await screen.findByRole('button', { name: 'Наступна задача' }));
         await waitFor(() => expect(readProgress().current?.puzzle.id).toBe('b'));
     });
     it('offers a manual share link if clipboard is unavailable and contains no answer', async () => {
@@ -167,8 +208,10 @@ describe('Puzzle studio', () => {
         fireEvent.change(screen.getByLabelText('Максимальний рейтинг задач'), { target: { value: '1850' } });
         fireEvent.click(screen.getByRole('button', { name: 'Застосувати діапазон' }));
         expect(readProgress().ratingRange).toEqual({ min: 1750, max: 1850 }); expect(readProgress().current?.puzzle.id).toBe('a');
-        fireEvent.click(screen.getByRole('button', { name: 'e2e4' })); fireEvent.click(screen.getByRole('button', { name: 'g1f3' }));
-        fireEvent.click(screen.getByRole('button', { name: 'Наступна задача' }));
+        fireEvent.click(screen.getByRole('button', { name: 'e2e4' }));
+        await waitFor(() => expect(screen.getByRole('button', { name: 'g1f3' })).toBeEnabled());
+        fireEvent.click(screen.getByRole('button', { name: 'g1f3' }));
+        fireEvent.click(await screen.findByRole('button', { name: 'Наступна задача' }));
         await waitFor(() => expect(readProgress().current?.puzzle.id).toBe('b'));
         fireEvent.click(screen.getByRole('button', { name: 'Легше' })); expect(readProgress().ratingRange).toBeNull();
     });
