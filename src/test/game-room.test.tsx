@@ -94,6 +94,19 @@ describe("shared board interaction", () => {
         expect(moved).toHaveBeenCalledOnce();
         expect(moved).toHaveBeenCalledWith("e7", "e5", "q");
     });
+    it("selects a clicked piece once and completes a click-to-move on an empty square", () => {
+        const moved = vi.fn(() => true);
+        mountBoard({ initialFen: start, playerColor: "w", onMove: moved });
+        act(() => {
+            surface.props.onPieceClick("wP", "e2");
+            // react-chessboard also sends the bubbling click to the occupied square.
+            surface.props.onSquareClick("e2", "wP");
+        });
+        expect(surface.props.customSquareStyles.e2.boxShadow).toContain("selected");
+        act(() => surface.props.onSquareClick("e4", undefined));
+        expect(moved).toHaveBeenCalledOnce();
+        expect(moved).toHaveBeenCalledWith("e2", "e4", "q");
+    });
     it("recovers corrupted stored board preferences", () => {
         localStorage.setItem("coo.board.preferences", "null");
         mountBoard({ initialFen: start });
