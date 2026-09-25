@@ -41,6 +41,7 @@ interface ChessBoardProps {
     customDarkSquareStyle?: Record<string, string>;
     customBoardStyle?: Record<string, string | number>;
     animationDuration?: number;
+    captureFadeSquare?: Square;
     enableMoveSounds?: boolean;
     autoQueen?: boolean;
     confirmMove?: boolean;
@@ -85,7 +86,7 @@ function placement(fen?: string): BoardPosition | undefined {
     }
     return position;
 }
-function ChessBoard({ initialFen, displayFen, onMove, interactive = true, size = 480, flipped = false, highlightSquares, annotationSquares = EMPTY_SQUARES, targetSquares = EMPTY_SQUARES, startSquares = EMPTY_SQUARES, blockedSquares = EMPTY_SQUARES, captureSquares = EMPTY_SQUARES, dangerSquares = EMPTY_SQUARES, customArrows = EMPTY_ARROWS, allowArrows = true, allowPremoves = false, customArrowColor = "#315c9a", showLegalMoves = true, showLastMove = true, showChecks = true, lastMoveSquares = EMPTY_SQUARES, customLightSquareStyle, customDarkSquareStyle, customBoardStyle, animationDuration = 150, enableMoveSounds = false, autoQueen = false, confirmMove = false, playerColor, optimistic = true }: ChessBoardProps) {
+function ChessBoard({ initialFen, displayFen, onMove, interactive = true, size = 480, flipped = false, highlightSquares, annotationSquares = EMPTY_SQUARES, targetSquares = EMPTY_SQUARES, startSquares = EMPTY_SQUARES, blockedSquares = EMPTY_SQUARES, captureSquares = EMPTY_SQUARES, dangerSquares = EMPTY_SQUARES, customArrows = EMPTY_ARROWS, allowArrows = true, allowPremoves = false, customArrowColor = "#315c9a", showLegalMoves = true, showLastMove = true, showChecks = true, lastMoveSquares = EMPTY_SQUARES, customLightSquareStyle, customDarkSquareStyle, customBoardStyle, animationDuration = 150, captureFadeSquare, enableMoveSounds = false, autoQueen = false, confirmMove = false, playerColor, optimistic = true }: ChessBoardProps) {
     const [fen, setFen] = useState(initialFen || STARTING_FEN);
     const [selected, setSelected] = useState<Square | null>(null);
     const [promotion, setPromotion] = useState<{
@@ -106,6 +107,7 @@ function ChessBoard({ initialFen, displayFen, onMove, interactive = true, size =
     const [keyboardMove, setKeyboardMove] = useState("");
     const [keyboardError, setKeyboardError] = useState("");
     const promotionRef = useRef<HTMLDivElement>(null);
+    const boardRoot = useRef<HTMLDivElement>(null);
     const onMoveRef = useRef(onMove);
     onMoveRef.current = onMove;
     const lastCommit = useRef("");
@@ -126,6 +128,13 @@ function ChessBoard({ initialFen, displayFen, onMove, interactive = true, size =
     } }, [interactive, allowPremoves]);
     useEffect(() => { if (promotion)
         promotionRef.current?.querySelector<HTMLButtonElement>("button")?.focus(); }, [promotion]);
+    useEffect(() => {
+        // react-chessboard keeps the captured piece in the old square until its move animation ends.
+        if (!captureFadeSquare || !animationDuration) return;
+        const piece = boardRoot.current?.querySelector(`[data-square="${captureFadeSquare}"] [data-piece]`);
+        piece?.classList.add('puzzle-capture-fade');
+        return () => piece?.classList.remove('puzzle-capture-fade');
+    }, [captureFadeSquare, animationDuration]);
     const game = useMemo(() => createGame(fen), [fen]);
     const display = useMemo(() => placement(displayFen), [displayFen]);
     const premoving = !!playerColor && game.turn() !== playerColor && allowPremoves;
@@ -250,7 +259,7 @@ function ChessBoard({ initialFen, displayFen, onMove, interactive = true, size =
         return result;
     }, [annotationSquares, startSquares, blockedSquares, dangerSquares, captureSquares, highlightSquares, showLastMove, lastMoveSquares, premove, selected, showLegalMoves, legal, targetSquares, showChecks, game]);
     const promotionStyle = promotion ? { left: Math.min(size - 154, Math.max(0, (flipped ? 7 - (promotion.to.charCodeAt(0) - 97) : promotion.to.charCodeAt(0) - 97) * size / 8)), top: promotion.to[1] === (flipped ? "1" : "8") ? 2 : Math.max(0, size - 140) } : undefined;
-    return <div className="relative" style={{ width: size, maxWidth: "100%" }}>
+    return <div ref={boardRoot} className="relative" style={{ width: size, maxWidth: "100%" }}>
    <Chessboard position={display || fen} boardWidth={size} boardOrientation={flipped ? "black" : "white"} arePiecesDraggable={canInteract} isDraggablePiece={({ piece }) => canInteract && (!playerColor || piece[0] === playerColor)} areArrowsAllowed={allowArrows} arePremovesAllowed={false} onSquareClick={click} onPieceDrop={(from, to) => attempt(from, to)} onPromotionCheck={() => false} onSquareRightClick={() => { setPremove(null); setSelected(null); }} customArrows={allowArrows ? customArrows : EMPTY_ARROWS} customArrowColor={customArrowColor} customSquareStyles={styles} customLightSquareStyle={customLightSquareStyle || { backgroundColor: board.theme.light }} customDarkSquareStyle={customDarkSquareStyle || { backgroundColor: board.theme.dark }} customPieces={board.pieceStyle === "text" ? TEXT_PIECES : undefined} showBoardNotation={board.showCoordinates} animationDuration={animationDuration} customBoardStyle={customBoardStyle || { borderRadius: 7, boxShadow: "0 1px 4px rgba(25,42,68,.12)" }}/>
    {promotion && <div ref={promotionRef} className="room-promotion" style={promotionStyle} role="dialog" aria-label="Перетворення пішака" onKeyDown={event => {
                 if (event.key === "Escape") {

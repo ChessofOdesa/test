@@ -18,6 +18,15 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import '@/styles/puzzles-studio.css';
 
+function squarePosition(square: string, black: boolean) {
+    const file = square.charCodeAt(0) - 97, rank = Number(square[1]) - 1;
+    return { left: `${(black ? 7 - file : file) * 12.5}%`, top: `${(black ? rank : 7 - rank) * 12.5}%` };
+}
+function captureAt(game: Chess, uci: string): Square | null {
+    const move = game.move({ from: uci.slice(0, 2), to: uci.slice(2, 4), promotion: uci[4] || 'q' });
+    return move.captured ? (move.isEnPassant() ? `${move.to[0]}${move.from[1]}` : move.to) as Square : null;
+}
+
 async function loadJson<T>(path: string, signal?: AbortSignal): Promise<T> {
     const response = await fetch(path, { signal });
     if (!response.ok) throw new Error('Не вдалося завантажити задачі');
@@ -33,6 +42,10 @@ export default function Puzzles() {
     const [shareOpen, setShareOpen] = useState(false), [shareMessage, setShareMessage] = useState('');
     const [moveMark, setMoveMark] = useState<{ square: string; correct: boolean } | null>(null);
     const [feedbackKind, setFeedbackKind] = useState<'neutral' | 'correct' | 'wrong'>('neutral');
+    const [presentedFen, setPresentedFen] = useState<string | null>(null);
+    const [captureFadeSquare, setCaptureFadeSquare] = useState<Square | null>(null);
+    const presentationTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+    const [reducedMotion, setReducedMotion] = useState(() => window.matchMedia?.('(prefers-reduced-motion: reduce)').matches ?? false);
     const [themeOpen, setThemeOpen] = useState(false);
     const [checking, setChecking] = useState(false);
     const checkController = useRef<AbortController | null>(null);
@@ -44,7 +57,14 @@ export default function Puzzles() {
     const settings = useBoardSettings(), client = useQueryClient(), navigate = useNavigate();
     const manifest = useQuery({ queryKey: ['puzzle-manifest'], queryFn: ({ signal }) => loadJson<PuzzleManifest>('/puzzles/manifest.json', signal), staleTime: Infinity });
     const commit = useCallback((next: PuzzleProgress) => { latest.current = next; setProgress(next); setStorageOk(saveProgress(next)); }, []);
-    useEffect(() => { alive.current = true; return () => { alive.current = false; checkController.current?.abort(); }; }, []);
+    useEffect(() => { alive.current = true; return () => { alive.current = false; checkController.current?.abort(); if (presentationTimer.current) clearTimeout(presentationTimer.current); }; }, []);
+    useEffect(() => {
+        const preference = window.matchMedia?.('(prefers-reduced-motion: reduce)');
+        if (!preference) return;
+        const update = () => setReducedMotion(preference.matches);
+        update(); preference.addEventListener('change', update);
+        return () => preference.removeEventListener('change', update);
+    }, []);
     useEffect(() => {
         const element = boardWrap.current;
         if (!element) return;
@@ -70,7 +90,9 @@ export default function Puzzles() {
             else if (sharedId) setSearchParams({}, { replace: true });
             const alreadySolved = Boolean(puzzle && snapshot.completed.includes(puzzle.id));
             commit({ ...latest.current, current: puzzle ? { puzzle, step: alreadySolved ? puzzle.solution.length : 0, wrong: false, assisted: alreadySolved, hintLevel: 0, complete: alreadySolved } : null });
-            setEmpty(!puzzle); setFeedback(''); setFeedbackKind('neutral'); setPreview(null); setMoveMark(null); setFlipped(false);
+            if (presentationTimer.current) clearTimeout(presentationTimer.current);
+            presentationTimer.current = null;
+            setPresentedFen(null); setCaptureFadeSquare(null); setEmpty(!puzzle); setFeedback(''); setFeedbackKind('neutral'); setPreview(null); setMoveMark(null); setFlipped(false);
         } catch (error) {
             if (alive.current && id === requestId.current) {
                 const message = error instanceof Error ? error.message : '';
@@ -86,11 +108,23 @@ export default function Puzzles() {
     }, [manifest.data, loadNext, sharedId]);
 
     const attempt = progress.current, puzzle = attempt?.puzzle, complete = Boolean(attempt?.complete);
-    const fen = preview?.fen || (attempt ? attemptFen(attempt) : '');
-    const lastSquares = preview?.squares || (attempt ? lastAttemptMove(attempt) as Square[] : []);
-    const busy = manifest.isPending || loading || checking;
+    const fen = preview?.fen || presentedFen || (attempt ? attemptFen(attempt) : '');
+    const lastSquares = preview?.squares || (presentedFen ? [] : attempt ? lastAttemptMove(attempt) as Square[] : []);
+    const busy = manifest.isPending || loading || checking || Boolean(presentedFen);
+    const moveDuration = reducedMotion ? 0 : boardSize < 450 ? 145 : 180;
     const acceptMove = (current: Attempt, result: NonNullable<ReturnType<typeof playPuzzleMove>>) => {
         const next = { ...current, line: result.line, step: result.index, complete: result.complete, hintLevel: 0 };
+        // Progress is saved immediately; only the displayed position waits for the opponent reply.
+        if (!reducedMotion) {
+            const played = new Chess(attemptFen(current));
+            const uci = result.line[current.step];
+            setCaptureFadeSquare(captureAt(played, uci));
+            setPresentedFen(played.fen());
+            const reply = result.index > current.step + 1 ? result.line[current.step + 1] : null;
+            const replyCapture = reply ? captureAt(played, reply) : null;
+            if (presentationTimer.current) clearTimeout(presentationTimer.current);
+            presentationTimer.current = setTimeout(() => { setCaptureFadeSquare(replyCapture); setPresentedFen(null); presentationTimer.current = null; }, moveDuration + (reply ? 70 : 35));
+        }
         commit(result.complete ? finishAttempt(latest.current, next) : { ...latest.current, current: next });
         setMoveMark({ square: result.line[current.step].slice(2, 4), correct: true });
         setFeedbackKind('correct');
@@ -132,13 +166,16 @@ export default function Puzzles() {
     const palette = settings.theme.id === 'odesa' ? { light: '#eee9d3', dark: '#708b9c' } : settings.theme;
     const direction = puzzle?.fen.split(' ')[1] === 'b';
     const failedRating = attempt?.ratingOutcome === 'failed' || !attempt?.ratingOutcome && attempt?.wrong;
-    const status = !puzzle ? '' : complete ? 'Задачу розв’язано' : feedback || (attempt?.hintLevel ? `Підказку показано на дошці.${bestMove?.[4] ? ' Перетворення: ' + ({ q: 'ферзь', r: 'тура', b: 'слон', n: 'кінь' }[bestMove[4]] || '') + '.' : ''}` : '');
+    const status = !puzzle ? '' : complete ? presentedFen ? 'Правильно!' : 'Задачу розв’язано' : feedback || (attempt?.hintLevel ? `Підказку показано на дошці.${bestMove?.[4] ? ' Перетворення: ' + ({ q: 'ферзь', r: 'тура', b: 'слон', n: 'кінь' }[bestMove[4]] || '') + '.' : ''}` : '');
     const ratingChange = complete && attempt?.ratingBefore !== undefined ? progress.rating - attempt.ratingBefore : null;
+    const shownRating = complete && presentedFen && attempt?.ratingBefore !== undefined ? attempt.ratingBefore : progress.rating;
     const selectedThemes = selectedPuzzleThemes(progress);
+    const boardBlack = Boolean(direction !== flipped);
+    const reviewReady = complete && !presentedFen;
     return <div className="puzzles-studio">
         <aside className="puzzle-stats puzzle-card" aria-label="Рейтинг гравця">
             <h1>Задачі</h1>
-            <div className="puzzle-rating" title="Ваш рейтинг у тренуванні задач на цьому пристрої"><span><UserRound size={19} />Рейтинг гравця</span><div className="puzzle-rating-value"><strong>{progress.rating}</strong>{ratingChange !== null && ratingChange !== 0 && <small className={ratingChange < 0 ? 'is-negative' : ''}>{ratingChange > 0 ? '+' : ''}{ratingChange}</small>}</div></div>
+            <div className="puzzle-rating" title="Ваш рейтинг у тренуванні задач на цьому пристрої"><span><UserRound size={19} />Рейтинг гравця</span><div className="puzzle-rating-value"><strong key={shownRating} className={ratingChange !== null && !presentedFen ? 'has-changed' : ''}>{shownRating}</strong>{ratingChange !== null && ratingChange !== 0 && !presentedFen && <small className={ratingChange < 0 ? 'is-negative' : ''}>{ratingChange > 0 ? '+' : ''}{ratingChange}</small>}</div></div>
             <ThemePicker themes={manifest.data?.themes || []} count={manifest.data?.count || 0} selected={selectedThemes} disabled={busy} open={themeOpen} onOpenChange={setThemeOpen} onChange={nextThemes => commit({ ...latest.current, theme: 'all', selectedThemes: nextThemes })} />
             <details className="puzzle-training-settings" open={!window.matchMedia('(max-width: 760px)').matches}><summary>Складність задач</summary>
             <fieldset className="puzzle-difficulty" disabled={busy}><legend>Складність</legend><div>{([['easier', 'Легше'], ['normal', 'Мій рівень'], ['harder', 'Складніше']] as const).map(([value, label]) => <button type="button" key={value} aria-pressed={!progress.ratingRange && progress.difficulty === value} onClick={() => commit({ ...latest.current, difficulty: value as Difficulty, ratingRange: null })}>{label}</button>)}</div></fieldset>
@@ -148,16 +185,17 @@ export default function Puzzles() {
             {!storageOk && <p role="alert" className="puzzle-storage-error">Не вдалося зберегти прогрес. Не закривайте сторінку, щоб не втратити поточну спробу.</p>}
         </aside>
         <section className="puzzle-board-card puzzle-card" aria-label="Дошка задачі">
-            <div className="puzzle-turn"><span aria-hidden="true">{direction ? '♚' : '♔'}</span><strong>{complete ? 'Задачу завершено' : puzzle ? direction ? 'Хід чорних' : 'Хід білих' : 'Задача'}</strong></div>
-            <div ref={boardWrap} className="puzzle-board-wrap">
-                {puzzle && fen ? <ChessBoard key={puzzle.id} displayFen={fen} initialFen={puzzle.fen} size={boardSize} flipped={direction !== flipped} interactive={!complete && !busy && !themeOpen && !shareOpen} showLastMove lastMoveSquares={lastSquares} onMove={move} allowArrows annotationSquares={bestMove && attempt?.hintLevel ? [bestMove.slice(0, 2) as Square] : []} customArrows={bestMove && attempt?.hintLevel === 2 ? [[bestMove.slice(0, 2) as Square, bestMove.slice(2, 4) as Square, '#219cff']] : []} customLightSquareStyle={{ backgroundColor: palette.light }} customDarkSquareStyle={{ backgroundColor: palette.dark }} customBoardStyle={{ borderRadius: 3 }} />
+            <div className="puzzle-turn"><span aria-hidden="true">{direction ? '♚' : '♔'}</span><strong>{reviewReady ? 'Задачу завершено' : puzzle ? direction ? 'Хід чорних' : 'Хід білих' : 'Задача'}</strong></div>
+            <div ref={boardWrap} className={`puzzle-board-wrap${loading ? ' is-loading-next' : ''}${reviewReady ? ' is-solved' : ''}`}>
+                {puzzle && fen ? <div key={puzzle.id} className="puzzle-board-stage" style={{ width: boardSize, height: boardSize }}><ChessBoard displayFen={fen} initialFen={puzzle.fen} size={boardSize} flipped={boardBlack} animationDuration={moveDuration} captureFadeSquare={captureFadeSquare || undefined} interactive={!complete && !busy && !themeOpen && !shareOpen} showLastMove lastMoveSquares={lastSquares} onMove={move} allowArrows annotationSquares={bestMove && attempt?.hintLevel ? [bestMove.slice(0, 2) as Square] : []} customArrows={bestMove && attempt?.hintLevel === 2 ? [[bestMove.slice(0, 2) as Square, bestMove.slice(2, 4) as Square, '#219cff']] : []} customLightSquareStyle={{ backgroundColor: palette.light }} customDarkSquareStyle={{ backgroundColor: palette.dark }} customBoardStyle={{ borderRadius: 3 }} /></div>
                     : <div className="puzzle-board-placeholder" role="status">{busy ? 'Завантаження задачі…' : empty ? 'Немає нових задач за вибраною темою та діапазоном.' : 'Задача поки недоступна.'}</div>}
-                {moveMark && !preview && <div className="puzzle-mark-layer" style={{ width: boardSize, height: boardSize }} aria-hidden="true"><span className={`puzzle-move-mark ${moveMark.correct ? 'is-correct' : 'is-wrong'}`} data-square={moveMark.square} style={{ left: `${(direction !== flipped ? 7 - (moveMark.square.charCodeAt(0) - 97) : moveMark.square.charCodeAt(0) - 97) * 12.5}%`, top: `${(direction !== flipped ? Number(moveMark.square[1]) - 1 : 8 - Number(moveMark.square[1])) * 12.5}%` }}>{moveMark.correct ? '✓' : '?'}</span></div>}
+                {moveMark && !preview && <div className="puzzle-mark-layer" style={{ width: boardSize, height: boardSize }} aria-hidden="true"><span key={`${attempt?.step}-${moveMark.square}-${moveMark.correct}`} className={`puzzle-move-mark ${moveMark.correct ? 'is-correct' : 'is-wrong'}`} data-square={moveMark.square} style={squarePosition(moveMark.square, boardBlack)}>{moveMark.correct ? '✓' : '?'}</span></div>}
+                {bestMove && attempt && attempt.hintLevel > 0 && !complete && <div className="puzzle-mark-layer" style={{ width: boardSize, height: boardSize }} aria-hidden="true"><span key={`${attempt.step}-${attempt.hintLevel}-from`} className="puzzle-hint-focus" style={squarePosition(bestMove.slice(0, 2), boardBlack)} />{attempt.hintLevel === 2 && <span key={`${attempt.step}-to`} className="puzzle-hint-focus is-target" style={squarePosition(bestMove.slice(2, 4), boardBlack)} />}</div>}
             </div>
-            {(status || preview) && <div className={`puzzle-status is-${complete ? 'correct' : feedbackKind}`} role="status">{complete || feedbackKind === 'correct' ? <Check aria-hidden="true" size={19} /> : feedbackKind === 'wrong' ? <XCircle aria-hidden="true" size={19} /> : <Info aria-hidden="true" size={19} />}<span>{preview ? 'Перегляд варіанта Stockfish' : status}</span></div>}
+            {(status || preview) && <div className={`puzzle-status is-${complete ? 'correct' : feedbackKind}${checking ? ' is-checking' : ''}`} role="status" aria-busy={checking}>{complete || feedbackKind === 'correct' ? <Check aria-hidden="true" size={19} /> : feedbackKind === 'wrong' ? <XCircle aria-hidden="true" size={19} /> : <Info aria-hidden="true" size={19} />}<span>{preview ? 'Перегляд варіанта Stockfish' : status}</span></div>}
             <div className="puzzle-board-footer"><Button variant="ghost" title="Перевернути дошку" disabled={!puzzle} onClick={() => setFlipped(value => !value)}><FlipVertical size={17} />Перевернути</Button><Button variant="ghost" title="Поділитися задачею" disabled={!puzzle} onClick={() => void share()}><Share2 size={17} />Поділитися</Button></div>
         </section>
-        <aside className={`puzzle-training puzzle-card${complete ? ' has-review' : ''}`} aria-label="Керування тренуванням">
+        <aside className={`puzzle-training puzzle-card${reviewReady ? ' has-review' : ''}`} aria-label="Керування тренуванням">
             {!complete && <div className="puzzle-help">
                 <div className="puzzle-companion-head"><span>Тренування</span>{puzzle && <span className="puzzle-live-indicator">Задача активна</span>}</div>
                 <Button className="puzzle-hint" variant="outline" disabled={!puzzle || busy || attempt?.hintLevel === 2} onClick={hint}><Lightbulb size={20} />{attempt?.hintLevel === 2 ? 'Хід показано' : attempt?.hintLevel === 1 ? 'Показати хід' : 'Підказка'}</Button>
@@ -169,7 +207,8 @@ export default function Puzzles() {
             </div>}
             {loading && <p role="status" className="puzzle-next-note">Завантаження задачі…</p>}
             {(error || manifest.isError) && <div role="alert" className="puzzle-load-error">{error || 'Не вдалося завантажити базу задач.'}<Button variant="outline" onClick={() => { if (manifest.isError) void manifest.refetch(); else void loadNext(); }}>Повторити завантаження</Button></div>}
-            {complete && attempt && <PuzzleReview key={puzzle!.id} attempt={attempt} rating={progress.rating} onPreview={setPreview} blocked={themeOpen || shareOpen} actions={<div className="puzzle-complete-actions"><Button disabled={busy} onClick={() => void loadNext()}>Наступна задача<ArrowRight size={18} /></Button><Button variant="outline" onClick={() => navigate('/analysis', { state: { pgn: puzzleAnalysisPgn(puzzle!, attempt!) } })}>Відкрити в аналізі</Button></div>} />}
+            {complete && presentedFen && <p role="status" className="puzzle-next-note">Завершуємо хід…</p>}
+            {reviewReady && attempt && <PuzzleReview key={puzzle!.id} attempt={attempt} rating={progress.rating} onPreview={setPreview} blocked={themeOpen || shareOpen} actions={<div className="puzzle-complete-actions"><Button disabled={busy} onClick={() => void loadNext()}>Наступна задача<ArrowRight size={18} /></Button><Button variant="outline" onClick={() => navigate('/analysis', { state: { pgn: puzzleAnalysisPgn(puzzle!, attempt!) } })}>Відкрити в аналізі</Button></div>} />}
             {empty && <Button disabled={busy} onClick={() => void loadNext()}>Завантажити вибрану добірку</Button>}
             {sharedId && sharedHandled.current !== sharedId && <div className="puzzle-shared-note"><p>{attempt && !complete ? 'Спільна задача відкриється після завершення поточної.' : 'Відкриття спільної задачі.'}</p><Button variant="ghost" onClick={() => { setSearchParams({}, { replace: true }); setError(''); }}>Скасувати відкриття посилання</Button></div>}
         </aside>
