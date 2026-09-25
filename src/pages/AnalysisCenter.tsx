@@ -1,4 +1,5 @@
 import ChessBoard from "@/components/ChessBoard";
+import { StockfishIcon } from "@/components/icons/chess";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
@@ -862,9 +863,9 @@ export default function AnalysisCenter() {
         ? [currentNode.uci.slice(0, 2) as Square, currentNode.uci.slice(2, 4) as Square]
         : [];
 
-    const panelTabs: Array<{ id: PanelTab; label: string; icon: typeof Clipboard }> = [
+    const panelTabs: Array<{ id: PanelTab; label: string; icon: typeof Clipboard | typeof StockfishIcon }> = [
         { id: "overview", label: "Огляд", icon: BarChart3 },
-        { id: "engine", label: "Движок", icon: BrainCircuit },
+        { id: "engine", label: "Движок", icon: StockfishIcon },
         { id: "info", label: "Інфо", icon: Info },
     ];
 
@@ -982,7 +983,7 @@ export default function AnalysisCenter() {
                             <div className="analysis-engine-workspace-v3">
                                 <section className="analysis-engine-control-v3" aria-label="Керування Stockfish">
                                     <div className="analysis-engine-control-main-v3">
-                                        <BrainCircuit size={22} />
+                                        <StockfishIcon size={22} aria-hidden="true" />
                                         <div>
                                             <strong>{engineSource(currentEngine)}</strong>
                                             <span>{!engineEnabled ? "Вимкнено" : enginePaused ? "Призупинено" : positionBusy ? "Аналізує позицію…" : currentEngine ? "Готовий" : "Очікує позицію"}</span>
@@ -1143,7 +1144,7 @@ export default function AnalysisCenter() {
                                                     <div className="analysis-engine-loading-v3" />
                                                 </>
                                             ) : (
-                                                <div className="analysis-empty-state compact"><BrainCircuit size={24} /><strong>Лінії ще не готові</strong><p>Stockfish обчислює найсильніші продовження.</p></div>
+                                                <div className="analysis-empty-state compact"><StockfishIcon size={24} aria-hidden="true" /><strong>Лінії ще не готові</strong><p>Stockfish обчислює найсильніші продовження.</p></div>
                                             )}
                                         </div>
                                     </>

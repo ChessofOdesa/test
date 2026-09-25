@@ -9,12 +9,13 @@ import { findSharedPuzzle, puzzleLink } from '@/features/puzzles/share';
 import { puzzleAnalysisPgn } from '@/features/puzzles/analysisPgn';
 import { verifyAlternative } from '@/features/puzzles/verifyAlternative';
 import { BOARD_THEMES, useBoardSettings } from '@/contexts/BoardSettingsContext';
+import { PuzzleIcon } from '@/components/icons/chess';
 import { playChessSound } from '@/hooks/useChessSounds';
 import { playPuzzleMove, type PuzzleManifest, type TrainingPuzzle } from '@/features/puzzles/model';
 import { attemptFen, lastAttemptMove, markAttemptWrong, markAttemptAssisted, findNextPuzzle, finishAttempt, readProgress, saveProgress, type Attempt, type PuzzleIndexEntry, type Difficulty, type PuzzleProgress, selectedPuzzleThemes } from '@/features/puzzles/training';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { Chess, type Square } from 'chess.js';
-import { ArrowRight, UserRound, Check, FlipVertical, Lightbulb, Share2, XCircle, Info, Settings2, Search, Flame, SlidersHorizontal, Sparkles } from 'lucide-react';
+import { ArrowRight, UserRound, Check, FlipVertical, Lightbulb, Share2, XCircle, Info, Settings2, Search, Flame, Sparkles } from 'lucide-react';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import '@/styles/puzzles-studio.css';
@@ -200,7 +201,7 @@ export default function Puzzles() {
         </header>
         <div className="puzzle-layout">
         <aside className="puzzle-stats puzzle-card" aria-label="Рейтинг гравця">
-            <div className="puzzle-sidebar-heading"><SlidersHorizontal size={19} aria-hidden="true" /><strong>Мій тренінг</strong></div>
+            <div className="puzzle-sidebar-heading"><PuzzleIcon size={20} aria-hidden="true" /><strong>Мій тренінг</strong></div>
             <div className="puzzle-rating" title="Ваш рейтинг у тренуванні задач на цьому пристрої"><span><UserRound size={17} />Рейтинг гравця</span><div className="puzzle-rating-value"><strong key={shownRating} className={ratingChange !== null && !presentedFen ? 'has-changed' : ''}>{shownRating}</strong>{ratingChange !== null && ratingChange !== 0 && !presentedFen && <small className={ratingChange < 0 ? 'is-negative' : ''}>{ratingChange > 0 ? '+' : ''}{ratingChange}</small>}</div></div>
             <div className="puzzle-streak" aria-label={`Серія ${progress.streak} без помилок і підказок`}><span className="puzzle-streak-icon"><Flame size={19} aria-hidden="true" /></span><div><strong>Серія {progress.streak}</strong><small>Без помилок і підказок</small></div></div>
             <ThemePicker themes={manifest.data?.themes || []} count={manifest.data?.count || 0} selected={selectedThemes} disabled={busy} open={themeOpen} onOpenChange={setThemeOpen} onChange={nextThemes => commit({ ...latest.current, theme: 'all', selectedThemes: nextThemes })} />
