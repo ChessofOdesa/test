@@ -4,7 +4,10 @@ import { Trophy } from "lucide-react";
 export type LessonWorkspaceMode = "level-selection" | "course-map" | "lesson-mode" | "completion";
 export type LessonStatus = "completed" | "locked" | "recommended" | "selected" | "skipped" | "open";
 export type MoveState = "idle" | "success" | "wrong";
-export const TODAY_KEY = new Date().toISOString().slice(0, 10);
+export type CourseFilter = "all" | "available" | "completed";
+export function localDayKey(date = new Date()) {
+    return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}`;
+}
 export const LEVEL_ORDER: LessonLevel[] = ["beginner", "amateur", "master"];
 export function isLessonLevel(value: unknown): value is LessonLevel {
     return value === "beginner" || value === "amateur" || value === "master";
@@ -20,7 +23,7 @@ export function sanitizeProgress(raw: Partial<LessonProgressState> | null): Less
         ? Number(raw.currentLessonId)
         : fallback.currentLessonId;
     return {
-        selectedLevel: isLessonLevel(raw.selectedLevel) ? raw.selectedLevel : levelFromLessonId(currentLessonId),
+        selectedLevel: raw.selectedLevel === null ? null : isLessonLevel(raw.selectedLevel) ? raw.selectedLevel : levelFromLessonId(currentLessonId),
         completedLessonIds: Array.isArray(raw.completedLessonIds) ? raw.completedLessonIds : [],
         skippedLessonIds: Array.isArray(raw.skippedLessonIds) ? raw.skippedLessonIds : [],
         xp: Number.isFinite(raw.xp) ? Number(raw.xp) : 0,
@@ -105,8 +108,17 @@ export function getLevelLessons(level: LessonLevel | null) {
 }
 export function firstAvailableLesson(level: LessonLevel, completedLessonIds: number[]) {
     const lessons = getLevelLessons(level);
-    return (lessons.find((lesson, index) => index === 0 || completedLessonIds.includes(lessons[index - 1].id)) ||
-        lessons[0]);
+    return lessons.find((lesson, index) => !completedLessonIds.includes(lesson.id) &&
+        (index === 0 || completedLessonIds.includes(lessons[index - 1].id))) || lessons[lessons.length - 1];
+}
+export function filterLevelLessons(lessons: LessonRecord[], query: string, filter: CourseFilter, completedLessonIds: number[]) {
+    const search = query.trim().toLocaleLowerCase("uk");
+    return lessons.filter((lesson) => {
+        const matchesSearch = !search || `${lesson.title} ${lesson.shortDescription}`.toLocaleLowerCase("uk").includes(search);
+        const completed = completedLessonIds.includes(lesson.id);
+        const matchesFilter = filter === "all" || (filter === "completed" ? completed : !completed && isLessonUnlocked(lesson, completedLessonIds));
+        return matchesSearch && matchesFilter;
+    });
 }
 export function isLessonUnlocked(lesson: LessonRecord, completedLessonIds: number[]) {
     const lessons = getLevelLessons(lesson.level);
@@ -133,17 +145,17 @@ export function StatusBadge({ status }: {
         completed: "border-emerald-400/35 bg-emerald-400/12 text-emerald-700",
         locked: "border-border bg-secondary text-muted-foreground",
         recommended: "border-amber-300/45 bg-amber-300/12 text-amber-700",
-        selected: "border-sky-300/40 bg-sky-300/12 text-sky-100",
+        selected: "border-primary/30 bg-accent text-primary",
         skipped: "border-orange-300/35 bg-orange-300/12 text-orange-700",
         open: "border-border bg-secondary text-muted-foreground",
     };
     const copy: Record<LessonStatus, string> = {
-        completed: "Completed",
-        locked: "Locked",
-        recommended: "Recommended",
-        selected: "Selected",
-        skipped: "Incomplete",
-        open: "Open",
+        completed: "Пройдено",
+        locked: "Закрито",
+        recommended: "Радимо",
+        selected: "Обрано",
+        skipped: "Не завершено",
+        open: "Доступно",
     };
     return (<span className={cn("rounded-full border px-2.5 py-1 text-sm font-black uppercase tracking-[0.12em]", styles[status])}>
       {copy[status]}
