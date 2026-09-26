@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { cleanup, fireEvent, render, screen, within } from "@testing-library/react";
+import { Chess } from "chess.js";
 import Lessons from "@/pages/Lessons";
 import { LESSON_LEVELS, createDefaultLessonProgress } from "@/data/lesson-levels";
 import { filterLevelLessons, firstAvailableLesson, readProgress, sanitizeProgress } from "@/features/lessons/model";
@@ -15,6 +16,22 @@ vi.mock("@/components/ChessBoard", () => ({
 afterEach(() => { cleanup(); localStorage.clear(); });
 
 describe("Lessons course and player flow", () => {
+  it("keeps the first seven lessons readable in Ukrainian and their practice moves legal", () => {
+    const ukrainian = /[А-Яа-яІіЇїЄєҐґ]/;
+    for (const lesson of LESSON_LEVELS.slice(0, 7)) {
+      expect(lesson.steps).toHaveLength(5);
+      for (const step of lesson.steps) {
+        const copy = [step.title, step.text, step.goal, step.action, ...step.hints, step.reveal, step.errorText, step.successText].filter(Boolean);
+        for (const phrase of copy) expect(phrase).toMatch(ukrainian);
+        if (!step.expectedMove) continue;
+        expect(step.targetSquare).toBe(step.expectedMove.slice(2, 4));
+        const game = new Chess(step.fen ?? lesson.fen);
+        const move = game.move({ from: step.expectedMove.slice(0, 2), to: step.expectedMove.slice(2, 4) });
+        expect(move).not.toBeNull();
+      }
+    }
+  });
+
   it("keeps an explicit unselected level and recommends the next incomplete lesson", () => {
     expect(sanitizeProgress({ ...createDefaultLessonProgress(), selectedLevel: null }).selectedLevel).toBeNull();
     expect(firstAvailableLesson("beginner", [1, 2]).id).toBe(3);
