@@ -82,7 +82,7 @@ export const LESSON_LEVEL_META: Record<
     range: "Уроки 16–35",
     subtitle: "Тактика, ініціатива, плани, атака, захист і типові помилки.",
     description: "Для тих, хто знає правила та хоче краще розраховувати варіанти. Більше самостійних рішень і пояснень.",
-    includes: ["tactics", "пошук найкращого ходу", "розбір помилок", "практичні плани"],
+    includes: ["тактика", "пошук найкращого ходу", "розбір помилок", "практичні плани"],
     coachStyle: "Спочатку самостійний розрахунок, потім пояснення.",
   },
   master: {
@@ -90,7 +90,7 @@ export const LESSON_LEVEL_META: Record<
     range: "Уроки 36–50",
     subtitle: "Ендшпілі, стратегія, динамічна гра та розбір партій.",
     description: "Для досвідчених гравців. Складніші позиції та мінімум підказок.",
-    includes: ["endgames", "стратегічні плани", "глибокий розрахунок", "мінімум підказок"],
+    includes: ["ендшпілі", "стратегічні плани", "глибокий розрахунок", "мінімум підказок"],
     coachStyle: "Увага до точності розрахунку та якості рішень.",
   },
 };
@@ -890,13 +890,13 @@ function makeSteps(id: number, title: string, level: LessonLevel, type: LessonTy
   if (pieceMovementSteps) return pieceMovementSteps;
 
   const hints = hintsFor(title, level);
-  const practical = type !== "theory" && type !== "review";
+  const practical = type !== "theory" && type !== "review" && Boolean(SOLUTION_MOVES[id]);
 
   return [
     {
       id: `${id}-explain`,
       kind: "explain",
-      title: "Idea",
+      title: "Ідея",
       text:
         level === "beginner"
           ? `У цьому кроці дивимось на тему “${title}” дуже просто: що змінюється на дошці і чому це важливо.`
@@ -904,13 +904,13 @@ function makeSteps(id: number, title: string, level: LessonLevel, type: LessonTy
       goal: "Зрозуміти головну ідею перед ходом.",
       action: "Прочитай коротке пояснення і переходь далі.",
       hints,
-      reveal: `Головна ідея: “${title}” має бути помітна на дошці до того, як ти натиснеш Check Move.`,
+      reveal: `Головну ідею теми «${title}» варто знайти на дошці перед переходом далі.`,
     },
     {
       id: `${id}-demo`,
       kind: "demo",
-      title: "Example",
-      text: "Подивись на позицію. AI Coach справа підкаже напрямок, але рішення лишається за тобою.",
+      title: "Приклад",
+      text: "Подивись на позицію та спробуй знайти два кандидатні ходи самостійно.",
       goal: "Побачити кандидатні ходи.",
       action: "Назви подумки 2 кандидатні ходи.",
       hints,
@@ -919,12 +919,12 @@ function makeSteps(id: number, title: string, level: LessonLevel, type: LessonTy
     {
       id: `${id}-task`,
       kind: practical ? "task" : "check",
-      title: practical ? "Your move" : "Quick check",
+      title: practical ? "Твій хід" : "Перевірка ідеї",
       text: practical
-        ? "Зроби хід на дошці, а потім натисни Check Move справа."
-        : "Поясни ідею своїми словами, потім відкрий Reveal для перевірки.",
+        ? "Зроби хід на дошці. Якщо складно, скористайся підказкою."
+        : "Поясни ідею своїми словами, потім відкрий розв’язок для перевірки.",
       goal: "Закріпити ідею дією.",
-      action: practical ? "Зроби хід або скористайся Hint." : "Натисни Reveal, якщо хочеш побачити формулювання.",
+      action: practical ? "Зроби хід або скористайся підказкою." : "Покажи розв’язок, щоб перевірити своє пояснення.",
       hints,
       reveal: SOLUTION_MOVES[id]
         ? `Правильний напрямок: ${SOLUTION_MOVES[id].slice(0, 2)}-${SOLUTION_MOVES[id].slice(2, 4)}.`
@@ -933,20 +933,20 @@ function makeSteps(id: number, title: string, level: LessonLevel, type: LessonTy
     {
       id: `${id}-check`,
       kind: "check",
-      title: "Review",
+      title: "Підсумок",
       text: "Тепер коротко перевір: що змінилось після правильного ходу і яка ідея переходить у наступний крок.",
       goal: "Навчитись пояснювати не тільки хід, а й причину.",
-      action: "Використай AI Coach справа, якщо потрібне коротке резюме.",
+      action: "Порівняй своє пояснення з розв’язком праворуч.",
       hints,
       reveal: "Сильний хід має ідею, наслідок і наступний план.",
     },
     {
       id: `${id}-complete`,
       kind: "complete",
-      title: "Finish",
-      text: "Урок завершено. Забери XP, подивись feedback і переходь до наступного рівня.",
+      title: "Завершення",
+      text: "Підсумуй вивчене й переходь до наступного уроку.",
       goal: "Закрити урок і відкрити наступний.",
-      action: "Натисни Finish справа.",
+      action: "Натисни «Завершити» праворуч.",
       hints,
       reveal: "Готово. Повторити урок можна будь-коли з карти.",
     },
@@ -986,6 +986,6 @@ export function createDefaultLessonProgress(): LessonProgressState {
     currentLessonId: 1,
     currentStepByLesson: {},
     hintLevelByLesson: {},
-    lastFeedback: "Choose your level to start a structured chess course.",
+    lastFeedback: "Оберіть рівень, щоб розпочати шаховий курс.",
   };
 }
