@@ -5,6 +5,7 @@ export type LessonWorkspaceMode = "level-selection" | "course-map" | "lesson-mod
 export type LessonStatus = "completed" | "locked" | "recommended" | "selected" | "skipped" | "open";
 export type MoveState = "idle" | "success" | "wrong";
 export type CourseFilter = "all" | "available" | "completed";
+export type LessonAction = "start" | "continue" | "repeat";
 export function localDayKey(date = new Date()) {
     return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}`;
 }
@@ -110,6 +111,19 @@ export function firstAvailableLesson(level: LessonLevel, completedLessonIds: num
     const lessons = getLevelLessons(level);
     return lessons.find((lesson, index) => !completedLessonIds.includes(lesson.id) &&
         (index === 0 || completedLessonIds.includes(lessons[index - 1].id))) || lessons[lessons.length - 1];
+}
+export function getLessonEntryStep(lesson: LessonRecord, progress: LessonProgressState) {
+    if (progress.completedLessonIds.includes(lesson.id))
+        return 0;
+    const savedStep = Number(progress.currentStepByLesson[String(lesson.id)]);
+    if (!Number.isInteger(savedStep) || savedStep < 0 || savedStep >= lesson.steps.length)
+        return 0;
+    return savedStep;
+}
+export function getLessonAction(lesson: LessonRecord, progress: LessonProgressState): LessonAction {
+    if (progress.completedLessonIds.includes(lesson.id))
+        return "repeat";
+    return getLessonEntryStep(lesson, progress) > 0 ? "continue" : "start";
 }
 export function filterLevelLessons(lessons: LessonRecord[], query: string, filter: CourseFilter, completedLessonIds: number[]) {
     const search = query.trim().toLocaleLowerCase("uk");
