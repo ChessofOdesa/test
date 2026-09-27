@@ -16,9 +16,9 @@ vi.mock("@/components/ChessBoard", () => ({
 afterEach(() => { cleanup(); localStorage.clear(); });
 
 describe("Lessons course and player flow", () => {
-  it("keeps the first nine lessons readable in Ukrainian and their practice moves legal", () => {
+  it("keeps the first ten lessons readable in Ukrainian and their practice moves legal", () => {
     const ukrainian = /[А-Яа-яІіЇїЄєҐґ]/;
-    for (const lesson of LESSON_LEVELS.slice(0, 9)) {
+    for (const lesson of LESSON_LEVELS.slice(0, 10)) {
       expect(lesson.steps).toHaveLength(5);
       for (const step of lesson.steps) {
         const copy = [step.title, step.text, step.goal, step.action, ...step.hints, step.reveal, step.errorText, step.successText].filter(Boolean);
@@ -70,6 +70,28 @@ describe("Lessons course and player flow", () => {
       expect(position.move({ from: reply.slice(0, 2), to: reply.slice(2, 4) })).not.toBeNull();
       expect(position.isCheck()).toBe(false);
     }
+  });
+
+  it("models lesson ten with a real checkmate and a non-mating comparison", () => {
+    const lesson = LESSON_LEVELS[9];
+    const mateStep = lesson.steps.find((step) => step.expectedMove === "f7g7");
+    const checkOnly = new Chess(lesson.steps[1].fen);
+
+    expect(lesson.title).toBe("Мат");
+    expect(checkOnly.isCheck()).toBe(true);
+    expect(checkOnly.isCheckmate()).toBe(false);
+    expect(checkOnly.move({ from: "e8", to: "f7" })).not.toBeNull();
+    expect(checkOnly.isCheck()).toBe(false);
+
+    const position = new Chess(mateStep?.fen ?? lesson.fen);
+    const move = position.move({ from: "f7", to: "g7" });
+    expect(move?.san).toBe("Qg7#");
+    expect(position.isCheck()).toBe(true);
+    expect(position.isCheckmate()).toBe(true);
+    expect(position.moves()).toEqual([]);
+
+    const explainedMate = new Chess(lesson.steps[3].fen);
+    expect(explainedMate.isCheckmate()).toBe(true);
   });
 
   it("keeps an explicit unselected level and recommends the next incomplete lesson", () => {
