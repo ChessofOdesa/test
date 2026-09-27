@@ -9,6 +9,7 @@ vi.mock("@/components/ChessBoard", () => ({
   default: ({ onMove, interactive, targetSquares = [], highlightSquares, customArrows = [], size }: { onMove: (from: string, to: string, promotion?: string) => boolean; interactive: boolean; targetSquares?: string[]; highlightSquares?: { squares: string[] }; customArrows?: [string, string][]; size: number }) => size < 100 ? <div data-testid="lesson-preview" /> : (
     <div data-testid="lesson-board" data-size={size}>
       <button type="button" disabled={!interactive} onClick={() => onMove("e2", "e3")}>Хід e2–e3</button>
+      <button type="button" disabled={!interactive} onClick={() => onMove("e2", "e4")}>Хід e2–e4</button>
       <button type="button" disabled={!interactive} onClick={() => onMove("f1", "b5")}>Хід f1–b5</button>
       <button type="button" disabled={!interactive} onClick={() => onMove("f1", "c4")}>Хід f1–c4</button>
       <button type="button" disabled={!interactive} onClick={() => onMove("e1", "f1")}>Хід e1–f1</button>
@@ -42,6 +43,18 @@ describe("Lessons course and player flow", () => {
       Object.defineProperty(window, "innerHeight", { configurable: true, value: previousHeight });
       Object.defineProperty(window, "innerWidth", { configurable: true, value: previousWidth });
     }
+  });
+
+  it("explains why a legal two-square pawn move is wrong for the one-square task", () => {
+    render(<Lessons />);
+    fireEvent.click(screen.getByRole("button", { name: /Початківець/ }));
+    fireEvent.click(screen.getByRole("button", { name: "Почати урок" }));
+    fireEvent.click(screen.getByRole("button", { name: "Продовжити" }));
+    fireEvent.click(screen.getByRole("button", { name: "Хід e2–e4" }));
+    expect(screen.getByText(/Хід e2–e4 дозволений із початкової позиції/)).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Продовжити" })).toBeDisabled();
+    fireEvent.click(screen.getByRole("button", { name: "Хід e2–e3" }));
+    expect(screen.getByRole("button", { name: "Продовжити" })).toBeEnabled();
   });
 
   it("celebrates a first completion and a repeat without awarding XP twice", () => {
