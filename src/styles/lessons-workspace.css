@@ -13,6 +13,7 @@
 .lessons-home-intro { margin: 0 6px 10px; }
 .lessons-home-intro > span { color: #2b5d9d; font-size: 12px; letter-spacing: .08em; }
 .lessons-home-intro h1 { margin: 10px 0 2px; font-size: 38px; line-height: 1.13; }
+.lessons-view-heading:focus-visible { outline: 3px solid #147af0; outline-offset: 4px; border-radius: 4px; }
 .lessons-home-intro p { font-size: 15px; line-height: 1.4; }
 .lessons-home-grid { display: grid; grid-template-columns: 220px minmax(0, 1fr) 295px; grid-template-rows: 288px auto auto; column-gap: 14px; row-gap: 16px; align-items: start; }
 .lessons-home-main { display: contents; }

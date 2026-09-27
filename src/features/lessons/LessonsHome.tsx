@@ -4,10 +4,11 @@ import { LessonsIcon } from "@/components/icons/chess";
 import { LESSON_LEVEL_META, LESSON_LEVELS, type LessonLevel, type LessonProgressState, type LessonRecord } from "@/data/lesson-levels";
 import { createCleanLessonDiagramFen, firstAvailableLesson, getLessonAction, getLessonEntryStep, getLevelLessons, isLessonUnlocked, LEVEL_ORDER } from "@/features/lessons/model";
 import { ArrowRight, BarChart3, BookOpen, Check, ChevronRight, Clock3, Flame, Heart, Layers3, LayoutGrid, List, LockKeyhole, MoreHorizontal, Play, Repeat2, Trophy, Zap } from "lucide-react";
-import { useEffect, useState, type CSSProperties } from "react";
+import { useEffect, useState, type CSSProperties, type Ref } from "react";
 
 type LessonsHomeProps = {
   progress: LessonProgressState;
+  headingRef: Ref<HTMLHeadingElement>;
   onOpenCatalog: () => void;
   onOpenLevels: () => void;
   onChooseLevel: (level: LessonLevel) => void;
@@ -51,7 +52,7 @@ function DirectoryGroup({ title, detail, lessons, completed, progress, onStartLe
   </details>;
 }
 
-export function LessonsHome({ progress, onOpenCatalog, onOpenLevels, onChooseLevel, onStartLesson }: LessonsHomeProps) {
+export function LessonsHome({ progress, headingRef, onOpenCatalog, onOpenLevels, onChooseLevel, onStartLesson }: LessonsHomeProps) {
   const [section, setSection] = useState<"overview" | "topics" | "series" | "favorites">("overview");
   const [favorites, setFavorites] = useState<number[]>(readFavorites);
   useEffect(() => { try { localStorage.setItem(favoritesKey, JSON.stringify(favorites)); } catch { /* Favorites still work for this visit. */ } }, [favorites]);
@@ -75,7 +76,7 @@ export function LessonsHome({ progress, onOpenCatalog, onOpenLevels, onChooseLev
   return <section className="lessons-home" aria-label="Головне меню уроків">
     <header className="lessons-home-intro">
       <span>НАВЧАННЯ · CHESS OF ODESA</span>
-      <h1>Уроки</h1>
+      <h1 ref={headingRef} tabIndex={-1} className="lessons-view-heading">Уроки</h1>
       <p>Рухайтеся від основ до складніших позицій у власному темпі.</p>
     </header>
 
