@@ -16,9 +16,9 @@ vi.mock("@/components/ChessBoard", () => ({
 afterEach(() => { cleanup(); localStorage.clear(); });
 
 describe("Lessons course and player flow", () => {
-  it("keeps the first seven lessons readable in Ukrainian and their practice moves legal", () => {
+  it("keeps the first eight lessons readable in Ukrainian and their practice moves legal", () => {
     const ukrainian = /[А-Яа-яІіЇїЄєҐґ]/;
-    for (const lesson of LESSON_LEVELS.slice(0, 7)) {
+    for (const lesson of LESSON_LEVELS.slice(0, 8)) {
       expect(lesson.steps).toHaveLength(5);
       for (const step of lesson.steps) {
         const copy = [step.title, step.text, step.goal, step.action, ...step.hints, step.reveal, step.errorText, step.successText].filter(Boolean);
@@ -30,6 +30,20 @@ describe("Lessons course and player flow", () => {
         expect(move).not.toBeNull();
       }
     }
+  });
+
+  it("models lesson eight as a legal en passant capture", () => {
+    const lesson = LESSON_LEVELS[7];
+    const practice = lesson.steps.find((step) => step.expectedMove === "e5d6");
+
+    expect(lesson.title).toBe("Взяття на проході");
+    expect(practice).toBeDefined();
+    const game = new Chess(practice?.fen ?? lesson.fen);
+    const move = game.move({ from: "e5", to: "d6" });
+
+    expect(move?.flags).toContain("e");
+    expect(game.get("d5")).toBeUndefined();
+    expect(game.get("d6")).toMatchObject({ color: "w", type: "p" });
   });
 
   it("keeps an explicit unselected level and recommends the next incomplete lesson", () => {
