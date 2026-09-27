@@ -114,6 +114,21 @@ describe("Lessons course and player flow", () => {
     expect(screen.queryByTestId("lesson-board")).not.toBeInTheDocument();
   });
 
+  it("shows compact progress statistics with correct Ukrainian count labels", () => {
+    localStorage.setItem(LESSON_PROGRESS_STORAGE_KEY, JSON.stringify({
+      ...createDefaultLessonProgress(), selectedLevel: "beginner", completedLessonIds: [1, 2],
+      currentLessonId: 3, xp: 43, streakDates: ["2026-09-27"],
+    }));
+    render(<Lessons />);
+
+    const stats = screen.getByRole("list", { name: "Коротка статистика навчання" });
+    const items = within(stats).getAllByRole("listitem");
+    expect(items).toHaveLength(3);
+    expect(items[0]).toHaveTextContent("2уроки");
+    expect(items[1]).toHaveTextContent("43XP");
+    expect(items[2]).toHaveTextContent("1день занять");
+  });
+
   it("keeps a favorite and opens lessons from the topic directory", () => {
     localStorage.setItem(LESSON_PROGRESS_STORAGE_KEY, JSON.stringify({ ...createDefaultLessonProgress(), selectedLevel: "master" }));
     render(<Lessons />);

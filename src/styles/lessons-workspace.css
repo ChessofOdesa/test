@@ -76,10 +76,11 @@
 .lessons-home-overall p { display: grid; gap: 2px; margin: 0; }
 .lessons-home-overall p strong { white-space: nowrap; font-size: 17px; }
 .lessons-home-overall p span { color: #667b99; font-size: 13px; }
-.lessons-home-stats { gap: 9px; }
-.lessons-home-stats > span { min-height: 92px; padding: 9px 2px; color: #0876f4; }
+.lessons-home-stats { display: grid; grid-template-columns: repeat(3,minmax(0,1fr)); gap: 8px; }
+.lessons-home-stats > span { display: grid; grid-template-rows: auto auto auto; place-items: center; gap: 3px; min-width: 0; min-height: 84px; padding: 10px 3px; border: 1px solid #e1eaf5; border-radius: 9px; background: #f8fbff; color: #0876f4; text-align: center; }
+.lessons-home-stats svg { width: 20px; height: 20px; }
 .lessons-home-stats strong { color: #0e2352; font-size: 16px; }
-.lessons-home-stats small { font-size: 11px; }
+.lessons-home-stats small { max-width: 100%; font-size: 11px; line-height: 1.18; }
 .lessons-home-meter { margin-top: 17px; }
 .lessons-home-meter > div:first-child { font-size: 12px; }
 .lessons-home-meter strong { color: #10234a; }
