@@ -24,20 +24,23 @@ vi.mock("@/components/ChessBoard", () => ({
 afterEach(() => { cleanup(); localStorage.clear(); });
 
 describe("Lessons course and player flow", () => {
-  it("fits the board into the remaining height of a 100% desktop viewport and grows on resize", () => {
+  it("keeps a 468px desktop board in a 504px host and fits smaller screens on resize", () => {
     const previousHeight = window.innerHeight;
+    const previousWidth = window.innerWidth;
     const bounds = vi.spyOn(HTMLElement.prototype, "getBoundingClientRect").mockReturnValue({ top: 240 } as DOMRect);
     try {
+      Object.defineProperty(window, "innerWidth", { configurable: true, value: 1280 });
       Object.defineProperty(window, "innerHeight", { configurable: true, value: 707 });
       render(<Lessons />);
       fireEvent.click(screen.getByRole("button", { name: /Початківець/ }));
-      expect(screen.getByTestId("lesson-board")).toHaveAttribute("data-size", "385");
-      Object.defineProperty(window, "innerHeight", { configurable: true, value: 900 });
+      expect(screen.getByTestId("lesson-board")).toHaveAttribute("data-size", "468");
+      Object.defineProperty(window, "innerWidth", { configurable: true, value: 600 });
       fireEvent.resize(window);
-      expect(screen.getByTestId("lesson-board")).toHaveAttribute("data-size", "500");
+      expect(screen.getByTestId("lesson-board")).toHaveAttribute("data-size", "385");
     } finally {
       bounds.mockRestore();
       Object.defineProperty(window, "innerHeight", { configurable: true, value: previousHeight });
+      Object.defineProperty(window, "innerWidth", { configurable: true, value: previousWidth });
     }
   });
 

@@ -41,8 +41,8 @@ export default function Lessons() {
         const syncBoardSize = () => {
             const width = boardHostRef.current?.clientWidth || window.innerWidth;
             const boardTop = boardHostRef.current?.getBoundingClientRect().top || 0;
-            const heightForBoard = Math.max(230, window.innerHeight - boardTop - 82);
-            setBoardSize(Math.round(Math.max(230, Math.min(width - 2, 500, heightForBoard))));
+            const heightForBoard = window.innerWidth < 760 ? Math.max(230, window.innerHeight - boardTop - 82) : 468;
+            setBoardSize(Math.round(Math.max(230, Math.min(width - 2, 468, heightForBoard))));
         };
         syncBoardSize();
         const observer = typeof ResizeObserver !== "undefined" && boardHostRef.current ? new ResizeObserver(syncBoardSize) : null;
@@ -329,22 +329,24 @@ export default function Lessons() {
     return (
         <div className="lessons-page">
             <div className="lessons-container">
-                <h1 className="lessons-heading">Уроки</h1>
-                <section className="lessons-progress" aria-label="Прогрес навчання">
-                    <span className="lessons-progress-icon"><LessonsIcon size={25} aria-hidden="true" /></span>
-                    <div className="lessons-progress-name">
-                        <strong>{levelMeta?.title || "Шахові уроки"}</strong>
-                        <span>{levelMeta?.range || `${LESSON_LEVELS.length} уроків у програмі`}</span>
-                    </div>
-                    <Progress value={selectedLevel ? levelProgress : totalProgress} className="lessons-progress-bar" />
-                    <span className="lessons-progress-count">
-                        {selectedLevel ? `${levelCompleted} із ${levelLessons.length}` : `${completedTotal} із ${LESSON_LEVELS.length}`}
-                    </span>
-                    <div className="lessons-progress-note">
-                        <BarChart3 size={26} aria-hidden="true" />
-                        <span>{levelMeta?.coachStyle || "Обери рівень і почни тренуватися."}</span>
-                    </div>
-                </section>
+                <div className="lessons-heading-row">
+                    <h1 className="lessons-heading">Уроки</h1>
+                    <section className="lessons-progress" aria-label="Прогрес навчання">
+                        <span className="lessons-progress-icon"><LessonsIcon size={25} aria-hidden="true" /></span>
+                        <div className="lessons-progress-name">
+                            <strong>{levelMeta?.title || "Шахові уроки"}</strong>
+                            <span>{levelMeta?.range || `${LESSON_LEVELS.length} уроків у програмі`}</span>
+                        </div>
+                        <Progress value={selectedLevel ? levelProgress : totalProgress} className="lessons-progress-bar" />
+                        <span className="lessons-progress-count">
+                            {selectedLevel ? `${levelCompleted} із ${levelLessons.length}` : `${completedTotal} із ${LESSON_LEVELS.length}`}
+                        </span>
+                        <div className="lessons-progress-note">
+                            <BarChart3 size={26} aria-hidden="true" />
+                            <span>{levelMeta?.coachStyle || "Обери рівень і почни тренуватися."}</span>
+                        </div>
+                    </section>
+                </div>
 
                 {mode === "level-selection" ? (
                     <section className="lessons-choose" aria-label="Вибір рівня">
