@@ -25,6 +25,21 @@ vi.mock("@/components/ChessBoard", () => ({
 afterEach(() => { cleanup(); localStorage.clear(); });
 
 describe("Lessons course and player flow", () => {
+  it("shows the beginner path on a fresh visit without opening the lesson board", () => {
+    render(<Lessons />);
+    const home = screen.getByRole("region", { name: "Головне меню уроків" });
+    expect(within(home).getByText("Рекомендований курс")).toBeInTheDocument();
+    expect(within(home).getByRole("heading", { name: "Як ходить пішак" })).toBeInTheDocument();
+    expect(within(within(home).getByRole("region", { name: "Уроки вашого рівня" })).getAllByRole("button", { name: /^(Почати|Продовжити|Повторити) урок \d+:/ })).toHaveLength(6);
+    expect(within(home).getByText("0 / 55")).toBeInTheDocument();
+    expect(screen.queryByTestId("lesson-board")).not.toBeInTheDocument();
+    expect(readProgress().selectedLevel).toBeNull();
+
+    fireEvent.click(within(home).getByRole("button", { name: "Почати урок" }));
+    expect(screen.getByTestId("lesson-board")).toBeInTheDocument();
+    expect(readProgress().selectedLevel).toBe("beginner");
+  });
+
   it("opens the learning menu before the catalog and board, then returns to it", () => {
     localStorage.setItem(LESSON_PROGRESS_STORAGE_KEY, JSON.stringify({ ...createDefaultLessonProgress(), selectedLevel: "beginner" }));
     render(<Lessons />);
