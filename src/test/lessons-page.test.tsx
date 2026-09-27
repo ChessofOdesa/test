@@ -17,9 +17,9 @@ vi.mock("@/components/ChessBoard", () => ({
 afterEach(() => { cleanup(); localStorage.clear(); });
 
 describe("Lessons course and player flow", () => {
-  it("keeps the first eleven lessons readable in Ukrainian and their practice moves legal", () => {
+  it("keeps the first twelve lessons readable in Ukrainian and their practice moves legal", () => {
     const ukrainian = /[А-Яа-яІіЇїЄєҐґ]/;
-    for (const lesson of LESSON_LEVELS.slice(0, 11)) {
+    for (const lesson of LESSON_LEVELS.slice(0, 12)) {
       expect(lesson.steps).toHaveLength(5);
       for (const step of lesson.steps) {
         const copy = [step.title, step.text, step.goal, step.action, ...step.hints, step.reveal, step.errorText, step.successText].filter(Boolean);
@@ -124,6 +124,38 @@ describe("Lessons course and player flow", () => {
     expect(screen.getByTestId("lesson-targets")).toBeEmptyDOMElement();
     fireEvent.click(screen.getByRole("button", { name: "Підказка" }));
     expect(screen.getByTestId("lesson-targets")).toHaveTextContent("e8");
+  });
+
+  it("models lesson twelve with a legal central move and progressive target reveal", () => {
+    const lesson = LESSON_LEVELS[11];
+    const practice = lesson.steps.find((step) => step.expectedMove === "d2d4");
+    const position = new Chess(practice?.fen ?? lesson.fen);
+    const move = position.move({ from: "d2", to: "d4" });
+
+    expect(lesson.title).toBe("Контроль центру");
+    expect(practice?.targetRevealHint).toBe(2);
+    expect(move?.san).toBe("d4");
+    expect(position.get("d4")).toMatchObject({ color: "w", type: "p" });
+    expect(position.fen()).toBe("rnbqkbnr/ppp1pppp/3p4/8/3PP3/8/PPP2PPP/RNBQKBNR b KQkq - 0 2");
+
+    const progress = {
+      ...createDefaultLessonProgress(),
+      selectedLevel: "beginner" as const,
+      completedLessonIds: Array.from({ length: 11 }, (_, index) => index + 1),
+      currentLessonId: 12,
+    };
+    localStorage.setItem(LESSON_PROGRESS_STORAGE_KEY, JSON.stringify(progress));
+    render(<Lessons />);
+    fireEvent.click(screen.getByRole("button", { name: /Почати урок 12:/ }));
+    fireEvent.click(screen.getByRole("button", { name: /Продовжити/ }));
+    fireEvent.click(screen.getByRole("button", { name: /Продовжити/ }));
+
+    expect(screen.getByText("Крок 3 із 5")).toBeInTheDocument();
+    expect(screen.getByTestId("lesson-targets")).toBeEmptyDOMElement();
+    fireEvent.click(screen.getByRole("button", { name: "Підказка" }));
+    expect(screen.getByTestId("lesson-targets")).toBeEmptyDOMElement();
+    fireEvent.click(screen.getByRole("button", { name: "Підказка" }));
+    expect(screen.getByTestId("lesson-targets")).toHaveTextContent("d4");
   });
 
   it("keeps an explicit unselected level and recommends the next incomplete lesson", () => {
