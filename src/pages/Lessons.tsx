@@ -26,6 +26,7 @@ export default function Lessons() {
     const [moveState, setMoveState] = useState<MoveState>("idle");
     const [boardError, setBoardError] = useState("");
     const [completionLessonId, setCompletionLessonId] = useState<number | null>(null);
+    const [completionAwardedXp, setCompletionAwardedXp] = useState(0);
     const [courseSearch, setCourseSearch] = useState("");
     const [courseFilter, setCourseFilter] = useState<CourseFilter>("all");
     const [courseTopic, setCourseTopic] = useState<LessonTopic | "all">("all");
@@ -39,7 +40,9 @@ export default function Lessons() {
         if (mode === "level-selection") return;
         const syncBoardSize = () => {
             const width = boardHostRef.current?.clientWidth || window.innerWidth;
-            setBoardSize(Math.round(Math.max(230, Math.min(width - 2, 640))));
+            const boardTop = boardHostRef.current?.getBoundingClientRect().top || 0;
+            const heightForBoard = Math.max(230, window.innerHeight - boardTop - 82);
+            setBoardSize(Math.round(Math.max(230, Math.min(width - 2, 500, heightForBoard))));
         };
         syncBoardSize();
         const observer = typeof ResizeObserver !== "undefined" && boardHostRef.current ? new ResizeObserver(syncBoardSize) : null;
@@ -213,6 +216,7 @@ export default function Lessons() {
     };
     const finishLesson = () => {
         const alreadyCompleted = progress.completedLessonIds.includes(selectedLesson.id);
+        setCompletionAwardedXp(alreadyCompleted ? 0 : selectedLesson.xp);
         const nextInLevel = getLevelLessons(selectedLesson.level).find((lesson) => lesson.id > selectedLesson.id);
         updateProgress((current) => ({
             ...current,
@@ -417,7 +421,7 @@ export default function Lessons() {
                                             <span className="lessons-card-preview" aria-hidden="true">
                                                 <ChessBoard initialFen={lesson.steps[0]?.fen || lesson.fen}
                                                     displayFen={createCleanLessonDiagramFen(lesson.steps[0]?.fen || lesson.fen, lesson.id)}
-                                                    size={82} interactive={false} allowArrows={false} showLegalMoves={false} showChecks={false} showLastMove={false}
+                                                    size={64} interactive={false} allowArrows={false} showLegalMoves={false} showChecks={false} showLastMove={false}
                                                     customLightSquareStyle={{ background: "#edf2f7" }} customDarkSquareStyle={{ background: "#91aac1" }}
                                                     customBoardStyle={{ borderRadius: 6 }} />
                                             </span>
@@ -446,6 +450,9 @@ export default function Lessons() {
                                 <ChessBoard key={`${selectedLesson.id}-${mode === "lesson-mode" ? selectedStep.id : "preview"}`}
                                     initialFen={previewFen} displayFen={displayFen} size={boardSize}
                                     onMove={handleBoardMove} interactive={boardInteractive} showLegalMoves={boardInteractive} showLastMove
+                                    playerColor={boardInteractive ? (selectedStep.fen || selectedLesson.fen).split(" ")[1] as "w" | "b" : undefined}
+                                    showDragTargets={boardInteractive} animationDuration={90}
+                                    customDropSquareStyle={{ backgroundColor: "rgba(30, 126, 239, .3)", boxShadow: "inset 0 0 0 3px #1678ea" }}
                                     annotationSquares={mode === "lesson-mode" && showPracticeMarkers && selectedStep.demoSquares ? selectedStep.demoSquares as Square[] : []}
                                     targetSquares={mode === "lesson-mode" ? practiceTargetSquares : []}
                                     startSquares={mode === "lesson-mode" && selectedStep.startSquare ? [selectedStep.startSquare as Square] : []}
@@ -457,12 +464,16 @@ export default function Lessons() {
                                         ? { squares: [targetSquare as Square], type: "correct" } : undefined}
                                     lastMoveSquares={lastMove && mode === "lesson-mode" ? [lastMove.slice(0, 2), lastMove.slice(2, 4)] as Square[] : []}
                                     customLightSquareStyle={{ background: "#eef1e9" }} customDarkSquareStyle={{ background: "#7196b5" }}
-                                    customBoardStyle={{ borderRadius: 6, boxShadow: "0 4px 18px rgba(27,49,80,.12)" }} />
+                                    customBoardStyle={{ borderRadius: 6, boxShadow: "0 4px 18px rgba(27,49,80,.12)", touchAction: boardInteractive ? "none" : "auto" }} />
                             </section>
                             {mode === "completion" ? (
-                                <p className="lessons-completion"><Trophy size={20} aria-hidden="true" /> Урок «{completionLesson?.title}» пройдено. {nextLesson ? `Далі: ${nextLesson.title}.` : "Рівень завершено."}</p>
+                                <div className="lessons-completion" role="status" aria-live="polite">
+                                    <span className="lessons-confetti" aria-hidden="true"><i /><i /><i /><i /><i /><i /></span>
+                                    <Trophy size={26} aria-hidden="true" />
+                                    <span><strong>Урок «{completionLesson?.title}» пройдено!</strong><small>{completionAwardedXp ? `+${completionAwardedXp} XP · ` : ""}{nextLesson ? `Далі: ${nextLesson.title}.` : "Рівень завершено."}</small></span>
+                                </div>
                             ) : mode === "lesson-mode" && isPracticeStep && !canContinueFromTask ? (
-                                <p className="lessons-board-instruction">{selectedStep.action}</p>
+                                <p className="lessons-board-instruction">{selectedStep.action} Перетягніть фігуру на поле або натисніть фігуру й потім поле.</p>
                             ) : null}
                             <PrimaryButton onClick={mode === "course-map" ? () => startLesson() : mode === "completion" ? continueAfterCompletion : nextStep}
                                 disabled={mode === "course-map" ? lockedSelectedLesson : mode === "lesson-mode" && primaryLessonDisabled}>
@@ -481,7 +492,7 @@ export default function Lessons() {
                                         <span className="lessons-guide-eyebrow"><Trophy size={16} /> Урок пройдено</span>
                                         <h2>{completionLesson?.title}</h2>
                                         <p>Можна перейти до наступного уроку або повторити цей.</p>
-                                        <div className="lessons-reward"><Zap size={19} /> {completionLesson?.xp || 0} XP за перше проходження</div>
+                                        <div className="lessons-reward"><Zap size={19} /> {completionAwardedXp ? `Отримано ${completionAwardedXp} XP` : "Повторення без додаткових XP"}</div>
                                         <button type="button" className="lessons-guide-button" onClick={reviewLesson}><RotateCcw size={18} /> Повторити урок</button>
                                     </>
                                 ) : mode === "course-map" ? (

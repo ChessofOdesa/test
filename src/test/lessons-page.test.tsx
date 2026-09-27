@@ -7,7 +7,7 @@ import { filterLevelLessons, firstAvailableLesson, getLessonAction, getLessonEnt
 
 vi.mock("@/components/ChessBoard", () => ({
   default: ({ onMove, interactive, targetSquares = [], highlightSquares, customArrows = [], size }: { onMove: (from: string, to: string, promotion?: string) => boolean; interactive: boolean; targetSquares?: string[]; highlightSquares?: { squares: string[] }; customArrows?: [string, string][]; size: number }) => size < 100 ? <div data-testid="lesson-preview" /> : (
-    <div data-testid="lesson-board">
+    <div data-testid="lesson-board" data-size={size}>
       <button type="button" disabled={!interactive} onClick={() => onMove("e2", "e3")}>Хід e2–e3</button>
       <button type="button" disabled={!interactive} onClick={() => onMove("f1", "b5")}>Хід f1–b5</button>
       <button type="button" disabled={!interactive} onClick={() => onMove("f1", "c4")}>Хід f1–c4</button>
@@ -24,6 +24,46 @@ vi.mock("@/components/ChessBoard", () => ({
 afterEach(() => { cleanup(); localStorage.clear(); });
 
 describe("Lessons course and player flow", () => {
+  it("fits the board into the remaining height of a 100% desktop viewport and grows on resize", () => {
+    const previousHeight = window.innerHeight;
+    const bounds = vi.spyOn(HTMLElement.prototype, "getBoundingClientRect").mockReturnValue({ top: 240 } as DOMRect);
+    try {
+      Object.defineProperty(window, "innerHeight", { configurable: true, value: 707 });
+      render(<Lessons />);
+      fireEvent.click(screen.getByRole("button", { name: /Початківець/ }));
+      expect(screen.getByTestId("lesson-board")).toHaveAttribute("data-size", "385");
+      Object.defineProperty(window, "innerHeight", { configurable: true, value: 900 });
+      fireEvent.resize(window);
+      expect(screen.getByTestId("lesson-board")).toHaveAttribute("data-size", "500");
+    } finally {
+      bounds.mockRestore();
+      Object.defineProperty(window, "innerHeight", { configurable: true, value: previousHeight });
+    }
+  });
+
+  it("celebrates a first completion and a repeat without awarding XP twice", () => {
+    localStorage.setItem(LESSON_PROGRESS_STORAGE_KEY, JSON.stringify({
+      ...createDefaultLessonProgress(), selectedLevel: "beginner", currentLessonId: 1, currentStepByLesson: { "1": 4 },
+    }));
+    render(<Lessons />);
+    fireEvent.click(screen.getByRole("button", { name: /Продовжити урок 1:/ }));
+    fireEvent.click(screen.getByRole("button", { name: "Завершити" }));
+    expect(within(screen.getByRole("main", { name: "Робоча область уроку" })).getByRole("status")).toHaveClass("lessons-completion");
+    expect(screen.getByText(/Отримано \d+ XP/)).toBeInTheDocument();
+    const earned = readProgress().xp;
+
+    fireEvent.click(screen.getByRole("button", { name: "Повторити урок" }));
+    fireEvent.click(screen.getByRole("button", { name: "Продовжити" }));
+    for (let exercise = 0; exercise < 3; exercise++) {
+      fireEvent.click(screen.getByRole("button", { name: "Показати розв’язок" }));
+      fireEvent.click(screen.getByRole("button", { name: "Продовжити" }));
+    }
+    fireEvent.click(screen.getByRole("button", { name: "Завершити" }));
+    expect(within(screen.getByRole("main", { name: "Робоча область уроку" })).getByRole("status")).toHaveClass("lessons-completion");
+    expect(screen.getByText("Повторення без додаткових XP")).toBeInTheDocument();
+    expect(readProgress().xp).toBe(earned);
+  });
+
   it("gives all 55 lessons unique authored practice after lesson thirteen, with legal moves and knowledge checks", () => {
     expect(LESSON_LEVELS).toHaveLength(55);
     const questions = new Set<string>();
