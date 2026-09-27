@@ -6,7 +6,7 @@ import { LESSON_LEVELS, LESSON_PROGRESS_STORAGE_KEY, createDefaultLessonProgress
 import { filterLevelLessons, firstAvailableLesson, getLessonAction, getLessonEntryStep, readProgress, sanitizeProgress } from "@/features/lessons/model";
 
 vi.mock("@/components/ChessBoard", () => ({
-  default: ({ onMove, interactive, targetSquares = [], highlightSquares }: { onMove: (from: string, to: string) => boolean; interactive: boolean; targetSquares?: string[]; highlightSquares?: { squares: string[] } }) => (
+  default: ({ onMove, interactive, targetSquares = [], highlightSquares, size }: { onMove: (from: string, to: string) => boolean; interactive: boolean; targetSquares?: string[]; highlightSquares?: { squares: string[] }; size: number }) => size < 100 ? <div data-testid="lesson-preview" /> : (
     <div data-testid="lesson-board">
       <button type="button" disabled={!interactive} onClick={() => onMove("e2", "e3")}>Хід e2–e3</button>
       <button type="button" disabled={!interactive} onClick={() => onMove("f1", "b5")}>Хід f1–b5</button>
@@ -118,10 +118,10 @@ describe("Lessons course and player flow", () => {
     localStorage.setItem(LESSON_PROGRESS_STORAGE_KEY, JSON.stringify(progress));
     render(<Lessons />);
     fireEvent.click(screen.getByRole("button", { name: /Почати урок 11:/ }));
-    fireEvent.click(screen.getByRole("button", { name: /Продовжити/ }));
-    fireEvent.click(screen.getByRole("button", { name: /Продовжити/ }));
+    fireEvent.click(screen.getByRole("button", { name: "Продовжити" }));
+    fireEvent.click(screen.getByRole("button", { name: "Продовжити" }));
 
-    expect(screen.getByText("Крок 3 із 5")).toBeInTheDocument();
+    expect(within(screen.getByRole("main", { name: "Робоча область уроку" })).getByText("Крок 3 із 5")).toBeInTheDocument();
     expect(screen.getByTestId("lesson-targets")).toBeEmptyDOMElement();
     fireEvent.click(screen.getByRole("button", { name: "Підказка" }));
     expect(screen.getByTestId("lesson-targets")).toBeEmptyDOMElement();
@@ -150,10 +150,10 @@ describe("Lessons course and player flow", () => {
     localStorage.setItem(LESSON_PROGRESS_STORAGE_KEY, JSON.stringify(progress));
     render(<Lessons />);
     fireEvent.click(screen.getByRole("button", { name: /Почати урок 12:/ }));
-    fireEvent.click(screen.getByRole("button", { name: /Продовжити/ }));
-    fireEvent.click(screen.getByRole("button", { name: /Продовжити/ }));
+    fireEvent.click(screen.getByRole("button", { name: "Продовжити" }));
+    fireEvent.click(screen.getByRole("button", { name: "Продовжити" }));
 
-    expect(screen.getByText("Крок 3 із 5")).toBeInTheDocument();
+    expect(within(screen.getByRole("main", { name: "Робоча область уроку" })).getByText("Крок 3 із 5")).toBeInTheDocument();
     expect(screen.getByTestId("lesson-targets")).toBeEmptyDOMElement();
     fireEvent.click(screen.getByRole("button", { name: "Підказка" }));
     expect(screen.getByTestId("lesson-targets")).toBeEmptyDOMElement();
@@ -179,20 +179,20 @@ describe("Lessons course and player flow", () => {
     }));
     render(<Lessons />);
     fireEvent.click(screen.getByRole("button", { name: /Почати урок 13:/ }));
-    fireEvent.click(screen.getByRole("button", { name: /Продовжити/ }));
-    fireEvent.click(screen.getByRole("button", { name: /Продовжити/ }));
-    expect(screen.getByText("Крок 3 із 5")).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Продовжити" }));
+    fireEvent.click(screen.getByRole("button", { name: "Продовжити" }));
+    expect(within(screen.getByRole("main", { name: "Робоча область уроку" })).getByText("Крок 3 із 5")).toBeInTheDocument();
     expect(screen.getByTestId("lesson-targets")).toBeEmptyDOMElement();
     fireEvent.click(within(screen.getByTestId("lesson-board")).getByRole("button", { name: "Хід f1–b5" }));
-    expect(screen.getByText("Крок 3 із 5")).toBeInTheDocument();
+    expect(within(screen.getByRole("main", { name: "Робоча область уроку" })).getByText("Крок 3 із 5")).toBeInTheDocument();
     expect(screen.getByTestId("lesson-targets")).toBeEmptyDOMElement();
     expect(screen.getByTestId("lesson-highlights")).toBeEmptyDOMElement();
     fireEvent.click(screen.getByRole("button", { name: "Підказка" }));
     expect(screen.getByTestId("lesson-targets")).toHaveTextContent("c4");
     fireEvent.click(within(screen.getByTestId("lesson-board")).getByRole("button", { name: "Хід f1–c4" }));
     expect(screen.getByTestId("lesson-highlights")).toHaveTextContent("c4");
-    fireEvent.click(screen.getByRole("button", { name: /Продовжити/ }));
-    expect(screen.getByText("Крок 4 із 5")).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Продовжити" }));
+    expect(within(screen.getByRole("main", { name: "Робоча область уроку" })).getByText("Крок 4 із 5")).toBeInTheDocument();
   });
 
   it("keeps an explicit unselected level and recommends the next incomplete lesson", () => {
@@ -214,7 +214,7 @@ describe("Lessons course and player flow", () => {
     render(<Lessons />);
     expect(screen.getByRole("button", { name: "Продовжити урок" })).toBeEnabled();
     fireEvent.click(screen.getByRole("button", { name: /Продовжити урок 1:/ }));
-    expect(screen.getByText("Крок 3 із 5")).toBeInTheDocument();
+    expect(within(screen.getByRole("main", { name: "Робоча область уроку" })).getByText("Крок 3 із 5")).toBeInTheDocument();
 
     cleanup();
     const completed = { ...unfinished, completedLessonIds: [1], currentStepByLesson: { "1": 4 } };
@@ -224,7 +224,7 @@ describe("Lessons course and player flow", () => {
     render(<Lessons />);
     expect(screen.getByRole("button", { name: "Повторити урок" })).toBeEnabled();
     fireEvent.click(screen.getByRole("button", { name: /Повторити урок 1:/ }));
-    expect(screen.getByText("Крок 1 із 5")).toBeInTheDocument();
+    expect(within(screen.getByRole("main", { name: "Робоча область уроку" })).getByText("Крок 1 із 5")).toBeInTheDocument();
 
     expect(getLessonEntryStep(lesson, { ...fresh, currentStepByLesson: { "1": -8 } })).toBe(0);
     expect(getLessonEntryStep(lesson, { ...fresh, currentStepByLesson: { "1": 999 } })).toBe(0);
@@ -245,14 +245,39 @@ describe("Lessons course and player flow", () => {
     expect(screen.getByText("Показано 1 із 15 уроків")).toBeInTheDocument();
     fireEvent.change(search, { target: { value: "" } });
     fireEvent.click(screen.getByRole("button", { name: /Почати урок 1:/ }));
-    expect(screen.getByText("Крок 1 із 5")).toBeInTheDocument();
-    fireEvent.click(screen.getByRole("button", { name: /Продовжити/ }));
-    expect(screen.getByText("Крок 2 із 5")).toBeInTheDocument();
+    expect(within(screen.getByRole("main", { name: "Робоча область уроку" })).getByText("Крок 1 із 5")).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Продовжити" }));
+    expect(within(screen.getByRole("main", { name: "Робоча область уроку" })).getByText("Крок 2 із 5")).toBeInTheDocument();
     fireEvent.click(within(screen.getByTestId("lesson-board")).getByRole("button", { name: "Хід e2–e3" }));
-    expect(screen.getByText("Крок 2 із 5")).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: /Продовжити/ })).toBeEnabled();
-    fireEvent.click(screen.getByRole("button", { name: /Продовжити/ }));
-    expect(screen.getByText("Крок 3 із 5")).toBeInTheDocument();
+    expect(within(screen.getByRole("main", { name: "Робоча область уроку" })).getByText("Крок 2 із 5")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Продовжити" })).toBeEnabled();
+    fireEvent.click(screen.getByRole("button", { name: "Продовжити" }));
+    expect(within(screen.getByRole("main", { name: "Робоча область уроку" })).getByText("Крок 3 із 5")).toBeInTheDocument();
     expect(readProgress().currentStepByLesson["1"]).toBe(2);
+  });
+
+  it("shows the same catalog, board, and step guide for all three course levels", () => {
+    render(<Lessons />);
+    fireEvent.click(screen.getByRole("button", { name: /Початківець/ }));
+
+    const catalog = screen.getByRole("complementary", { name: "Каталог уроків" });
+    const workspace = screen.getByRole("main", { name: "Робоча область уроку" });
+    const guide = screen.getByRole("complementary", { name: "Пояснення та кроки уроку" });
+    expect(within(catalog).getAllByTestId("lesson-preview")).toHaveLength(15);
+    expect(within(workspace).getByTestId("lesson-board")).toBeInTheDocument();
+    expect(within(guide).getByRole("list").children).toHaveLength(5);
+    expect(within(catalog).getByRole("button", { name: /Почати урок 2:/ })).toBeDisabled();
+
+    fireEvent.click(within(catalog).getByRole("button", { name: "Аматор" }));
+    expect(within(catalog).getAllByTestId("lesson-preview")).toHaveLength(20);
+    fireEvent.click(within(catalog).getByRole("button", { name: /Почати урок 16:/ }));
+    expect(within(workspace).getByText("Крок 1 із 5")).toBeInTheDocument();
+    expect(within(guide).getByRole("button", { name: "Показати розв’язок" })).toBeEnabled();
+
+    fireEvent.click(within(catalog).getByRole("button", { name: "Досвідчений" }));
+    expect(within(catalog).getAllByTestId("lesson-preview")).toHaveLength(15);
+    fireEvent.click(within(catalog).getByRole("button", { name: /Почати урок 36:/ }));
+    expect(within(workspace).getByText("Крок 1 із 5")).toBeInTheDocument();
+    expect(within(guide).getByRole("list").children).toHaveLength(5);
   });
 });
