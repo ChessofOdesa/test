@@ -3,7 +3,7 @@ import { cleanup, fireEvent, render, screen, within } from "@testing-library/rea
 import { Chess } from "chess.js";
 import Lessons from "@/pages/Lessons";
 import { LESSON_LEVELS, LESSON_PROGRESS_STORAGE_KEY, createDefaultLessonProgress } from "@/data/lesson-levels";
-import { filterLevelLessons, firstAvailableLesson, getLessonAction, getLessonEntryStep, readProgress, sanitizeProgress } from "@/features/lessons/model";
+import { firstAvailableLesson, getLessonAction, getLessonEntryStep, readProgress, sanitizeProgress } from "@/features/lessons/model";
 
 vi.mock("@/components/ChessBoard", () => ({
   default: ({ onMove, interactive, targetSquares = [], highlightSquares, customArrows = [], size }: { onMove: (from: string, to: string, promotion?: string) => boolean; interactive: boolean; targetSquares?: string[]; highlightSquares?: { squares: string[] }; customArrows?: [string, string][]; size: number }) => size < 100 ? <div data-testid="lesson-preview" /> : (
@@ -369,21 +369,15 @@ describe("Lessons course and player flow", () => {
     expect(getLessonEntryStep(lesson, { ...fresh, currentStepByLesson: { "1": 999 } })).toBe(0);
   });
 
-  it("filters only matching and genuinely available lessons", () => {
-    const lessons = LESSON_LEVELS.filter((lesson) => lesson.level === "beginner");
-    expect(filterLevelLessons(lessons, "Як ходить тура", "all", []).map((lesson) => lesson.id)).toEqual([2]);
-    expect(filterLevelLessons(lessons, "", "available", [1]).map((lesson) => lesson.id)).toEqual([2]);
-    expect(filterLevelLessons(lessons, "", "completed", [1]).map((lesson) => lesson.id)).toEqual([1]);
-    expect(filterLevelLessons(lessons, "", "all", [], "Дебют").map((lesson) => lesson.id)).toEqual([12, 13, 14, 15]);
-  });
-
-  it("searches the course and waits for the learner after a correct move", () => {
+  it("shows the full level catalog and waits for the learner after a correct move", () => {
     render(<Lessons />);
     fireEvent.click(screen.getByRole("button", { name: /Початківець/ }));
-    const search = screen.getByRole("textbox", { name: "Пошук уроків" });
-    fireEvent.change(search, { target: { value: "Як ходить тура" } });
-    expect(screen.getByText("Показано 1 із 15 уроків")).toBeInTheDocument();
-    fireEvent.change(search, { target: { value: "" } });
+    const catalog = within(screen.getByRole("complementary", { name: "Каталог уроків" }));
+    expect(catalog.queryByRole("textbox", { name: "Пошук уроків" })).not.toBeInTheDocument();
+    expect(catalog.queryByText("Доступні")).not.toBeInTheDocument();
+    expect(catalog.queryByText("Усі теми")).not.toBeInTheDocument();
+    expect(catalog.getByRole("button", { name: /Почати урок 1:/ })).toBeEnabled();
+    expect(catalog.getByRole("button", { name: /Почати урок 15:/ })).toBeDisabled();
     fireEvent.click(screen.getByRole("button", { name: /Почати урок 1:/ }));
     expect(within(screen.getByRole("main", { name: "Робоча область уроку" })).getByText("Крок 1 із 5")).toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "Продовжити" }));

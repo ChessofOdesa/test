@@ -15,7 +15,7 @@ import { playPuzzleMove, type PuzzleManifest, type TrainingPuzzle } from '@/feat
 import { attemptFen, lastAttemptMove, markAttemptWrong, markAttemptAssisted, findNextPuzzle, finishAttempt, readProgress, saveProgress, type Attempt, type PuzzleIndexEntry, type Difficulty, type PuzzleProgress, selectedPuzzleThemes } from '@/features/puzzles/training';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { Chess, type Square } from 'chess.js';
-import { ArrowRight, UserRound, Check, FlipVertical, Lightbulb, Share2, XCircle, Info, Settings2, Search, Flame, Sparkles } from 'lucide-react';
+import { ArrowRight, UserRound, Check, FlipVertical, Lightbulb, Share2, XCircle, Info, Settings2, Flame, Sparkles } from 'lucide-react';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import '@/styles/puzzles-studio.css';
@@ -195,13 +195,9 @@ export default function Puzzles() {
     const difficultyLabel = progress.ratingRange ? `${progress.ratingRange.min}–${progress.ratingRange.max}` : ({ easier: 'Легше', normal: 'Мій рівень', harder: 'Складніше' } as const)[progress.difficulty];
     const mistakeCount = Math.max(Number(Boolean(attempt?.wrong)), attempt?.mistakes?.length || 0);
     return <div className={`puzzles-studio${preferences.background === 'blue' ? ' is-blue-background' : ''}`}><div className="puzzle-workspace">
-        <header className="puzzle-workspace-bar">
-            <div><span className="puzzle-eyebrow">CHESS OF ODESA / ТРЕНУВАННЯ</span><h1>Задачі</h1></div>
-            <div className="puzzle-toolbar"><Button variant="outline" aria-label="Пошук тем" title="Пошук тем" onClick={() => setThemeOpen(true)}><Search size={18} /><span>Пошук</span></Button><Button variant="outline" aria-label="Налаштування задач" title="Налаштування задач" aria-expanded={preferencesOpen} onClick={() => { setRangeOpenOnSettings(false); setPreferencesOpen(true); }}><Settings2 size={18} /><span>Налаштування</span></Button></div>
-        </header>
         <div className="puzzle-layout">
         <aside className="puzzle-stats puzzle-card" aria-label="Рейтинг гравця">
-            <div className="puzzle-sidebar-heading"><PuzzleIcon size={20} aria-hidden="true" /><strong>Мій тренінг</strong></div>
+            <div className="puzzle-sidebar-heading"><PuzzleIcon size={20} aria-hidden="true" /><strong>Мій тренінг</strong><button type="button" className="puzzle-sidebar-settings" aria-label="Налаштування задач" title="Налаштування задач" aria-expanded={preferencesOpen} onClick={() => { setRangeOpenOnSettings(false); setPreferencesOpen(true); }}><Settings2 size={18} aria-hidden="true" /></button></div>
             <div className="puzzle-rating" title="Ваш рейтинг у тренуванні задач на цьому пристрої"><span><UserRound size={17} />Рейтинг гравця</span><div className="puzzle-rating-value"><strong key={shownRating} className={ratingChange !== null && !presentedFen ? 'has-changed' : ''}>{shownRating}</strong>{ratingChange !== null && ratingChange !== 0 && !presentedFen && <small className={ratingChange < 0 ? 'is-negative' : ''}>{ratingChange > 0 ? '+' : ''}{ratingChange}</small>}</div></div>
             <div className="puzzle-streak" aria-label={`Серія ${progress.streak} без помилок і підказок`}><span className="puzzle-streak-icon"><Flame size={19} aria-hidden="true" /></span><div><strong>Серія {progress.streak}</strong><small>Без помилок і підказок</small></div></div>
             <ThemePicker themes={manifest.data?.themes || []} count={manifest.data?.count || 0} selected={selectedThemes} disabled={busy} open={themeOpen} onOpenChange={setThemeOpen} onChange={nextThemes => commit({ ...latest.current, theme: 'all', selectedThemes: nextThemes })} />

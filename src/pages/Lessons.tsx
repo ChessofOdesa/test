@@ -1,10 +1,10 @@
 import ChessBoard from "@/components/ChessBoard";
 import { Progress } from "@/components/ui/progress";
-import { LESSON_LEVEL_META, LESSON_LEVELS, type LessonLevel, type LessonProgressState, type LessonRecord, type LessonTopic } from "@/data/lesson-levels";
-import { createCleanLessonDiagramFen, filterLevelLessons, firstAvailableLesson, getLessonAction, getLessonEntryStep, getLessonStatus, getLevelLessons, isLessonUnlocked, localDayKey, type CourseFilter, type LessonAction, type LessonWorkspaceMode, LEVEL_ORDER, type MoveState, normalizeMove, PrimaryButton, readProgress, StatCard, writeProgress } from '@/features/lessons/model';
+import { LESSON_LEVEL_META, LESSON_LEVELS, type LessonLevel, type LessonProgressState, type LessonRecord } from "@/data/lesson-levels";
+import { createCleanLessonDiagramFen, firstAvailableLesson, getLessonAction, getLessonEntryStep, getLessonStatus, getLevelLessons, isLessonUnlocked, localDayKey, type LessonAction, type LessonWorkspaceMode, LEVEL_ORDER, type MoveState, normalizeMove, PrimaryButton, readProgress, StatCard, writeProgress } from '@/features/lessons/model';
 import { cn } from "@/lib/utils";
 import { Chess, type Square } from "chess.js";
-import { ArrowRight, BarChart3, Check, CheckCircle2, ChevronLeft, ChevronRight, Eye, Flame, Lightbulb, List, Lock, Medal, RotateCcw, Search, Target, Trophy, Zap } from "lucide-react";
+import { ArrowRight, BarChart3, Check, CheckCircle2, ChevronLeft, ChevronRight, Eye, Flame, Lightbulb, List, Lock, Medal, RotateCcw, Target, Trophy, Zap } from "lucide-react";
 import { LessonsIcon } from "@/components/icons/chess";
 import { useEffect, useMemo, useRef, useState } from "react";
 import "@/styles/lessons-workspace.css";
@@ -27,9 +27,6 @@ export default function Lessons() {
     const [boardError, setBoardError] = useState("");
     const [completionLessonId, setCompletionLessonId] = useState<number | null>(null);
     const [completionAwardedXp, setCompletionAwardedXp] = useState(0);
-    const [courseSearch, setCourseSearch] = useState("");
-    const [courseFilter, setCourseFilter] = useState<CourseFilter>("all");
-    const [courseTopic, setCourseTopic] = useState<LessonTopic | "all">("all");
     const [catalogExpanded, setCatalogExpanded] = useState(false);
     const [selectedQuizAnswer, setSelectedQuizAnswer] = useState<number | null>(null);
     const boardHostRef = useRef<HTMLElement>(null);
@@ -52,8 +49,6 @@ export default function Lessons() {
     }, [mode]);
     const selectedLevel = progress.selectedLevel;
     const levelLessons = useMemo(() => getLevelLessons(selectedLevel), [selectedLevel]);
-    const availableTopics = useMemo(() => [...new Set(levelLessons.map((lesson) => lesson.topic))], [levelLessons]);
-    const visibleLessons = useMemo(() => filterLevelLessons(levelLessons, courseSearch, courseFilter, progress.completedLessonIds, courseTopic), [levelLessons, courseSearch, courseFilter, courseTopic, progress.completedLessonIds]);
     const selectedLesson = useMemo(() => LESSON_LEVELS.find((lesson) => lesson.id === selectedLessonId) || levelLessons[0] || LESSON_LEVELS[0], [levelLessons, selectedLessonId]);
     const recommendedLesson = selectedLevel ? firstAvailableLesson(selectedLevel, progress.completedLessonIds) : null;
     const selectedStatus = getLessonStatus(selectedLesson, selectedLessonId, progress, recommendedLesson?.id ?? null);
@@ -105,9 +100,6 @@ export default function Lessons() {
         }));
         setSelectedLessonId(firstLesson.id);
         setStepIndex(0);
-        setCourseSearch("");
-        setCourseFilter("all");
-        setCourseTopic("all");
         setCatalogExpanded(false);
         setMode("course-map");
     };
@@ -381,26 +373,8 @@ export default function Lessons() {
                                     </button>
                                 ))}
                             </div>
-                            <label className="lessons-search">
-                                <Search size={19} aria-hidden="true" />
-                                <span className="sr-only">Пошук уроків</span>
-                                <input type="text" inputMode="search" value={courseSearch} onChange={(event) => setCourseSearch(event.target.value)} placeholder="Знайти урок" />
-                            </label>
-                            <div className="lessons-filter" aria-label="Статус уроків">
-                                {([['all', 'Усі'], ['available', 'Доступні'], ['completed', 'Пройдені']] as const).map(([filter, label]) => (
-                                    <button key={filter} type="button" onClick={() => setCourseFilter(filter)} aria-pressed={courseFilter === filter}>
-                                        {label}
-                                    </button>
-                                ))}
-                            </div>
-                            <div className="lessons-topics" role="group" aria-label="Теми уроків">
-                                {(["all", ...availableTopics] as const).map((topic) => (
-                                    <button key={topic} type="button" onClick={() => setCourseTopic(topic)} aria-pressed={courseTopic === topic}>{topic === "all" ? "Усі теми" : topic}</button>
-                                ))}
-                            </div>
-                            <p className="lessons-result-count" aria-live="polite">Показано {visibleLessons.length} із {levelLessons.length} уроків</p>
                             <div className="lessons-catalog-scroll">
-                                {visibleLessons.map((lesson) => {
+                                {levelLessons.map((lesson) => {
                                     const status = getLessonStatus(lesson, selectedLessonId, progress, recommendedLesson?.id ?? null);
                                     const locked = status === "locked";
                                     const action = getLessonAction(lesson, progress);
@@ -430,7 +404,6 @@ export default function Lessons() {
                                         </div>
                                     );
                                 })}
-                                {visibleLessons.length === 0 ? <p className="lessons-empty">За цим запитом уроків немає. Змініть пошук або фільтр.</p> : null}
                             </div>
                         </aside>
 
