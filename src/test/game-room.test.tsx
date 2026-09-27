@@ -8,8 +8,20 @@ import { roomBoardSize, roomPanelWidth, readHistory } from "@/features/game-room
 import { useComputerGame } from "@/features/game-room/useComputerGame";
 import { computerMove } from "@/features/game-room/engine/computer-engine";
 import type { RoomPreferences } from "@/features/game-room/types";
-const surface = vi.hoisted(() => ({ props: {} as Record<string, any> }));
-vi.mock("react-chessboard", () => ({ Chessboard: (props: Record<string, unknown>) => { surface.props = props; return <div data-testid="board"/>; } }));
+type BoardSurfaceProps = {
+    position: string;
+    onPieceDrop: (from: string, to: string) => boolean;
+    onSquareClick: (square: string, piece?: string) => void;
+    onPieceClick: (piece: string, square: string) => void;
+    onPieceDragBegin: (piece: string, square: string) => void;
+    onPieceDragEnd?: (piece: string, square: string) => void;
+    isDraggablePiece: (args: { piece: string; sourceSquare: string }) => boolean;
+    customSquareStyles: Record<string, { boxShadow?: string; backgroundImage?: string }>;
+    customDropSquareStyle?: { boxShadow?: string };
+    customLightSquareStyle: { backgroundColor?: string };
+};
+const surface = vi.hoisted(() => ({ props: {} as BoardSurfaceProps }));
+vi.mock("react-chessboard", () => ({ Chessboard: (props: Record<string, unknown>) => { surface.props = props as BoardSurfaceProps; return <div data-testid="board"/>; } }));
 vi.mock("@/hooks/useChessSounds", () => ({ playChessSound: vi.fn() }));
 vi.mock("@/features/game-room/engine/computer-engine", () => ({ computerMove: vi.fn() }));
 const settings: RoomPreferences = { sound: false, checkSound: false, endSound: false, lowTimeSound: false, animation: true, legalMoves: true, lastMove: true, autoQueen: false, confirmMove: false, evaluation: false, focus: false };
@@ -20,6 +32,15 @@ function mountBoard(props: React.ComponentProps<typeof ChessBoard>) {
 beforeEach(() => { localStorage.clear(); vi.mocked(computerMove).mockReset(); });
 afterEach(() => { cleanup(); vi.useRealTimers(); });
 describe("shared board interaction", () => {
+    it("highlights legal destinations while a lesson piece is dragged and clears them on release", () => {
+        const highlight = { boxShadow: "inset 0 0 0 3px #1678ea" };
+        mountBoard({ initialFen: start, playerColor: "w", showDragTargets: true, customDropSquareStyle: highlight });
+        expect(surface.props.customDropSquareStyle).toBe(highlight);
+        act(() => surface.props.onPieceDragBegin("wP", "e2"));
+        expect(surface.props.customSquareStyles.e4.backgroundImage).toContain("radial-gradient");
+        act(() => surface.props.onPieceDragEnd("wP", "e2"));
+        expect(surface.props.customSquareStyles.e4).toBeUndefined();
+    });
     it("offers all promotion pieces and sends the chosen underpromotion exactly once", () => {
         const moved = vi.fn();
         mountBoard({ initialFen: "7k/P7/8/8/8/8/8/7K w - - 0 1", onMove: moved, playerColor: "w", optimistic: false });
