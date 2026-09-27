@@ -40,6 +40,18 @@ describe("Lessons course and player flow", () => {
     expect(readProgress().selectedLevel).toBe("beginner");
   });
 
+  it("opens the recommended beginner catalog from All lessons on a fresh visit", () => {
+    render(<Lessons />);
+    fireEvent.click(screen.getByRole("button", { name: "Усі уроки" }));
+
+    const catalog = screen.getByRole("complementary", { name: "Каталог уроків" });
+    expect(within(catalog).getByRole("button", { name: /Почати урок 1:/ })).toBeEnabled();
+    expect(within(catalog).getByRole("button", { name: /Почати урок 2:/ })).toBeDisabled();
+    expect(screen.getByRole("heading", { name: "Уроки рівня «Початківець»" })).toBeInTheDocument();
+    expect(screen.queryByTestId("lesson-board")).not.toBeInTheDocument();
+    expect(readProgress().selectedLevel).toBe("beginner");
+  });
+
   it("opens the learning menu before the catalog and board, then returns to it", () => {
     localStorage.setItem(LESSON_PROGRESS_STORAGE_KEY, JSON.stringify({ ...createDefaultLessonProgress(), selectedLevel: "beginner" }));
     render(<Lessons />);

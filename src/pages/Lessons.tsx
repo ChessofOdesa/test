@@ -101,6 +101,13 @@ export default function Lessons() {
         setCatalogExpanded(false);
         setMode("course-map");
     };
+    const openCatalog = () => {
+        if (selectedLevel) {
+            setMode("course-map");
+            return;
+        }
+        selectLevel("beginner");
+    };
     const startLesson = (lesson: LessonRecord = selectedLesson) => {
         if (!isLessonUnlocked(lesson, progress.completedLessonIds)) {
             setFeedback("Спочатку оберіть доступний урок.");
@@ -318,7 +325,7 @@ export default function Lessons() {
         <div className="lessons-page">
             <div className={cn("lessons-container", mode === "overview" && "is-home")}>
                 {mode === "overview" ? <LessonsHome progress={progress}
-                    onOpenCatalog={() => setMode(selectedLevel ? "course-map" : "level-selection")}
+                    onOpenCatalog={openCatalog}
                     onOpenLevels={() => setMode("level-selection")}
                     onChooseLevel={selectLevel} onStartLesson={startLesson} /> : <>
                 <div className="lessons-heading-row">
