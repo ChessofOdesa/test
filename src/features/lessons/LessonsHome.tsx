@@ -56,7 +56,9 @@ export function LessonsHome({ progress, onOpenCatalog, onOpenLevels, onChooseLev
   const [favorites, setFavorites] = useState<number[]>(readFavorites);
   useEffect(() => { try { localStorage.setItem(favoritesKey, JSON.stringify(favorites)); } catch { /* Favorites still work for this visit. */ } }, [favorites]);
   const toggleFavorite = (id: number) => setFavorites(current => current.includes(id) ? current.filter(item => item !== id) : [...current, id]);
-  const level = progress.selectedLevel;
+  // Show the beginner path on a fresh visit without changing the saved course
+  // until the learner explicitly opens an actual lesson or chooses a level.
+  const level = progress.selectedLevel ?? "beginner";
   const lessons = getLevelLessons(level);
   const completed = new Set(progress.completedLessonIds);
   const levelDone = lessons.filter(lesson => completed.has(lesson.id)).length;
@@ -85,7 +87,7 @@ export function LessonsHome({ progress, onOpenCatalog, onOpenLevels, onChooseLev
         <button type="button" className={section === "topics" ? "is-current" : ""} onClick={() => setSection("topics")}><Layers3 size={20} aria-hidden="true" /> Теми уроків</button>
         <button type="button" className={section === "series" ? "is-current" : ""} onClick={() => setSection("series")}><List size={20} aria-hidden="true" /> Серії уроків</button>
         <div className="lessons-home-nav-course">
-          <strong>Поточний курс</strong>
+          <strong>{progress.selectedLevel ? "Поточний курс" : "Рекомендований курс"}</strong>
           <span className="lessons-home-course-name"><span className="lessons-home-course-icon"><LessonsIcon size={18} aria-hidden="true" /></span>{level ? LESSON_LEVEL_META[level].title : "Оберіть курс"}</span>
           <Progress value={levelPercent} aria-label="Прогрес поточного курсу" />
           <small>{level ? `${levelDone} із ${lessons.length} уроків пройдено` : "Курс ще не обрано"}</small>
