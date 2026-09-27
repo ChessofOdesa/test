@@ -18,6 +18,15 @@ type LessonsHomeProps = {
 const actionLabel = { start: "Почати", continue: "Продовжити", repeat: "Повторити" } as const;
 const favoritesKey = "chessmaster.lessons.favorites.v1";
 
+function ukrainianCountLabel(value: number, forms: readonly [string, string, string]) {
+  const count = Math.abs(value) % 100;
+  const lastDigit = count % 10;
+  if (count >= 11 && count <= 19) return forms[2];
+  if (lastDigit === 1) return forms[0];
+  if (lastDigit >= 2 && lastDigit <= 4) return forms[1];
+  return forms[2];
+}
+
 function readFavorites(): number[] {
   try {
     const value: unknown = JSON.parse(localStorage.getItem(favoritesKey) || "[]");
@@ -172,10 +181,10 @@ export function LessonsHome({ progress, headingRef, onOpenCatalog, onOpenLevels,
       <aside className="lessons-home-summary" aria-label="Прогрес навчання">
         <h2>Ваш прогрес</h2>
         <div className="lessons-home-overall"><div className="lessons-home-donut" style={{ "--lessons-percent": `${totalPercent}%` } as CSSProperties}><strong>{totalPercent}%</strong></div><p><strong>{totalDone} / {LESSON_LEVELS.length}</strong><span>уроків пройдено</span></p></div>
-        <div className="lessons-home-stats">
-          <span><Check size={22} aria-hidden="true" /><strong>{totalDone}</strong><small>уроків</small></span>
-          <span><Zap size={22} aria-hidden="true" /><strong>{progress.xp}</strong><small>XP</small></span>
-          <span><Flame size={22} aria-hidden="true" /><strong>{progress.streakDates.length}</strong><small>днів занять</small></span>
+        <div className="lessons-home-stats" role="list" aria-label="Коротка статистика навчання">
+          <span role="listitem"><Check size={22} aria-hidden="true" /><strong>{totalDone}</strong><small>{ukrainianCountLabel(totalDone, ["урок", "уроки", "уроків"])}</small></span>
+          <span role="listitem"><Zap size={22} aria-hidden="true" /><strong>{progress.xp}</strong><small>XP</small></span>
+          <span role="listitem"><Flame size={22} aria-hidden="true" /><strong>{progress.streakDates.length}</strong><small>{ukrainianCountLabel(progress.streakDates.length, ["день занять", "дні занять", "днів занять"])}</small></span>
         </div>
         <div className="lessons-home-meter"><div><strong>Весь курс</strong><span>{totalDone} / {LESSON_LEVELS.length} · {totalPercent}%</span></div><Progress value={totalPercent} aria-label="Прогрес усього курсу" /></div>
         {level ? <div className="lessons-home-meter"><div><strong>{LESSON_LEVEL_META[level].title}</strong><span>{levelDone} / {lessons.length} · {levelPercent}%</span></div><Progress value={levelPercent} aria-label="Прогрес вибраного рівня" /></div> : null}
