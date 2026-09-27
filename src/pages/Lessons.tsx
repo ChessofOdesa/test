@@ -30,6 +30,8 @@ export default function Lessons() {
     const [catalogExpanded, setCatalogExpanded] = useState(false);
     const [selectedQuizAnswer, setSelectedQuizAnswer] = useState<number | null>(null);
     const boardHostRef = useRef<HTMLElement>(null);
+    const viewHeadingRef = useRef<HTMLHeadingElement>(null);
+    const previousViewKeyRef = useRef<string | null>(null);
     useEffect(() => {
         writeProgress(progress);
     }, [progress]);
@@ -74,6 +76,22 @@ export default function Lessons() {
         : [];
     const boardInteractive = mode === "lesson-mode" && isPracticeStep && !revealed && moveState !== "success";
     const showPracticeMarkers = !isPracticeStep || hintLevel >= (selectedStep.targetRevealHint ?? 0) || revealed || moveState === "success";
+    const viewFocusKey = mode === "lesson-mode"
+        ? `${mode}:${selectedLesson.id}:${stepIndex}`
+        : mode === "completion"
+            ? `${mode}:${completionLessonId ?? selectedLesson.id}`
+            : mode === "course-map"
+                ? `${mode}:${selectedLevel ?? "none"}`
+                : mode;
+    useEffect(() => {
+        if (previousViewKeyRef.current === null) {
+            previousViewKeyRef.current = viewFocusKey;
+            return;
+        }
+        if (previousViewKeyRef.current === viewFocusKey) return;
+        previousViewKeyRef.current = viewFocusKey;
+        viewHeadingRef.current?.focus();
+    }, [viewFocusKey]);
     useEffect(() => {
         setBoardFen(selectedStep.fen || selectedLesson.fen);
         setLastMove(null);
@@ -324,7 +342,7 @@ export default function Lessons() {
     return (
         <div className="lessons-page">
             <div className={cn("lessons-container", mode === "overview" && "is-home")}>
-                {mode === "overview" ? <LessonsHome progress={progress}
+                {mode === "overview" ? <LessonsHome progress={progress} headingRef={viewHeadingRef}
                     onOpenCatalog={openCatalog}
                     onOpenLevels={() => setMode("level-selection")}
                     onChooseLevel={selectLevel} onStartLesson={startLesson} /> : <>
@@ -350,7 +368,7 @@ export default function Lessons() {
 
                 {mode === "level-selection" ? (
                     <section className="lessons-choose" aria-label="Вибір рівня">
-                        <h2>Оберіть рівень</h2>
+                        <h2 ref={viewHeadingRef} tabIndex={-1} className="lessons-view-heading">Оберіть рівень</h2>
                         <p>Уроки відкриваються послідовно. Прогрес зберігається в цьому браузері.</p>
                         <div className="lessons-level-cards">
                             {LEVEL_ORDER.map((level) => (
@@ -374,7 +392,7 @@ export default function Lessons() {
                         {mode === "lesson-mode" ? <button type="button" className="lessons-mobile-catalog-toggle" aria-controls="lessons-catalog" aria-expanded={catalogExpanded}
                             onClick={() => setCatalogExpanded((open) => !open)}><List size={18} aria-hidden="true" /> {catalogExpanded ? "Згорнути каталог уроків" : "Показати каталог уроків"}</button> : null}
                         <aside id="lessons-catalog" className={cn("lessons-catalog", mode === "lesson-mode" && !catalogExpanded && "is-mobile-collapsed")} aria-label="Каталог уроків">
-                            {mode === "course-map" ? <div className="lessons-catalog-heading"><h2>Уроки рівня «{levelMeta?.title}»</h2><p>Оберіть урок, щоб відкрити шахівницю.</p></div> : null}
+                            {mode === "course-map" ? <div className="lessons-catalog-heading"><h2 ref={viewHeadingRef} tabIndex={-1} className="lessons-view-heading">Уроки рівня «{levelMeta?.title}»</h2><p>Оберіть урок, щоб відкрити шахівницю.</p></div> : null}
                             <div className="lessons-level-switch" aria-label="Рівень курсу">
                                 {LEVEL_ORDER.map((level) => (
                                     <button key={level} type="button" onClick={() => selectLevel(level)} aria-pressed={selectedLevel === level}>
@@ -419,7 +437,10 @@ export default function Lessons() {
                         {mode !== "course-map" ? <main className="lessons-stage" aria-label="Робоча область уроку">
                             <div className="lessons-stage-header">
                                 <div>
-                                    <h2>{selectedLesson.title}</h2>
+                                    <h2 key={viewFocusKey} ref={viewHeadingRef} tabIndex={-1} className="lessons-view-heading">
+                                        {selectedLesson.title}
+                                        <span className="sr-only">{mode === "completion" ? " — урок завершено" : ` — крок ${stepIndex + 1} із ${selectedLesson.steps.length}: ${selectedStep.title}`}</span>
+                                    </h2>
                                     <p>{mode === "completion" ? "Урок завершено" : mode === "lesson-mode" ? `Крок ${stepIndex + 1} із ${selectedLesson.steps.length}` : selectedLesson.shortDescription}</p>
                                 </div>
                                 {mode === "lesson-mode" ? (

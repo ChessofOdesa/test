@@ -52,6 +52,35 @@ describe("Lessons course and player flow", () => {
     expect(readProgress().selectedLevel).toBe("beginner");
   });
 
+  it("moves focus to the heading of each newly opened view and lesson step", () => {
+    render(<Lessons />);
+
+    fireEvent.click(screen.getByRole("button", { name: "Рівні курсу" }));
+    const levelsHeading = screen.getByRole("heading", { name: "Оберіть рівень" });
+    expect(levelsHeading).toHaveFocus();
+    expect(levelsHeading).toHaveAttribute("tabindex", "-1");
+
+    fireEvent.click(screen.getByRole("button", { name: "До меню уроків" }));
+    expect(screen.getByRole("heading", { name: "Уроки", level: 1 })).toHaveFocus();
+
+    fireEvent.click(screen.getByRole("button", { name: "Усі уроки" }));
+    expect(screen.getByRole("heading", { name: "Уроки рівня «Початківець»" })).toHaveFocus();
+
+    fireEvent.click(screen.getByRole("button", { name: /Почати урок 1:/ }));
+    const lessonStage = screen.getByRole("main", { name: "Робоча область уроку" });
+    const firstStepHeading = within(lessonStage).getByRole("heading", { level: 2 });
+    expect(firstStepHeading).toHaveAccessibleName("Як ходить пішак — крок 1 із 5: Пішак іде вперед");
+    expect(firstStepHeading).toHaveFocus();
+
+    fireEvent.click(screen.getByRole("button", { name: "Продовжити" }));
+    const secondStepHeading = within(lessonStage).getByRole("heading", { level: 2 });
+    expect(secondStepHeading).toHaveAccessibleName("Як ходить пішак — крок 2 із 5: Вправа 1: хід уперед");
+    expect(secondStepHeading).toHaveFocus();
+
+    fireEvent.click(screen.getByRole("button", { name: "До меню уроків" }));
+    expect(screen.getByRole("heading", { name: "Уроки", level: 1 })).toHaveFocus();
+  });
+
   it("opens the learning menu before the catalog and board, then returns to it", () => {
     localStorage.setItem(LESSON_PROGRESS_STORAGE_KEY, JSON.stringify({ ...createDefaultLessonProgress(), selectedLevel: "beginner" }));
     render(<Lessons />);
@@ -145,11 +174,16 @@ describe("Lessons course and player flow", () => {
     render(<Lessons />);
     fireEvent.click(screen.getByRole("button", { name: /Продовжити урок 1:/ }));
     fireEvent.click(screen.getByRole("button", { name: "Завершити" }));
-    expect(within(screen.getByRole("main", { name: "Робоча область уроку" })).getByRole("status")).toHaveClass("lessons-completion");
+    const lessonStage = screen.getByRole("main", { name: "Робоча область уроку" });
+    expect(within(lessonStage).getByRole("status")).toHaveClass("lessons-completion");
+    const completionHeading = within(lessonStage).getByRole("heading", { level: 2 });
+    expect(completionHeading).toHaveAccessibleName("Як ходить пішак — урок завершено");
+    expect(completionHeading).toHaveFocus();
     expect(screen.getByText(/Отримано \d+ XP/)).toBeInTheDocument();
     const earned = readProgress().xp;
 
     fireEvent.click(screen.getByRole("button", { name: "Повторити урок" }));
+    expect(within(lessonStage).getByRole("heading", { level: 2 })).toHaveFocus();
     fireEvent.click(screen.getByRole("button", { name: "Продовжити" }));
     for (let exercise = 0; exercise < 3; exercise++) {
       fireEvent.click(screen.getByRole("button", { name: "Показати розв’язок" }));
