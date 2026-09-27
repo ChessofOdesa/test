@@ -16,9 +16,9 @@ vi.mock("@/components/ChessBoard", () => ({
 afterEach(() => { cleanup(); localStorage.clear(); });
 
 describe("Lessons course and player flow", () => {
-  it("keeps the first eight lessons readable in Ukrainian and their practice moves legal", () => {
+  it("keeps the first nine lessons readable in Ukrainian and their practice moves legal", () => {
     const ukrainian = /[А-Яа-яІіЇїЄєҐґ]/;
-    for (const lesson of LESSON_LEVELS.slice(0, 8)) {
+    for (const lesson of LESSON_LEVELS.slice(0, 9)) {
       expect(lesson.steps).toHaveLength(5);
       for (const step of lesson.steps) {
         const copy = [step.title, step.text, step.goal, step.action, ...step.hints, step.reveal, step.errorText, step.successText].filter(Boolean);
@@ -44,6 +44,32 @@ describe("Lessons course and player flow", () => {
     expect(move?.flags).toContain("e");
     expect(game.get("d5")).toBeUndefined();
     expect(game.get("d6")).toMatchObject({ color: "w", type: "p" });
+  });
+
+  it("models lesson nine with a real check and legal defensive replies", () => {
+    const lesson = LESSON_LEVELS[8];
+    const giveCheck = lesson.steps.find((step) => step.expectedMove === "a4e4");
+    const escapeCheck = lesson.steps.find((step) => step.expectedMove === "e1d2");
+    const repliesFen = lesson.steps[1].fen;
+
+    expect(lesson.title).toBe("Шах");
+    const attack = new Chess(giveCheck?.fen ?? lesson.fen);
+    expect(attack.isCheck()).toBe(false);
+    expect(attack.move({ from: "a4", to: "e4" })).not.toBeNull();
+    expect(attack.isCheck()).toBe(true);
+    expect(attack.isCheckmate()).toBe(false);
+
+    const escape = new Chess(escapeCheck?.fen);
+    expect(escape.isCheck()).toBe(true);
+    expect(escape.move({ from: "e1", to: "d2" })).not.toBeNull();
+    expect(escape.isCheck()).toBe(false);
+
+    for (const reply of ["e8f7", "d7d8", "b7a8"]) {
+      const position = new Chess(repliesFen);
+      expect(position.isCheck()).toBe(true);
+      expect(position.move({ from: reply.slice(0, 2), to: reply.slice(2, 4) })).not.toBeNull();
+      expect(position.isCheck()).toBe(false);
+    }
   });
 
   it("keeps an explicit unselected level and recommends the next incomplete lesson", () => {
