@@ -1,4 +1,5 @@
 import type { LessonStep } from "./lesson-levels";
+import { Chess } from "chess.js";
 
 export interface LessonScenario {
   fen: string;
@@ -454,12 +455,15 @@ export const LESSON_SCENARIOS: Record<number, LessonScenario> = {
 export function makeScenarioSteps(id: number, title: string, scenario: LessonScenario): LessonStep[] {
   const from = scenario.move.slice(0, 2);
   const to = scenario.move.slice(2, 4);
+  const positionAfterMove = new Chess(scenario.fen);
+  positionAfterMove.move({ from, to, promotion: scenario.move[4] || "q" });
+  const resultFen = positionAfterMove.fen();
   const base = { fen: scenario.fen, hints: scenario.hints };
   return [
     { ...base, id: `${id}-idea`, kind: "explain", title: `Ідея: ${title.toLowerCase()}`, text: scenario.idea, goal: "Зрозуміти задум перед практикою.", action: "Прочитай пояснення та переходь до позиції.", reveal: scenario.idea, diagramType: "path" },
     { ...base, id: `${id}-position`, kind: "demo", title: "Оціни позицію", text: scenario.position, goal: "Знайти ключові фігури та слабкі місця.", action: "Спробуй знайти план самостійно.", reveal: scenario.explanation, diagramType: "path", startSquare: from },
     { ...base, id: `${id}-move`, kind: "task", title: "Твій хід", text: scenario.task, goal: "Втілити ідею ходом на шахівниці.", action: "Зроби хід на шахівниці.", reveal: scenario.explanation, diagramType: "challenge", startSquare: from, targetSquare: to, targetRevealHint: 2, arrows: [[from, to, "#3992e6"]], expectedMove: scenario.move, errorText: scenario.error, successText: scenario.explanation, mistakeFeedback: scenario.mistakes },
-    { ...base, id: `${id}-check`, kind: "check", title: "Перевір себе", text: "Дай відповідь на запитання після ходу: так легше перевірити, чи зрозумілий задум.", goal: "Перевірити, чи зрозуміла ідея ходу.", action: "Обери відповідь у правій панелі.", reveal: scenario.quiz.feedback, quiz: scenario.quiz, diagramType: "success" },
-    { ...base, id: `${id}-complete`, kind: "complete", title: "Підсумок", text: scenario.explanation, goal: "Пригадати головну ідею уроку.", action: "Заверши урок.", reveal: scenario.explanation, diagramType: "success" },
+    { ...base, id: `${id}-check`, kind: "check", title: "Перевір себе", text: "Дай відповідь на запитання після ходу: так легше перевірити, чи зрозумілий задум.", goal: "Перевірити, чи зрозуміла ідея ходу.", action: "Обери відповідь у правій панелі.", reveal: scenario.quiz.feedback, quiz: scenario.quiz, diagramType: "success", fen: resultFen },
+    { ...base, id: `${id}-complete`, kind: "complete", title: "Підсумок", text: scenario.explanation, goal: "Пригадати головну ідею уроку.", action: "Заверши урок.", reveal: scenario.explanation, diagramType: "success", fen: resultFen },
   ];
 }
