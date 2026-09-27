@@ -6,7 +6,7 @@ import { LESSON_LEVELS, LESSON_PROGRESS_STORAGE_KEY, createDefaultLessonProgress
 import { firstAvailableLesson, getLessonAction, getLessonEntryStep, readProgress, sanitizeProgress } from "@/features/lessons/model";
 
 vi.mock("@/components/ChessBoard", () => ({
-  default: ({ onMove, interactive, targetSquares = [], highlightSquares, customArrows = [], size, initialFen }: { onMove: (from: string, to: string, promotion?: string) => boolean; interactive: boolean; targetSquares?: string[]; highlightSquares?: { squares: string[] }; customArrows?: [string, string][]; size: number; initialFen?: string }) => size < 100 ? <div data-testid="lesson-preview" /> : (
+  default: ({ onMove, interactive, targetSquares = [], highlightSquares, customArrows = [], size, initialFen }: { onMove: (from: string, to: string, promotion?: string) => boolean; interactive: boolean; targetSquares?: string[]; highlightSquares?: { squares: string[] }; customArrows?: [string, string][]; size: number; initialFen?: string }) => size <= 264 ? <div data-testid="lesson-preview" /> : (
     <div data-testid="lesson-board" data-size={size} data-initial-fen={initialFen}>
       <button type="button" disabled={!interactive} onClick={() => onMove("e2", "e3")}>Хід e2–e3</button>
       <button type="button" disabled={!interactive} onClick={() => onMove("e2", "e4")}>Хід e2–e4</button>
@@ -39,6 +39,43 @@ describe("Lessons course and player flow", () => {
     fireEvent.click(screen.getByRole("button", { name: "До меню уроків" }));
     expect(screen.getByRole("region", { name: "Головне меню уроків" })).toBeInTheDocument();
     expect(screen.queryByTestId("lesson-board")).not.toBeInTheDocument();
+  });
+
+  it("shows the next position, six real lesson previews, and progress on the course overview", () => {
+    localStorage.setItem(LESSON_PROGRESS_STORAGE_KEY, JSON.stringify({
+      ...createDefaultLessonProgress(), selectedLevel: "master", currentLessonId: 36,
+      completedLessonIds: [1, 2, 3], xp: 66, streakDates: ["2026-09-26", "2026-09-27"],
+    }));
+    render(<Lessons />);
+    const home = screen.getByRole("region", { name: "Головне меню уроків" });
+    expect(within(home).getByRole("heading", { name: "Ендшпіль: король і пішак" })).toBeInTheDocument();
+    expect(within(home).getByLabelText("Попередній перегляд: Ендшпіль: король і пішак")).toBeInTheDocument();
+    expect(within(within(home).getByRole("region", { name: "Уроки вашого рівня" })).getAllByRole("button", { name: /^(Почати|Продовжити|Повторити) урок \d+:/ })).toHaveLength(6);
+    expect(within(home).getByText("3 / 55")).toBeInTheDocument();
+    expect(within(home).getByText("66")).toBeInTheDocument();
+    expect(within(home).getByRole("button", { name: /Почати урок 36:/ })).toBeEnabled();
+    expect(within(home).getByRole("button", { name: /Почати урок 37:/ })).toBeDisabled();
+    expect(screen.queryByTestId("lesson-board")).not.toBeInTheDocument();
+  });
+
+  it("keeps a favorite and opens lessons from the topic directory", () => {
+    localStorage.setItem(LESSON_PROGRESS_STORAGE_KEY, JSON.stringify({ ...createDefaultLessonProgress(), selectedLevel: "master" }));
+    render(<Lessons />);
+    fireEvent.click(screen.getByRole("button", { name: "Улюблені" }));
+    expect(screen.getByRole("button", { name: "В улюблених" })).toHaveAttribute("aria-pressed", "true");
+    expect(JSON.parse(localStorage.getItem("chessmaster.lessons.favorites.v1") || "[]")).toContain(36);
+    fireEvent.click(screen.getByLabelText("Додаткові дії з уроком"));
+    fireEvent.click(screen.getByRole("button", { name: "Показати улюблені уроки" }));
+    expect(screen.getByRole("heading", { name: "Улюблені уроки" })).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: /Ендшпіль: король і пішак/ }));
+    expect(screen.getByTestId("lesson-board")).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "До меню уроків" }));
+    fireEvent.click(screen.getByRole("button", { name: "Теми уроків" }));
+    fireEvent.click(screen.getByText("Правила"));
+    expect(screen.getByRole("button", { name: /Урок 1 Як ходить пішак/ })).toBeEnabled();
+    fireEvent.click(screen.getByRole("button", { name: /Урок 1 Як ходить пішак/ }));
+    expect(readProgress().selectedLevel).toBe("beginner");
+    expect(screen.getByTestId("lesson-board")).toBeInTheDocument();
   });
 
   it("keeps a 468px desktop board in a 504px host and fits smaller screens on resize", () => {
