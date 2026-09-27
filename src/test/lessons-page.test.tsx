@@ -6,8 +6,8 @@ import { LESSON_LEVELS, LESSON_PROGRESS_STORAGE_KEY, createDefaultLessonProgress
 import { firstAvailableLesson, getLessonAction, getLessonEntryStep, readProgress, sanitizeProgress } from "@/features/lessons/model";
 
 vi.mock("@/components/ChessBoard", () => ({
-  default: ({ onMove, interactive, targetSquares = [], highlightSquares, customArrows = [], size }: { onMove: (from: string, to: string, promotion?: string) => boolean; interactive: boolean; targetSquares?: string[]; highlightSquares?: { squares: string[] }; customArrows?: [string, string][]; size: number }) => size < 100 ? <div data-testid="lesson-preview" /> : (
-    <div data-testid="lesson-board" data-size={size}>
+  default: ({ onMove, interactive, targetSquares = [], highlightSquares, customArrows = [], size, initialFen }: { onMove: (from: string, to: string, promotion?: string) => boolean; interactive: boolean; targetSquares?: string[]; highlightSquares?: { squares: string[] }; customArrows?: [string, string][]; size: number; initialFen?: string }) => size < 100 ? <div data-testid="lesson-preview" /> : (
+    <div data-testid="lesson-board" data-size={size} data-initial-fen={initialFen}>
       <button type="button" disabled={!interactive} onClick={() => onMove("e2", "e3")}>Хід e2–e3</button>
       <button type="button" disabled={!interactive} onClick={() => onMove("e2", "e4")}>Хід e2–e4</button>
       <button type="button" disabled={!interactive} onClick={() => onMove("f1", "b5")}>Хід f1–b5</button>
@@ -101,6 +101,7 @@ describe("Lessons course and player flow", () => {
     expect(LESSON_LEVELS).toHaveLength(55);
     const questions = new Set<string>();
     const moves = new Set<string>();
+    const specialMoves = { castle: 0, capture: 0, promotion: 0 };
     for (const lesson of LESSON_LEVELS.slice(13)) {
       expect(lesson.steps).toHaveLength(5);
       const task = lesson.steps.find((step) => step.kind === "task");
@@ -113,6 +114,13 @@ describe("Lessons course and player flow", () => {
       const move = task!.expectedMove!;
       const played = game.move({ from: move.slice(0, 2), to: move.slice(2, 4), promotion: move[4] || "q" });
       expect(played).not.toBeNull();
+      if (played?.flags.includes("k") || played?.flags.includes("q")) specialMoves.castle++;
+      if (played?.isCapture()) specialMoves.capture++;
+      if (played?.isPromotion()) specialMoves.promotion++;
+      expect(lesson.steps[0].fen).toBe(task?.fen);
+      expect(lesson.steps[1].fen).toBe(task?.fen);
+      expect(check?.fen).toBe(game.fen());
+      expect(lesson.steps[4].fen).toBe(game.fen());
       expect(task?.targetSquare).toBe(move.slice(2, 4));
       expect(check?.quiz?.options[check.quiz.correctIndex]).toBeTruthy();
       questions.add(check!.quiz!.question);
@@ -120,6 +128,9 @@ describe("Lessons course and player flow", () => {
     }
     expect(questions.size).toBe(42);
     expect(moves.size).toBe(42);
+    expect(specialMoves.castle).toBeGreaterThan(0);
+    expect(specialMoves.capture).toBeGreaterThan(0);
+    expect(specialMoves.promotion).toBeGreaterThan(0);
     expect(LESSON_LEVELS[13].steps[2].expectedMove).toBe("e1g1");
     expect(LESSON_LEVELS[52].steps[2].expectedMove).toBe("g7g8q");
     for (const id of [24, 54]) {
@@ -153,12 +164,16 @@ describe("Lessons course and player flow", () => {
     fireEvent.click(screen.getByRole("button", { name: "Хід e1–g1" }));
     fireEvent.click(screen.getByRole("button", { name: "Продовжити" }));
     expect(screen.getByRole("group", { name: "Перевірка знань" })).toBeInTheDocument();
+    const afterCastling = new Chess(LESSON_LEVELS[13].fen);
+    afterCastling.move({ from: "e1", to: "g1" });
+    expect(screen.getByTestId("lesson-board")).toHaveAttribute("data-initial-fen", afterCastling.fen());
     expect(screen.getByRole("button", { name: "Продовжити" })).toBeDisabled();
     fireEvent.click(screen.getByRole("button", { name: "Король і тура поміняються місцями" }));
     expect(screen.getByRole("button", { name: "Продовжити" })).toBeDisabled();
     fireEvent.click(screen.getByRole("button", { name: "Король опиниться на g1, тура — на f1" }));
     expect(screen.getByRole("button", { name: "Продовжити" })).toBeEnabled();
     fireEvent.click(screen.getByRole("button", { name: "Продовжити" }));
+    expect(screen.getByTestId("lesson-board")).toHaveAttribute("data-initial-fen", afterCastling.fen());
     fireEvent.click(screen.getByRole("button", { name: "Завершити" }));
     expect(screen.getByText(/Урок «Безпечний король» пройдено/)).toBeInTheDocument();
     expect(readProgress().completedLessonIds).toContain(14);
