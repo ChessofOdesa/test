@@ -403,8 +403,8 @@ export default function Lessons() {
                   <ChessBoard key={`${selectedLesson.id}-${selectedStep.id}`} initialFen={boardFen} displayFen={lessonDisplayFen} size={boardSize} onMove={handleBoardMove} interactive={boardInteractive} showLegalMoves={boardInteractive} showLastMove annotationSquares={selectedStep.demoSquares ? (selectedStep.demoSquares as Square[]) : []} targetSquares={practiceTargetSquares} startSquares={selectedStep.startSquare ? ([selectedStep.startSquare] as Square[]) : []} blockedSquares={selectedStep.blockedSquares ? (selectedStep.blockedSquares as Square[]) : []} captureSquares={selectedStep.captureSquares ? (selectedStep.captureSquares as Square[]) : []} dangerSquares={selectedStep.dangerSquares ? (selectedStep.dangerSquares as Square[]) : []} customArrows={selectedStep.arrows ? (selectedStep.arrows as [
             Square,
             Square
-        ][]) : []} enableMoveSounds highlightSquares={targetSquare && moveState !== "idle"
-                ? { squares: [targetSquare] as Square[], type: moveState === "success" ? "correct" : "wrong" }
+        ][]) : []} enableMoveSounds highlightSquares={targetSquare && moveState === "success"
+                ? { squares: [targetSquare] as Square[], type: "correct" }
                 : undefined} lastMoveSquares={lastMove ? ([lastMove.slice(0, 2), lastMove.slice(2, 4)] as Square[]) : []} customLightSquareStyle={{ background: "#dce5f2" }} customDarkSquareStyle={{ background: "#7e99bd" }} customBoardStyle={{ borderRadius: 8, boxShadow: "0 8px 22px rgba(25,42,68,.16)" }}/>
                   {selectedStep.kind === "complete" ? (<div className="pointer-events-none absolute inset-0 grid place-items-center overflow-hidden rounded-md bg-secondary backdrop-blur-[1.5px]">
                       <div className="absolute h-48 w-48 rounded-full border border-border animate-ping"/>

@@ -6,10 +6,13 @@ import { LESSON_LEVELS, LESSON_PROGRESS_STORAGE_KEY, createDefaultLessonProgress
 import { filterLevelLessons, firstAvailableLesson, getLessonAction, getLessonEntryStep, readProgress, sanitizeProgress } from "@/features/lessons/model";
 
 vi.mock("@/components/ChessBoard", () => ({
-  default: ({ onMove, interactive, targetSquares = [] }: { onMove: (from: string, to: string) => boolean; interactive: boolean; targetSquares?: string[] }) => (
+  default: ({ onMove, interactive, targetSquares = [], highlightSquares }: { onMove: (from: string, to: string) => boolean; interactive: boolean; targetSquares?: string[]; highlightSquares?: { squares: string[] } }) => (
     <div data-testid="lesson-board">
       <button type="button" disabled={!interactive} onClick={() => onMove("e2", "e3")}>Хід e2–e3</button>
+      <button type="button" disabled={!interactive} onClick={() => onMove("f1", "b5")}>Хід f1–b5</button>
+      <button type="button" disabled={!interactive} onClick={() => onMove("f1", "c4")}>Хід f1–c4</button>
       <span data-testid="lesson-targets">{targetSquares.join(",")}</span>
+      <span data-testid="lesson-highlights">{highlightSquares?.squares.join(",")}</span>
     </div>
   ),
 }));
@@ -17,9 +20,9 @@ vi.mock("@/components/ChessBoard", () => ({
 afterEach(() => { cleanup(); localStorage.clear(); });
 
 describe("Lessons course and player flow", () => {
-  it("keeps the first twelve lessons readable in Ukrainian and their practice moves legal", () => {
+  it("keeps the first thirteen lessons readable in Ukrainian and their practice moves legal", () => {
     const ukrainian = /[А-Яа-яІіЇїЄєҐґ]/;
-    for (const lesson of LESSON_LEVELS.slice(0, 12)) {
+    for (const lesson of LESSON_LEVELS.slice(0, 13)) {
       expect(lesson.steps).toHaveLength(5);
       for (const step of lesson.steps) {
         const copy = [step.title, step.text, step.goal, step.action, ...step.hints, step.reveal, step.errorText, step.successText].filter(Boolean);
@@ -156,6 +159,40 @@ describe("Lessons course and player flow", () => {
     expect(screen.getByTestId("lesson-targets")).toBeEmptyDOMElement();
     fireEvent.click(screen.getByRole("button", { name: "Підказка" }));
     expect(screen.getByTestId("lesson-targets")).toHaveTextContent("d4");
+  });
+
+  it("teaches development with Bc4 and keeps the answer hidden after a wrong move", () => {
+    const lesson = LESSON_LEVELS[12];
+    const practice = lesson.steps.find((step) => step.expectedMove === "f1c4");
+    const position = new Chess(practice?.fen ?? lesson.fen);
+    expect(lesson.title).toBe("Розвиток фігур");
+    expect(practice?.targetRevealHint).toBe(2);
+    expect(position.get("f3")).toMatchObject({ color: "w", type: "n" });
+    expect(position.move({ from: "f1", to: "c4" })?.san).toBe("Bc4");
+    expect(position.get("c4")).toMatchObject({ color: "w", type: "b" });
+    expect(position.isAttacked("f7", "w")).toBe(true);
+    expect(position.fen()).toBe(lesson.steps[3].fen);
+
+    localStorage.setItem(LESSON_PROGRESS_STORAGE_KEY, JSON.stringify({
+      ...createDefaultLessonProgress(), selectedLevel: "beginner",
+      completedLessonIds: Array.from({ length: 12 }, (_, index) => index + 1), currentLessonId: 13,
+    }));
+    render(<Lessons />);
+    fireEvent.click(screen.getByRole("button", { name: /Почати урок 13:/ }));
+    fireEvent.click(screen.getByRole("button", { name: /Продовжити/ }));
+    fireEvent.click(screen.getByRole("button", { name: /Продовжити/ }));
+    expect(screen.getByText("Крок 3 із 5")).toBeInTheDocument();
+    expect(screen.getByTestId("lesson-targets")).toBeEmptyDOMElement();
+    fireEvent.click(within(screen.getByTestId("lesson-board")).getByRole("button", { name: "Хід f1–b5" }));
+    expect(screen.getByText("Крок 3 із 5")).toBeInTheDocument();
+    expect(screen.getByTestId("lesson-targets")).toBeEmptyDOMElement();
+    expect(screen.getByTestId("lesson-highlights")).toBeEmptyDOMElement();
+    fireEvent.click(screen.getByRole("button", { name: "Підказка" }));
+    expect(screen.getByTestId("lesson-targets")).toHaveTextContent("c4");
+    fireEvent.click(within(screen.getByTestId("lesson-board")).getByRole("button", { name: "Хід f1–c4" }));
+    expect(screen.getByTestId("lesson-highlights")).toHaveTextContent("c4");
+    fireEvent.click(screen.getByRole("button", { name: /Продовжити/ }));
+    expect(screen.getByText("Крок 4 із 5")).toBeInTheDocument();
   });
 
   it("keeps an explicit unselected level and recommends the next incomplete lesson", () => {
