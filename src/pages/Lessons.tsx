@@ -1,13 +1,18 @@
 import ChessBoard from "@/components/ChessBoard";
 import { Progress } from "@/components/ui/progress";
 import { LESSON_LEVEL_META, LESSON_LEVELS, type LessonLevel, type LessonProgressState, type LessonRecord } from "@/data/lesson-levels";
-import { createCleanLessonDiagramFen, filterLevelLessons, firstAvailableLesson, getLessonStatus, getLevelLessons, isLessonUnlocked, localDayKey, type CourseFilter, type LessonWorkspaceMode, LEVEL_ORDER, type MoveState, normalizeMove, PrimaryButton, readProgress, StatCard, StatusBadge, writeProgress } from '@/features/lessons/model';
+import { createCleanLessonDiagramFen, filterLevelLessons, firstAvailableLesson, getLessonAction, getLessonEntryStep, getLessonStatus, getLevelLessons, isLessonUnlocked, localDayKey, type CourseFilter, type LessonAction, type LessonWorkspaceMode, LEVEL_ORDER, type MoveState, normalizeMove, PrimaryButton, readProgress, StatCard, StatusBadge, writeProgress } from '@/features/lessons/model';
 import { cn } from "@/lib/utils";
 import { Chess, type Square } from "chess.js";
 import { ArrowLeft, ArrowRight, Brain, CheckCircle2, ChevronRight, Flame, Lock, Medal, Play, RotateCcw, Search, Target, Trophy, Zap } from "lucide-react";
 import { LessonsIcon } from "@/components/icons/chess";
 import { useEffect, useMemo, useRef, useState } from "react";
 const difficultyLabel = { Easy: "Початковий", Medium: "Середній", Hard: "Складний" } as const;
+const lessonActionLabel: Record<LessonAction, string> = {
+    start: "Почати",
+    continue: "Продовжити",
+    repeat: "Повторити",
+};
 export default function Lessons() {
     const [progress, setProgress] = useState<LessonProgressState>(() => readProgress());
     const [mode, setMode] = useState<LessonWorkspaceMode>(() => (readProgress().selectedLevel ? "course-map" : "level-selection"));
@@ -98,8 +103,7 @@ export default function Lessons() {
             setFeedback("Спочатку оберіть доступний урок.");
             return;
         }
-        const savedStep = progress.currentStepByLesson[String(lesson.id)] || 0;
-        const nextStepIndex = Math.min(savedStep, lesson.steps.length - 1);
+        const nextStepIndex = getLessonEntryStep(lesson, progress);
         setSelectedLessonId(lesson.id);
         setStepIndex(nextStepIndex);
         setBoardFen(lesson.steps[nextStepIndex]?.fen || lesson.fen);
@@ -354,7 +358,8 @@ export default function Lessons() {
                 {visibleLessons.map((lesson) => {
                 const status = getLessonStatus(lesson, selectedLessonId, progress, recommendedLesson?.id ?? null);
                 const locked = status === "locked";
-                return (<button key={lesson.id} type="button" onClick={() => startLesson(lesson)} disabled={locked} aria-label={`${progress.completedLessonIds.includes(lesson.id) ? "Повторити" : "Почати"} урок ${lesson.id}: ${lesson.title}`} className={cn("group min-h-[170px] rounded-2xl border p-4 text-left transition duration-200 focus:outline-none focus:ring-2 focus:ring-primary", locked
+                const action = getLessonAction(lesson, progress);
+                return (<button key={lesson.id} type="button" onClick={() => startLesson(lesson)} disabled={locked} aria-label={`${lessonActionLabel[action]} урок ${lesson.id}: ${lesson.title}`} className={cn("group min-h-[170px] rounded-2xl border p-4 text-left transition duration-200 focus:outline-none focus:ring-2 focus:ring-primary", locked
                         ? "cursor-not-allowed border-border bg-secondary opacity-55"
                         : status === "selected"
                             ? "border-primary bg-accent shadow-sm"
@@ -498,7 +503,7 @@ export default function Lessons() {
                   <PrimaryButton onClick={() => startLesson()} disabled={lockedSelectedLesson}>
                     <Play className="h-5 w-5"/>
                     
-                    {progress.completedLessonIds.includes(selectedLesson.id) ? "Повторити урок" : "Почати урок"}
+                    {lessonActionLabel[getLessonAction(selectedLesson, progress)]} урок
                   </PrimaryButton>
                 </div>) : mode === "lesson-mode" ? (<div className="flex flex-col">
                   <section className="rounded-2xl border border-primary/20 bg-accent p-4">
