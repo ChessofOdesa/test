@@ -8,8 +8,15 @@
   margin: 0 auto;
   padding: 12px 0 30px;
 }
+.lessons-heading-row {
+  display: flex;
+  align-items: center;
+  gap: 18px;
+  margin-bottom: 14px;
+}
 .lessons-heading {
-  margin: 0 0 8px;
+  flex: none;
+  margin: 0;
   font-size: clamp(1.85rem, 2.6vw, 2.25rem);
   font-weight: 800;
   letter-spacing: -.04em;
@@ -17,11 +24,12 @@
 }
 .lessons-progress {
   display: flex;
+  flex: 1;
   align-items: center;
   gap: 15px;
-  min-height: 64px;
-  margin-bottom: 14px;
-  padding: 8px 16px;
+  min-width: 0;
+  min-height: 54px;
+  padding: 6px 14px;
   border: 1px solid #e0e6ef;
   border-radius: 12px;
   background: white;
@@ -148,7 +156,7 @@
 .lessons-step-nav button { display: grid; place-items: center; width: 40px; height: 40px; border: 1px solid #e1e7f0; border-radius: 50%; background: white; color: #142f61; }
 .lessons-step-nav button:hover:not(:disabled) { background: #e7f1ff; border-color: #9ec8f3; }
 .lessons-step-nav button:disabled { opacity: .4; cursor: not-allowed; }
-.lessons-board-host { display: flex; justify-content: center; width: 100%; min-width: 0; }
+.lessons-board-host { display: flex; justify-content: center; width: min(504px, 100%); min-width: 0; margin-inline: auto; }
 .lessons-stage > button { height: 46px; margin-top: 10px; border-radius: 9px; background: #147af0; box-shadow: 0 3px 10px #147af02b; }
 .lessons-stage > button:hover:not(:disabled) { background: #0869d8; }
 .lessons-board-instruction, .lessons-continue-note { margin: 7px 0 0; color: #566884; font-size: .83rem; line-height: 1.4; }
@@ -221,7 +229,8 @@
 }
 @media (max-width: 759px) {
   .lessons-container { width: min(100% - 28px, 600px); padding-top: 15px; }
-  .lessons-progress { gap: 11px; flex-wrap: wrap; margin-bottom: 12px; padding: 10px 13px; }
+  .lessons-heading-row { flex-direction: column; align-items: stretch; gap: 10px; margin-bottom: 12px; }
+  .lessons-progress { flex: none; gap: 11px; flex-wrap: wrap; padding: 10px 13px; }
   .lessons-progress-icon { width: 42px; height: 42px; }
   .lessons-progress-name { min-width: 0; flex: 1; }
   .lessons-progress-name strong { font-size: 1rem; }

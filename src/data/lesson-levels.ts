@@ -276,7 +276,8 @@ const BEGINNER_TRAINER_LESSONS: Record<
         demoSquares: ["e3", "e4"],
         arrows: [["e2", "e3", "#9fd35d"]],
         expectedMove: "e2e3",
-        errorText: "Пішак не ходить убік або назад. Спробуй e2–e3.",
+        errorText: "Для цієї вправи потрібен хід на одне поле вперед: e2–e3.",
+        mistakeFeedback: { e2e4: "Хід e2–e4 дозволений із початкової позиції, але тут зроби один крок: e2–e3." },
         successText: "Правильно! Пішак може піти на одне поле вперед.",
       },
       {

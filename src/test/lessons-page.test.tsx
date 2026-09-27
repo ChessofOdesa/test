@@ -9,6 +9,7 @@ vi.mock("@/components/ChessBoard", () => ({
   default: ({ onMove, interactive, targetSquares = [], highlightSquares, customArrows = [], size }: { onMove: (from: string, to: string, promotion?: string) => boolean; interactive: boolean; targetSquares?: string[]; highlightSquares?: { squares: string[] }; customArrows?: [string, string][]; size: number }) => size < 100 ? <div data-testid="lesson-preview" /> : (
     <div data-testid="lesson-board" data-size={size}>
       <button type="button" disabled={!interactive} onClick={() => onMove("e2", "e3")}>Хід e2–e3</button>
+      <button type="button" disabled={!interactive} onClick={() => onMove("e2", "e4")}>Хід e2–e4</button>
       <button type="button" disabled={!interactive} onClick={() => onMove("f1", "b5")}>Хід f1–b5</button>
       <button type="button" disabled={!interactive} onClick={() => onMove("f1", "c4")}>Хід f1–c4</button>
       <button type="button" disabled={!interactive} onClick={() => onMove("e1", "f1")}>Хід e1–f1</button>
@@ -24,21 +25,36 @@ vi.mock("@/components/ChessBoard", () => ({
 afterEach(() => { cleanup(); localStorage.clear(); });
 
 describe("Lessons course and player flow", () => {
-  it("fits the board into the remaining height of a 100% desktop viewport and grows on resize", () => {
+  it("keeps a 468px desktop board in a 504px host and fits smaller screens on resize", () => {
     const previousHeight = window.innerHeight;
+    const previousWidth = window.innerWidth;
     const bounds = vi.spyOn(HTMLElement.prototype, "getBoundingClientRect").mockReturnValue({ top: 240 } as DOMRect);
     try {
+      Object.defineProperty(window, "innerWidth", { configurable: true, value: 1280 });
       Object.defineProperty(window, "innerHeight", { configurable: true, value: 707 });
       render(<Lessons />);
       fireEvent.click(screen.getByRole("button", { name: /Початківець/ }));
-      expect(screen.getByTestId("lesson-board")).toHaveAttribute("data-size", "385");
-      Object.defineProperty(window, "innerHeight", { configurable: true, value: 900 });
+      expect(screen.getByTestId("lesson-board")).toHaveAttribute("data-size", "468");
+      Object.defineProperty(window, "innerWidth", { configurable: true, value: 600 });
       fireEvent.resize(window);
-      expect(screen.getByTestId("lesson-board")).toHaveAttribute("data-size", "500");
+      expect(screen.getByTestId("lesson-board")).toHaveAttribute("data-size", "385");
     } finally {
       bounds.mockRestore();
       Object.defineProperty(window, "innerHeight", { configurable: true, value: previousHeight });
+      Object.defineProperty(window, "innerWidth", { configurable: true, value: previousWidth });
     }
+  });
+
+  it("explains why a legal two-square pawn move is wrong for the one-square task", () => {
+    render(<Lessons />);
+    fireEvent.click(screen.getByRole("button", { name: /Початківець/ }));
+    fireEvent.click(screen.getByRole("button", { name: "Почати урок" }));
+    fireEvent.click(screen.getByRole("button", { name: "Продовжити" }));
+    fireEvent.click(screen.getByRole("button", { name: "Хід e2–e4" }));
+    expect(screen.getByText(/Хід e2–e4 дозволений із початкової позиції/)).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Продовжити" })).toBeDisabled();
+    fireEvent.click(screen.getByRole("button", { name: "Хід e2–e3" }));
+    expect(screen.getByRole("button", { name: "Продовжити" })).toBeEnabled();
   });
 
   it("celebrates a first completion and a repeat without awarding XP twice", () => {
