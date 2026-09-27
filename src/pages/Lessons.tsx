@@ -1,14 +1,14 @@
 import ChessBoard from "@/components/ChessBoard";
 import { Progress } from "@/components/ui/progress";
-import { LESSON_LEVEL_META, LESSON_LEVELS, type LessonLevel, type LessonProgressState, type LessonRecord, type LessonTopic } from "@/data/lesson-levels";
-import { createCleanLessonDiagramFen, filterLevelLessons, firstAvailableLesson, getLessonAction, getLessonEntryStep, getLessonStatus, getLevelLessons, isLessonUnlocked, localDayKey, type CourseFilter, type LessonAction, type LessonWorkspaceMode, LEVEL_ORDER, type MoveState, normalizeMove, PrimaryButton, readProgress, StatCard, writeProgress } from '@/features/lessons/model';
+import { LessonsHome } from "@/features/lessons/LessonsHome";
+import { LESSON_LEVEL_META, LESSON_LEVELS, type LessonLevel, type LessonProgressState, type LessonRecord } from "@/data/lesson-levels";
+import { createCleanLessonDiagramFen, firstAvailableLesson, getLessonAction, getLessonEntryStep, getLessonStatus, getLevelLessons, isLessonUnlocked, localDayKey, type LessonAction, type LessonWorkspaceMode, LEVEL_ORDER, type MoveState, normalizeMove, PrimaryButton, readProgress, StatCard, writeProgress } from '@/features/lessons/model';
 import { cn } from "@/lib/utils";
 import { Chess, type Square } from "chess.js";
-import { ArrowRight, BarChart3, Check, CheckCircle2, ChevronLeft, ChevronRight, Eye, Flame, Lightbulb, List, Lock, Medal, RotateCcw, Search, Target, Trophy, Zap } from "lucide-react";
+import { ArrowRight, BarChart3, Check, CheckCircle2, ChevronLeft, ChevronRight, Eye, Flame, Lightbulb, List, Lock, Medal, RotateCcw, Target, Trophy, Zap } from "lucide-react";
 import { LessonsIcon } from "@/components/icons/chess";
 import { useEffect, useMemo, useRef, useState } from "react";
 import "@/styles/lessons-workspace.css";
-const difficultyLabel = { Easy: "Початковий", Medium: "Середній", Hard: "Складний" } as const;
 const lessonActionLabel: Record<LessonAction, string> = {
     start: "Почати",
     continue: "Продовжити",
@@ -16,7 +16,7 @@ const lessonActionLabel: Record<LessonAction, string> = {
 };
 export default function Lessons() {
     const [progress, setProgress] = useState<LessonProgressState>(() => readProgress());
-    const [mode, setMode] = useState<LessonWorkspaceMode>(() => (readProgress().selectedLevel ? "course-map" : "level-selection"));
+    const [mode, setMode] = useState<LessonWorkspaceMode>("overview");
     const [selectedLessonId, setSelectedLessonId] = useState(() => readProgress().currentLessonId || 1);
     const [stepIndex, setStepIndex] = useState(0);
     const [boardFen, setBoardFen] = useState(LESSON_LEVELS[0].fen);
@@ -27,9 +27,6 @@ export default function Lessons() {
     const [boardError, setBoardError] = useState("");
     const [completionLessonId, setCompletionLessonId] = useState<number | null>(null);
     const [completionAwardedXp, setCompletionAwardedXp] = useState(0);
-    const [courseSearch, setCourseSearch] = useState("");
-    const [courseFilter, setCourseFilter] = useState<CourseFilter>("all");
-    const [courseTopic, setCourseTopic] = useState<LessonTopic | "all">("all");
     const [catalogExpanded, setCatalogExpanded] = useState(false);
     const [selectedQuizAnswer, setSelectedQuizAnswer] = useState<number | null>(null);
     const boardHostRef = useRef<HTMLElement>(null);
@@ -37,7 +34,7 @@ export default function Lessons() {
         writeProgress(progress);
     }, [progress]);
     useEffect(() => {
-        if (mode === "level-selection") return;
+        if (mode !== "lesson-mode" && mode !== "completion") return;
         const syncBoardSize = () => {
             const width = boardHostRef.current?.clientWidth || window.innerWidth;
             const boardTop = boardHostRef.current?.getBoundingClientRect().top || 0;
@@ -52,12 +49,8 @@ export default function Lessons() {
     }, [mode]);
     const selectedLevel = progress.selectedLevel;
     const levelLessons = useMemo(() => getLevelLessons(selectedLevel), [selectedLevel]);
-    const availableTopics = useMemo(() => [...new Set(levelLessons.map((lesson) => lesson.topic))], [levelLessons]);
-    const visibleLessons = useMemo(() => filterLevelLessons(levelLessons, courseSearch, courseFilter, progress.completedLessonIds, courseTopic), [levelLessons, courseSearch, courseFilter, courseTopic, progress.completedLessonIds]);
     const selectedLesson = useMemo(() => LESSON_LEVELS.find((lesson) => lesson.id === selectedLessonId) || levelLessons[0] || LESSON_LEVELS[0], [levelLessons, selectedLessonId]);
     const recommendedLesson = selectedLevel ? firstAvailableLesson(selectedLevel, progress.completedLessonIds) : null;
-    const selectedStatus = getLessonStatus(selectedLesson, selectedLessonId, progress, recommendedLesson?.id ?? null);
-    const lockedSelectedLesson = selectedStatus === "locked";
     const selectedStep = selectedLesson.steps[Math.min(stepIndex, selectedLesson.steps.length - 1)];
     const hintLevel = Math.min(3, Math.max(0, progress.hintLevelByLesson[String(selectedLesson.id)] || 0));
     const completedTotal = progress.completedLessonIds.length;
@@ -105,9 +98,6 @@ export default function Lessons() {
         }));
         setSelectedLessonId(firstLesson.id);
         setStepIndex(0);
-        setCourseSearch("");
-        setCourseFilter("all");
-        setCourseTopic("all");
         setCatalogExpanded(false);
         setMode("course-map");
     };
@@ -321,15 +311,17 @@ export default function Lessons() {
                     : moveState === "wrong"
                         ? boardError
                         : selectedStep.text;
-    const previewStep = mode === "course-map" ? selectedLesson.steps[0] : selectedStep;
-    const previewFen = mode === "course-map" ? previewStep.fen || selectedLesson.fen : boardFen;
-    const displayFen = mode !== "course-map"
-        ? lessonDisplayFen
-        : createCleanLessonDiagramFen(previewFen, selectedLesson.id);
+    const previewFen = boardFen;
+    const displayFen = lessonDisplayFen;
     return (
         <div className="lessons-page">
             <div className="lessons-container">
+                {mode === "overview" ? <LessonsHome progress={progress}
+                    onOpenCatalog={() => setMode(selectedLevel ? "course-map" : "level-selection")}
+                    onOpenLevels={() => setMode("level-selection")}
+                    onChooseLevel={selectLevel} onStartLesson={startLesson} /> : <>
                 <div className="lessons-heading-row">
+                    <button type="button" className="lessons-back-home" onClick={() => setMode("overview")} aria-label="До меню уроків"><ChevronLeft size={20} aria-hidden="true" /></button>
                     <h1 className="lessons-heading">Уроки</h1>
                     <section className="lessons-progress" aria-label="Прогрес навчання">
                         <span className="lessons-progress-icon"><LessonsIcon size={25} aria-hidden="true" /></span>
@@ -370,10 +362,11 @@ export default function Lessons() {
                         </div>
                     </section>
                 ) : (
-                    <div className="lessons-workspace">
+                    <div className={cn("lessons-workspace", mode === "course-map" && "is-catalog-only")}>
                         {mode === "lesson-mode" ? <button type="button" className="lessons-mobile-catalog-toggle" aria-controls="lessons-catalog" aria-expanded={catalogExpanded}
                             onClick={() => setCatalogExpanded((open) => !open)}><List size={18} aria-hidden="true" /> {catalogExpanded ? "Згорнути каталог уроків" : "Показати каталог уроків"}</button> : null}
                         <aside id="lessons-catalog" className={cn("lessons-catalog", mode === "lesson-mode" && !catalogExpanded && "is-mobile-collapsed")} aria-label="Каталог уроків">
+                            {mode === "course-map" ? <div className="lessons-catalog-heading"><h2>Уроки рівня «{levelMeta?.title}»</h2><p>Оберіть урок, щоб відкрити шахівницю.</p></div> : null}
                             <div className="lessons-level-switch" aria-label="Рівень курсу">
                                 {LEVEL_ORDER.map((level) => (
                                     <button key={level} type="button" onClick={() => selectLevel(level)} aria-pressed={selectedLevel === level}>
@@ -381,26 +374,8 @@ export default function Lessons() {
                                     </button>
                                 ))}
                             </div>
-                            <label className="lessons-search">
-                                <Search size={19} aria-hidden="true" />
-                                <span className="sr-only">Пошук уроків</span>
-                                <input type="text" inputMode="search" value={courseSearch} onChange={(event) => setCourseSearch(event.target.value)} placeholder="Знайти урок" />
-                            </label>
-                            <div className="lessons-filter" aria-label="Статус уроків">
-                                {([['all', 'Усі'], ['available', 'Доступні'], ['completed', 'Пройдені']] as const).map(([filter, label]) => (
-                                    <button key={filter} type="button" onClick={() => setCourseFilter(filter)} aria-pressed={courseFilter === filter}>
-                                        {label}
-                                    </button>
-                                ))}
-                            </div>
-                            <div className="lessons-topics" role="group" aria-label="Теми уроків">
-                                {(["all", ...availableTopics] as const).map((topic) => (
-                                    <button key={topic} type="button" onClick={() => setCourseTopic(topic)} aria-pressed={courseTopic === topic}>{topic === "all" ? "Усі теми" : topic}</button>
-                                ))}
-                            </div>
-                            <p className="lessons-result-count" aria-live="polite">Показано {visibleLessons.length} із {levelLessons.length} уроків</p>
                             <div className="lessons-catalog-scroll">
-                                {visibleLessons.map((lesson) => {
+                                {levelLessons.map((lesson) => {
                                     const status = getLessonStatus(lesson, selectedLessonId, progress, recommendedLesson?.id ?? null);
                                     const locked = status === "locked";
                                     const action = getLessonAction(lesson, progress);
@@ -430,11 +405,10 @@ export default function Lessons() {
                                         </div>
                                     );
                                 })}
-                                {visibleLessons.length === 0 ? <p className="lessons-empty">За цим запитом уроків немає. Змініть пошук або фільтр.</p> : null}
                             </div>
                         </aside>
 
-                        <main className="lessons-stage" aria-label="Робоча область уроку">
+                        {mode !== "course-map" ? <main className="lessons-stage" aria-label="Робоча область уроку">
                             <div className="lessons-stage-header">
                                 <div>
                                     <h2>{selectedLesson.title}</h2>
@@ -477,17 +451,16 @@ export default function Lessons() {
                             ) : mode === "lesson-mode" && isPracticeStep && !canContinueFromTask ? (
                                 <p className="lessons-board-instruction">{selectedStep.action} Перетягніть фігуру на поле або натисніть фігуру й потім поле.</p>
                             ) : null}
-                            <PrimaryButton onClick={mode === "course-map" ? () => startLesson() : mode === "completion" ? continueAfterCompletion : nextStep}
-                                disabled={mode === "course-map" ? lockedSelectedLesson : mode === "lesson-mode" && primaryLessonDisabled}>
-                                {mode === "course-map" ? `${lessonActionLabel[getLessonAction(selectedLesson, progress)]} урок`
-                                    : mode === "completion" ? "Продовжити"
-                                        : selectedStep.kind === "complete" ? "Завершити" : "Продовжити"}
+                            <PrimaryButton onClick={mode === "completion" ? continueAfterCompletion : nextStep}
+                                disabled={mode === "lesson-mode" && primaryLessonDisabled}>
+                                {mode === "completion" ? "Продовжити"
+                                    : selectedStep.kind === "complete" ? "Завершити" : "Продовжити"}
                                 {mode === "lesson-mode" && selectedStep.kind === "complete" ? <CheckCircle2 size={19} aria-hidden="true" /> : <ArrowRight size={19} aria-hidden="true" />}
                             </PrimaryButton>
                             {mode === "lesson-mode" && primaryLessonDisabled ? <p className="lessons-continue-note">{selectedStep.quiz ? "Оберіть правильну відповідь або перегляньте пояснення, щоб продовжити." : "Зробіть хід на шахівниці або перегляньте розв’язок, щоб продовжити."}</p> : null}
-                        </main>
+                        </main> : null}
 
-                        <aside className="lessons-guide" aria-label="Пояснення та кроки уроку">
+                        {mode !== "course-map" ? <aside className="lessons-guide" aria-label="Пояснення та кроки уроку">
                             <div className="lessons-guide-card">
                                 {mode === "completion" ? (
                                     <>
@@ -496,14 +469,6 @@ export default function Lessons() {
                                         <p>Можна перейти до наступного уроку або повторити цей.</p>
                                         <div className="lessons-reward"><Zap size={19} /> {completionAwardedXp ? `Отримано ${completionAwardedXp} XP` : "Повторення без додаткових XP"}</div>
                                         <button type="button" className="lessons-guide-button" onClick={reviewLesson}><RotateCcw size={18} /> Повторити урок</button>
-                                    </>
-                                ) : mode === "course-map" ? (
-                                    <>
-                                        <span className="lessons-guide-eyebrow">Урок {selectedLesson.id} · {difficultyLabel[selectedLesson.difficulty]}</span>
-                                        <h2>{selectedLesson.title}</h2>
-                                        <p>{selectedLesson.goal}</p>
-                                        <div className="lessons-lesson-facts"><span>{selectedLesson.durationMinutes} хв</span><span>{selectedLesson.xp} XP</span></div>
-                                        <p className="lessons-guide-tip">Оберіть урок у каталозі або натисніть кнопку під шахівницею.</p>
                                     </>
                                 ) : (
                                     <>
@@ -546,9 +511,10 @@ export default function Lessons() {
                                     </ol>
                                 </div>
                             </div>
-                        </aside>
+                        </aside> : null}
                     </div>
                 )}
+                </>}
             </div>
         </div>
     );

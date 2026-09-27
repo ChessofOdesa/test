@@ -3,7 +3,7 @@ import { cleanup, fireEvent, render, screen, within } from "@testing-library/rea
 import { Chess } from "chess.js";
 import Lessons from "@/pages/Lessons";
 import { LESSON_LEVELS, LESSON_PROGRESS_STORAGE_KEY, createDefaultLessonProgress } from "@/data/lesson-levels";
-import { filterLevelLessons, firstAvailableLesson, getLessonAction, getLessonEntryStep, readProgress, sanitizeProgress } from "@/features/lessons/model";
+import { firstAvailableLesson, getLessonAction, getLessonEntryStep, readProgress, sanitizeProgress } from "@/features/lessons/model";
 
 vi.mock("@/components/ChessBoard", () => ({
   default: ({ onMove, interactive, targetSquares = [], highlightSquares, customArrows = [], size }: { onMove: (from: string, to: string, promotion?: string) => boolean; interactive: boolean; targetSquares?: string[]; highlightSquares?: { squares: string[] }; customArrows?: [string, string][]; size: number }) => size < 100 ? <div data-testid="lesson-preview" /> : (
@@ -25,6 +25,22 @@ vi.mock("@/components/ChessBoard", () => ({
 afterEach(() => { cleanup(); localStorage.clear(); });
 
 describe("Lessons course and player flow", () => {
+  it("opens the learning menu before the catalog and board, then returns to it", () => {
+    localStorage.setItem(LESSON_PROGRESS_STORAGE_KEY, JSON.stringify({ ...createDefaultLessonProgress(), selectedLevel: "beginner" }));
+    render(<Lessons />);
+    expect(screen.getByRole("region", { name: "Головне меню уроків" })).toBeInTheDocument();
+    expect(screen.queryByTestId("lesson-board")).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Усі уроки" }));
+    expect(screen.getByRole("complementary", { name: "Каталог уроків" })).toBeInTheDocument();
+    expect(screen.queryByTestId("lesson-board")).not.toBeInTheDocument();
+    expect(screen.queryByRole("textbox", { name: "Пошук уроків" })).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: /Почати урок 1:/ }));
+    expect(screen.getByTestId("lesson-board")).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "До меню уроків" }));
+    expect(screen.getByRole("region", { name: "Головне меню уроків" })).toBeInTheDocument();
+    expect(screen.queryByTestId("lesson-board")).not.toBeInTheDocument();
+  });
+
   it("keeps a 468px desktop board in a 504px host and fits smaller screens on resize", () => {
     const previousHeight = window.innerHeight;
     const previousWidth = window.innerWidth;
@@ -34,6 +50,7 @@ describe("Lessons course and player flow", () => {
       Object.defineProperty(window, "innerHeight", { configurable: true, value: 707 });
       render(<Lessons />);
       fireEvent.click(screen.getByRole("button", { name: /Початківець/ }));
+      fireEvent.click(screen.getByRole("button", { name: /Почати урок 1:/ }));
       expect(screen.getByTestId("lesson-board")).toHaveAttribute("data-size", "468");
       Object.defineProperty(window, "innerWidth", { configurable: true, value: 600 });
       fireEvent.resize(window);
@@ -48,7 +65,7 @@ describe("Lessons course and player flow", () => {
   it("explains why a legal two-square pawn move is wrong for the one-square task", () => {
     render(<Lessons />);
     fireEvent.click(screen.getByRole("button", { name: /Початківець/ }));
-    fireEvent.click(screen.getByRole("button", { name: "Почати урок" }));
+    fireEvent.click(screen.getByRole("button", { name: /Почати урок 1:/ }));
     fireEvent.click(screen.getByRole("button", { name: "Продовжити" }));
     fireEvent.click(screen.getByRole("button", { name: "Хід e2–e4" }));
     expect(screen.getByText(/Хід e2–e4 дозволений із початкової позиції/)).toBeInTheDocument();
@@ -361,7 +378,7 @@ describe("Lessons course and player flow", () => {
     expect(getLessonEntryStep(lesson, completed)).toBe(0);
     localStorage.setItem(LESSON_PROGRESS_STORAGE_KEY, JSON.stringify(completed));
     render(<Lessons />);
-    expect(screen.getByRole("button", { name: "Повторити урок" })).toBeEnabled();
+    fireEvent.click(screen.getByRole("button", { name: "Усі уроки" }));
     fireEvent.click(screen.getByRole("button", { name: /Повторити урок 1:/ }));
     expect(within(screen.getByRole("main", { name: "Робоча область уроку" })).getByText("Крок 1 із 5")).toBeInTheDocument();
 
@@ -369,21 +386,15 @@ describe("Lessons course and player flow", () => {
     expect(getLessonEntryStep(lesson, { ...fresh, currentStepByLesson: { "1": 999 } })).toBe(0);
   });
 
-  it("filters only matching and genuinely available lessons", () => {
-    const lessons = LESSON_LEVELS.filter((lesson) => lesson.level === "beginner");
-    expect(filterLevelLessons(lessons, "Як ходить тура", "all", []).map((lesson) => lesson.id)).toEqual([2]);
-    expect(filterLevelLessons(lessons, "", "available", [1]).map((lesson) => lesson.id)).toEqual([2]);
-    expect(filterLevelLessons(lessons, "", "completed", [1]).map((lesson) => lesson.id)).toEqual([1]);
-    expect(filterLevelLessons(lessons, "", "all", [], "Дебют").map((lesson) => lesson.id)).toEqual([12, 13, 14, 15]);
-  });
-
-  it("searches the course and waits for the learner after a correct move", () => {
+  it("shows the full level catalog and waits for the learner after a correct move", () => {
     render(<Lessons />);
     fireEvent.click(screen.getByRole("button", { name: /Початківець/ }));
-    const search = screen.getByRole("textbox", { name: "Пошук уроків" });
-    fireEvent.change(search, { target: { value: "Як ходить тура" } });
-    expect(screen.getByText("Показано 1 із 15 уроків")).toBeInTheDocument();
-    fireEvent.change(search, { target: { value: "" } });
+    const catalog = within(screen.getByRole("complementary", { name: "Каталог уроків" }));
+    expect(catalog.queryByRole("textbox", { name: "Пошук уроків" })).not.toBeInTheDocument();
+    expect(catalog.queryByText("Доступні")).not.toBeInTheDocument();
+    expect(catalog.queryByText("Усі теми")).not.toBeInTheDocument();
+    expect(catalog.getByRole("button", { name: /Почати урок 1:/ })).toBeEnabled();
+    expect(catalog.getByRole("button", { name: /Почати урок 15:/ })).toBeDisabled();
     fireEvent.click(screen.getByRole("button", { name: /Почати урок 1:/ }));
     expect(within(screen.getByRole("main", { name: "Робоча область уроку" })).getByText("Крок 1 із 5")).toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "Продовжити" }));
@@ -396,28 +407,29 @@ describe("Lessons course and player flow", () => {
     expect(readProgress().currentStepByLesson["1"]).toBe(2);
   });
 
-  it("shows the same catalog, board, and step guide for all three course levels", () => {
+  it("shows a board only after selecting a lesson at each course level", () => {
     render(<Lessons />);
     fireEvent.click(screen.getByRole("button", { name: /Початківець/ }));
 
-    const catalog = screen.getByRole("complementary", { name: "Каталог уроків" });
-    const workspace = screen.getByRole("main", { name: "Робоча область уроку" });
-    const guide = screen.getByRole("complementary", { name: "Пояснення та кроки уроку" });
-    expect(within(catalog).getAllByTestId("lesson-preview")).toHaveLength(15);
-    expect(within(workspace).getByTestId("lesson-board")).toBeInTheDocument();
-    expect(within(guide).getByRole("list").children).toHaveLength(5);
-    expect(within(catalog).getByRole("button", { name: /Почати урок 2:/ })).toBeDisabled();
+    expect(within(screen.getByRole("complementary", { name: "Каталог уроків" })).getAllByTestId("lesson-preview")).toHaveLength(15);
+    expect(screen.queryByTestId("lesson-board")).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /Почати урок 2:/ })).toBeDisabled();
+    fireEvent.click(screen.getByRole("button", { name: /Почати урок 1:/ }));
+    expect(screen.getByTestId("lesson-board")).toBeInTheDocument();
+    expect(within(screen.getByRole("complementary", { name: "Пояснення та кроки уроку" })).getByRole("list").children).toHaveLength(5);
 
-    fireEvent.click(within(catalog).getByRole("button", { name: "Аматор" }));
-    expect(within(catalog).getAllByTestId("lesson-preview")).toHaveLength(20);
-    fireEvent.click(within(catalog).getByRole("button", { name: /Почати урок 16:/ }));
-    expect(within(workspace).getByText("Крок 1 із 5")).toBeInTheDocument();
-    expect(within(guide).getByRole("button", { name: "Показати розв’язок" })).toBeEnabled();
+    fireEvent.click(within(screen.getByRole("complementary", { name: "Каталог уроків" })).getByRole("button", { name: "Аматор" }));
+    expect(screen.queryByTestId("lesson-board")).not.toBeInTheDocument();
+    expect(within(screen.getByRole("complementary", { name: "Каталог уроків" })).getAllByTestId("lesson-preview")).toHaveLength(20);
+    fireEvent.click(screen.getByRole("button", { name: /Почати урок 16:/ }));
+    expect(within(screen.getByRole("main", { name: "Робоча область уроку" })).getByText("Крок 1 із 5")).toBeInTheDocument();
+    expect(within(screen.getByRole("complementary", { name: "Пояснення та кроки уроку" })).getByRole("button", { name: "Показати розв’язок" })).toBeEnabled();
 
-    fireEvent.click(within(catalog).getByRole("button", { name: "Досвідчений" }));
-    expect(within(catalog).getAllByTestId("lesson-preview")).toHaveLength(20);
-    fireEvent.click(within(catalog).getByRole("button", { name: /Почати урок 36:/ }));
-    expect(within(workspace).getByText("Крок 1 із 5")).toBeInTheDocument();
-    expect(within(guide).getByRole("list").children).toHaveLength(5);
+    fireEvent.click(within(screen.getByRole("complementary", { name: "Каталог уроків" })).getByRole("button", { name: "Досвідчений" }));
+    expect(screen.queryByTestId("lesson-board")).not.toBeInTheDocument();
+    expect(within(screen.getByRole("complementary", { name: "Каталог уроків" })).getAllByTestId("lesson-preview")).toHaveLength(20);
+    fireEvent.click(screen.getByRole("button", { name: /Почати урок 36:/ }));
+    expect(within(screen.getByRole("main", { name: "Робоча область уроку" })).getByText("Крок 1 із 5")).toBeInTheDocument();
+    expect(within(screen.getByRole("complementary", { name: "Пояснення та кроки уроку" })).getByRole("list").children).toHaveLength(5);
   });
 });

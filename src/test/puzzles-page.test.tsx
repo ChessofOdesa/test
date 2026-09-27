@@ -58,10 +58,11 @@ describe('Puzzle studio', () => {
         expect(screen.getByTestId('puzzle-board')).toHaveAttribute('data-fen', final.fen());
         expect(screen.getByRole('button', { name: 'g1f3' })).toBeEnabled();
     });
-    it('places the title in the page toolbar, removes rejected controls and prevents skipping by settings', async () => {
+    it('keeps settings in the left panel without the local toolbar or skip controls', async () => {
         open(); await screen.findByTestId('puzzle-board');
-        expect(screen.getByRole('heading', { name: 'Задачі' })).toBeInTheDocument();
-        expect(screen.getByRole('button', { name: 'Налаштування задач' })).toBeInTheDocument();
+        expect(screen.queryByRole('heading', { name: 'Задачі' })).not.toBeInTheDocument();
+        expect(screen.queryByRole('button', { name: 'Пошук тем' })).not.toBeInTheDocument();
+        expect(within(screen.getByRole('complementary', { name: 'Рейтинг гравця' })).getByRole('button', { name: 'Налаштування задач' })).toBeInTheDocument();
         expect(screen.queryByRole('tab')).not.toBeInTheDocument();
         for (const name of ['Пропустити','Наступна задача','Записати варіант','Почати заново']) expect(screen.queryByRole('button', { name })).not.toBeInTheDocument();
         fireEvent.click(screen.getByRole('button', { name: 'Вибрати тему задач' }));

@@ -1,10 +1,9 @@
-import { createDefaultLessonProgress, LEGACY_LESSON_PROGRESS_STORAGE_KEY, LESSON_LEVELS, LESSON_PROGRESS_STORAGE_KEY, type LessonLevel, type LessonProgressState, type LessonRecord, type LessonTopic } from "@/data/lesson-levels";
+import { createDefaultLessonProgress, LEGACY_LESSON_PROGRESS_STORAGE_KEY, LESSON_LEVELS, LESSON_PROGRESS_STORAGE_KEY, type LessonLevel, type LessonProgressState, type LessonRecord } from "@/data/lesson-levels";
 import { cn } from "@/lib/utils";
 import { Trophy } from "lucide-react";
-export type LessonWorkspaceMode = "level-selection" | "course-map" | "lesson-mode" | "completion";
+export type LessonWorkspaceMode = "overview" | "level-selection" | "course-map" | "lesson-mode" | "completion";
 export type LessonStatus = "completed" | "locked" | "recommended" | "selected" | "skipped" | "open";
 export type MoveState = "idle" | "success" | "wrong";
-export type CourseFilter = "all" | "available" | "completed";
 export type LessonAction = "start" | "continue" | "repeat";
 export function localDayKey(date = new Date()) {
     return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}`;
@@ -124,15 +123,6 @@ export function getLessonAction(lesson: LessonRecord, progress: LessonProgressSt
     if (progress.completedLessonIds.includes(lesson.id))
         return "repeat";
     return getLessonEntryStep(lesson, progress) > 0 ? "continue" : "start";
-}
-export function filterLevelLessons(lessons: LessonRecord[], query: string, filter: CourseFilter, completedLessonIds: number[], topic: LessonTopic | "all" = "all") {
-    const search = query.trim().toLocaleLowerCase("uk");
-    return lessons.filter((lesson) => {
-        const matchesSearch = !search || `${lesson.title} ${lesson.shortDescription} ${lesson.topic}`.toLocaleLowerCase("uk").includes(search);
-        const completed = completedLessonIds.includes(lesson.id);
-        const matchesFilter = filter === "all" || (filter === "completed" ? completed : !completed && isLessonUnlocked(lesson, completedLessonIds));
-        return matchesSearch && matchesFilter && (topic === "all" || lesson.topic === topic);
-    });
 }
 export function isLessonUnlocked(lesson: LessonRecord, completedLessonIds: number[]) {
     const lessons = getLevelLessons(lesson.level);
