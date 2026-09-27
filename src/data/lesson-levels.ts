@@ -1,7 +1,10 @@
+import { LESSON_SCENARIOS, makeScenarioSteps } from "./lesson-scenarios";
+
 export type LessonLevel = "beginner" | "amateur" | "master";
-export type LessonType = "theory" | "practice" | "puzzle" | "challenge" | "ai" | "review";
+export type LessonType = "theory" | "practice" | "puzzle" | "challenge" | "review";
 export type LessonStepKind = "explain" | "demo" | "practice" | "task" | "check" | "complete";
 export type LessonDiagramType = "empty" | "path" | "capture" | "blocked" | "challenge" | "success";
+export type LessonTopic = "Правила" | "Дебют" | "Тактика" | "Стратегія" | "Ендшпіль" | "Практика";
 
 export interface LessonStep {
   id: string;
@@ -25,6 +28,8 @@ export interface LessonStep {
   targetRevealHint?: 1 | 2 | 3;
   errorText?: string;
   successText?: string;
+  quiz?: { question: string; options: [string, string, string]; correctIndex: 0 | 1 | 2; feedback: string };
+  mistakeFeedback?: Record<string, string>;
 }
 
 export interface LessonRecord {
@@ -36,6 +41,7 @@ export interface LessonRecord {
   durationMinutes: number;
   xp: number;
   type: LessonType;
+  topic: LessonTopic;
   goal: string;
   steps: LessonStep[];
   fen?: string;
@@ -88,7 +94,7 @@ export const LESSON_LEVEL_META: Record<
   },
   master: {
     title: "Досвідчений",
-    range: "Уроки 36–50",
+    range: "Уроки 36–55",
     subtitle: "Ендшпілі, стратегія, динамічна гра та розбір партій.",
     description: "Для досвідчених гравців. Складніші позиції та мінімум підказок.",
     includes: ["ендшпілі", "стратегічні плани", "глибокий розрахунок", "мінімум підказок"],
@@ -147,6 +153,11 @@ const TITLES = [
   "Стратегічне мислення",
   "Динамічна гра",
   "Повний розбір партії",
+  "Незахищена фігура",
+  "Пішаковий прорив",
+  "Перетворення пішака",
+  "Мат на останній горизонталі",
+  "Відкритий напад",
 ] as const;
 
 const LESSON_FENS: Record<number, string> = {
@@ -163,16 +174,6 @@ const LESSON_FENS: Record<number, string> = {
   11: "6k1/5ppp/8/8/8/8/8/K3R3 w - - 0 1",
   12: "rnbqkbnr/ppp1pppp/3p4/8/4P3/8/PPPP1PPP/RNBQKBNR w KQkq - 0 2",
   13: "r1bqkbnr/pppp1ppp/2n5/4p3/4P3/5N2/PPPP1PPP/RNBQKB1R w KQkq - 2 3",
-  16: "r1bqkbnr/pppppppp/2n5/8/4N3/8/PPPPPPPP/R1BQKBNR w KQkq - 2 2",
-  17: "r3k2r/ppp2ppp/2n5/3q4/3B4/8/PPP2PPP/R3K2R w KQkq - 0 1",
-  18: "rnbqkbnr/pppp1ppp/8/4p3/4N3/8/PPPPPPPP/R1BQKBNR w KQkq - 0 2",
-  24: "r1bqk2r/pppp1ppp/2n2n2/4p3/2B1P3/5N2/PPPP1PPP/RNBQ1RK1 w kq - 4 5",
-  31: "r2q1rk1/pp2bppp/2n1pn2/2pp4/3P4/2P1PN2/PP1NBPPP/R2Q1RK1 w - - 0 9",
-  36: "8/8/8/3k4/3P4/4K3/8/8 w - - 0 1",
-  37: "8/8/8/3k4/8/3K4/3P4/8 w - - 0 1",
-  40: "8/8/8/8/8/1k6/6P1/4R1K1 w - - 0 1",
-  47: STARTING_FEN,
-  50: STARTING_FEN,
 };
 
 const SOLUTION_MOVES: Record<number, string> = {
@@ -189,10 +190,6 @@ const SOLUTION_MOVES: Record<number, string> = {
   11: "e1e8",
   12: "d2d4",
   13: "f1c4",
-  16: "e4f6",
-  18: "e4f6",
-  36: "e3f4",
-  37: "d3e3",
 };
 
 function levelForId(id: number): LessonLevel {
@@ -201,12 +198,22 @@ function levelForId(id: number): LessonLevel {
   return "master";
 }
 
+function topicForId(id: number): LessonTopic {
+  if (id <= 11) return "Правила";
+  if (id <= 15) return "Дебют";
+  if (id <= 24) return "Тактика";
+  if (id <= 35) return "Стратегія";
+  if (id <= 42) return "Ендшпіль";
+  if (id <= 50) return "Стратегія";
+  return "Практика";
+}
+
 function typeForId(id: number): LessonType {
   if (id <= 10) return "theory";
   if (id === 11 || id === 16 || id === 18 || id === 24) return "puzzle";
   if (id <= 35) return id % 5 === 0 ? "challenge" : "practice";
   if (id === 47 || id === 50) return "review";
-  return id % 3 === 0 ? "ai" : "challenge";
+  return "challenge";
 }
 
 function difficultyForLevel(level: LessonLevel): "Easy" | "Medium" | "Hard" {
@@ -225,42 +232,6 @@ function goalFor(title: string, level: LessonLevel): string {
   }
 
   return `Розібрати тему “${title}” як сильний шахіст: оцінити позицію, план і наслідки.`;
-}
-
-function shortDescriptionFor(title: string, level: LessonLevel): string {
-  if (level === "beginner") {
-    return `Простий візуальний урок: ${title.toLowerCase()}.`;
-  }
-
-  if (level === "amateur") {
-    return `Практичний урок із тактикою та самостійним пошуком: ${title.toLowerCase()}.`;
-  }
-
-  return `Глибокий урок для рішень у складній позиції: ${title.toLowerCase()}.`;
-}
-
-function hintsFor(title: string, level: LessonLevel): [string, string, string] {
-  if (level === "beginner") {
-    return [
-      "Подивись на активну фігуру і клітини, які вона контролює.",
-      "Знайди найбезпечніший хід, який відповідає темі уроку.",
-      `Майже відповідь: шукай простий хід, який показує “${title}”.`,
-    ];
-  }
-
-  if (level === "amateur") {
-    return [
-      "Шукай темп, незахищену фігуру або слабке поле.",
-      "Перевір, чи можна атакувати дві цілі одночасно або виграти ініціативу.",
-      `Майже відповідь: кандидатний хід повинен прямо використати тему “${title}”.`,
-    ];
-  }
-
-  return [
-    "Спочатку оціни короля, структуру пішаків і активність фігур.",
-    "Порівняй довгостроковий план із негайним тактичним ресурсом.",
-    `Майже відповідь: найсильніший хід повинен покращити позицію за темою “${title}”.`,
-  ];
 }
 
 const BEGINNER_TRAINER_LESSONS: Record<
@@ -1356,72 +1327,12 @@ function makePieceMovementSteps(id: number): LessonStep[] | null {
   }));
 }
 
-function makeSteps(id: number, title: string, level: LessonLevel, type: LessonType): LessonStep[] {
-  const pieceMovementSteps = makePieceMovementSteps(id);
-  if (pieceMovementSteps) return pieceMovementSteps;
-
-  const hints = hintsFor(title, level);
-  const practical = type !== "theory" && type !== "review" && Boolean(SOLUTION_MOVES[id]);
-
-  return [
-    {
-      id: `${id}-explain`,
-      kind: "explain",
-      title: "Ідея",
-      text:
-        level === "beginner"
-          ? `У цьому кроці дивимось на тему “${title}” дуже просто: що змінюється на дошці і чому це важливо.`
-          : `У цьому кроці шукаємо, як тема “${title}” змінює оцінку позиції або план гри.`,
-      goal: "Зрозуміти головну ідею перед ходом.",
-      action: "Прочитай коротке пояснення і переходь далі.",
-      hints,
-      reveal: `Головну ідею теми «${title}» варто знайти на дошці перед переходом далі.`,
-    },
-    {
-      id: `${id}-demo`,
-      kind: "demo",
-      title: "Приклад",
-      text: "Подивись на позицію та спробуй знайти два кандидатні ходи самостійно.",
-      goal: "Побачити кандидатні ходи.",
-      action: "Назви подумки 2 кандидатні ходи.",
-      hints,
-      reveal: "Сильний кандидатний хід зазвичай покращує найгіршу фігуру або створює конкретну загрозу.",
-    },
-    {
-      id: `${id}-task`,
-      kind: practical ? "task" : "check",
-      title: practical ? "Твій хід" : "Перевірка ідеї",
-      text: practical
-        ? "Зроби хід на дошці. Якщо складно, скористайся підказкою."
-        : "Поясни ідею своїми словами, потім відкрий розв’язок для перевірки.",
-      goal: "Закріпити ідею дією.",
-      action: practical ? "Зроби хід або скористайся підказкою." : "Покажи розв’язок, щоб перевірити своє пояснення.",
-      hints,
-      reveal: SOLUTION_MOVES[id]
-        ? `Правильний напрямок: ${SOLUTION_MOVES[id].slice(0, 2)}-${SOLUTION_MOVES[id].slice(2, 4)}.`
-        : "Тут важливіше пояснити план: активність фігур, безпека короля і слабкі поля.",
-    },
-    {
-      id: `${id}-check`,
-      kind: "check",
-      title: "Підсумок",
-      text: "Тепер коротко перевір: що змінилось після правильного ходу і яка ідея переходить у наступний крок.",
-      goal: "Навчитись пояснювати не тільки хід, а й причину.",
-      action: "Порівняй своє пояснення з розв’язком праворуч.",
-      hints,
-      reveal: "Сильний хід має ідею, наслідок і наступний план.",
-    },
-    {
-      id: `${id}-complete`,
-      kind: "complete",
-      title: "Завершення",
-      text: "Підсумуй вивчене й переходь до наступного уроку.",
-      goal: "Закрити урок і відкрити наступний.",
-      action: "Натисни «Завершити» праворуч.",
-      hints,
-      reveal: "Готово. Повторити урок можна будь-коли з карти.",
-    },
-  ];
+function makeSteps(id: number, title: string): LessonStep[] {
+  const beginner = makePieceMovementSteps(id);
+  if (beginner) return beginner;
+  const scenario = LESSON_SCENARIOS[id];
+  if (!scenario) throw new Error(`Немає вправи для уроку ${id}`);
+  return makeScenarioSteps(id, title, scenario);
 }
 
 export const LESSON_LEVELS: LessonRecord[] = TITLES.map((title, index) => {
@@ -1430,20 +1341,22 @@ export const LESSON_LEVELS: LessonRecord[] = TITLES.map((title, index) => {
   const type = typeForId(id);
   const durationMinutes = level === "beginner" ? 5 + (id % 3) : level === "amateur" ? 8 + (id % 5) : 11 + (id % 6);
   const xp = level === "beginner" ? 20 + id : level === "amateur" ? 45 + id : 75 + id;
+  const scenario = LESSON_SCENARIOS[id];
 
   return {
     id,
     level,
     title,
-    shortDescription: shortDescriptionFor(title, level),
+    shortDescription: BEGINNER_TRAINER_LESSONS[id]?.summary || scenario?.idea || "",
     difficulty: difficultyForLevel(level),
     durationMinutes,
     xp,
     type,
-    goal: goalFor(title, level),
-    steps: makeSteps(id, title, level, type),
-    fen: LESSON_FENS[id] ?? STARTING_FEN,
-    solutionMove: SOLUTION_MOVES[id],
+    topic: topicForId(id),
+    goal: scenario?.task || goalFor(title, level),
+    steps: makeSteps(id, title),
+    fen: scenario?.fen || LESSON_FENS[id] || STARTING_FEN,
+    solutionMove: scenario?.move || SOLUTION_MOVES[id],
   };
 });
 

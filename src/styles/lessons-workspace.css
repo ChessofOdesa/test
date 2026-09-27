@@ -96,6 +96,11 @@
 .lessons-filter button { min-height: 42px; padding: 6px 3px; border-radius: 8px; font-size: .88rem; color: #455673; }
 .lessons-filter button[aria-pressed="true"] { background: #e7f1ff; color: #0d69d2; font-weight: 700; }
 .lessons-result-count { margin: -2px 2px 0; font-size: .76rem; color: #6a7890; }
+.lessons-topics { display: flex; gap: 6px; overflow-x: auto; padding: 2px 1px 5px; scrollbar-width: thin; }
+.lessons-topics button { flex: none; min-height: 34px; padding: 5px 11px; border: 1px solid #dbe6f3; border-radius: 18px; background: #fff; color: #415576; font-size: .78rem; }
+.lessons-topics button[aria-pressed="true"] { border-color: #86bffa; background: #e9f3ff; color: #0968c8; font-weight: 700; }
+.lessons-topics button:focus-visible, .lessons-quiz button:focus-visible, .lessons-mobile-catalog-toggle:focus-visible { outline: 2px solid #147af0; outline-offset: 2px; }
+.lessons-mobile-catalog-toggle, .lessons-mobile-context { display: none; }
 .lessons-catalog-scroll { display: flex; flex-direction: column; gap: 10px; max-height: min(860px, calc(100dvh - 326px)); min-height: 180px; overflow-y: auto; padding: 1px 5px 4px 1px; scrollbar-color: #bdcde1 transparent; }
 .lessons-catalog-card {
   display: flex;
@@ -133,6 +138,7 @@
 .lessons-card-copy strong { color: #16234b; font-size: .98rem; line-height: 1.25; font-weight: 750; }
 .lessons-card-copy > span { display: -webkit-box; overflow: hidden; margin-top: 6px; color: #65738c; font-size: .8rem; line-height: 1.45; -webkit-box-orient: vertical; -webkit-line-clamp: 2; }
 .lessons-card-copy small { margin-top: 5px; font-size: .7rem; color: #126acb; font-weight: 650; }
+.lessons-card-copy .lessons-card-topic { color: #62738e; }
 .lessons-card-preview { flex: none; width: 82px; height: 82px; overflow: hidden; border-radius: 6px; pointer-events: none; }
 .lessons-empty { padding: 20px 14px; border: 1px dashed #cdd9e8; border-radius: 10px; color: #64718a; line-height: 1.5; }
 .lessons-stage-header { display: flex; align-items: flex-start; justify-content: space-between; gap: 10px; min-height: 62px; margin-bottom: 13px; }
@@ -157,6 +163,13 @@
 .lessons-guide-card > .lessons-feedback { padding: 10px 12px; border-radius: 8px; background: #eaf6ff; color: #12579f; font-size: .84rem; }
 .lessons-guide-card > .lessons-hint { padding: 10px 12px; border: 1px solid #b9d9fc; border-radius: 8px; background: #f0f7ff; color: #205591; font-size: .83rem; }
 .lessons-guide-card > .lessons-reveal { padding: 10px 12px; border: 1px solid #a4d8c1; border-radius: 8px; background: #effaf4; color: #215b40; font-size: .83rem; }
+.lessons-quiz { display: grid; gap: 8px; margin: 14px 0; }
+.lessons-quiz button { width: 100%; padding: 11px 12px; border: 1px solid #cfddec; border-radius: 8px; background: #fff; color: #1a335b; text-align: left; font-size: .84rem; line-height: 1.35; }
+.lessons-quiz button:hover:not(:disabled) { background: #eff6ff; border-color: #8dc2fa; }
+.lessons-quiz button.is-correct { background: #e9f8ef; border-color: #7fcda2; color: #215b40; }
+.lessons-quiz button.is-wrong { background: #fff1eb; border-color: #e9ad94; color: #8e3d20; }
+.lessons-quiz button:disabled { cursor: default; }
+.lessons-quiz p { margin: 2px 0 0; color: #385a83; font-size: .8rem; }
 .lessons-help-actions { display: grid; gap: 8px; margin-top: 15px; }
 .lessons-help-actions button, .lessons-guide-button { display: flex; align-items: center; justify-content: center; gap: 10px; min-height: 46px; border: 1px solid #b5d4fa; border-radius: 8px; color: #1373db; font-size: .88rem; font-weight: 650; }
 .lessons-help-actions button:first-child { background: #eaf4ff; }
@@ -199,6 +212,9 @@
   .lessons-progress .lessons-progress-bar { order: 3; flex-basis: calc(100% - 90px); }
   .lessons-progress-count { order: 4; min-width: 65px; text-align: right; font-size: .8rem; }
   .lessons-workspace { display: flex; flex-direction: column; gap: 21px; }
+  .lessons-mobile-catalog-toggle { display: flex; align-items: center; justify-content: center; gap: 8px; width: 100%; min-height: 42px; border: 1px solid #b5d4fa; border-radius: 9px; background: #eef6ff; color: #1269bf; font-size: .9rem; font-weight: 700; }
+  .lessons-catalog.is-mobile-collapsed { display: none; }
+  .lessons-mobile-context { display: block; margin: 0 0 12px; padding: 10px 12px; border-left: 3px solid #8ec2fc; border-radius: 4px; background: #f2f8ff; color: #304765; font-size: .87rem; line-height: 1.45; }
   .lessons-catalog, .lessons-stage, .lessons-guide { width: 100%; }
   .lessons-catalog-scroll { max-height: 250px; }
   .lessons-stage-header { min-height: auto; }

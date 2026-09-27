@@ -1,10 +1,10 @@
 import ChessBoard from "@/components/ChessBoard";
 import { Progress } from "@/components/ui/progress";
-import { LESSON_LEVEL_META, LESSON_LEVELS, type LessonLevel, type LessonProgressState, type LessonRecord } from "@/data/lesson-levels";
+import { LESSON_LEVEL_META, LESSON_LEVELS, type LessonLevel, type LessonProgressState, type LessonRecord, type LessonTopic } from "@/data/lesson-levels";
 import { createCleanLessonDiagramFen, filterLevelLessons, firstAvailableLesson, getLessonAction, getLessonEntryStep, getLessonStatus, getLevelLessons, isLessonUnlocked, localDayKey, type CourseFilter, type LessonAction, type LessonWorkspaceMode, LEVEL_ORDER, type MoveState, normalizeMove, PrimaryButton, readProgress, StatCard, writeProgress } from '@/features/lessons/model';
 import { cn } from "@/lib/utils";
 import { Chess, type Square } from "chess.js";
-import { ArrowRight, BarChart3, Check, CheckCircle2, ChevronLeft, ChevronRight, Eye, Flame, Lightbulb, Lock, Medal, RotateCcw, Search, Target, Trophy, Zap } from "lucide-react";
+import { ArrowRight, BarChart3, Check, CheckCircle2, ChevronLeft, ChevronRight, Eye, Flame, Lightbulb, List, Lock, Medal, RotateCcw, Search, Target, Trophy, Zap } from "lucide-react";
 import { LessonsIcon } from "@/components/icons/chess";
 import { useEffect, useMemo, useRef, useState } from "react";
 import "@/styles/lessons-workspace.css";
@@ -24,9 +24,13 @@ export default function Lessons() {
     const [lastMove, setLastMove] = useState<string | null>(null);
     const [revealed, setRevealed] = useState(false);
     const [moveState, setMoveState] = useState<MoveState>("idle");
+    const [boardError, setBoardError] = useState("");
     const [completionLessonId, setCompletionLessonId] = useState<number | null>(null);
     const [courseSearch, setCourseSearch] = useState("");
     const [courseFilter, setCourseFilter] = useState<CourseFilter>("all");
+    const [courseTopic, setCourseTopic] = useState<LessonTopic | "all">("all");
+    const [catalogExpanded, setCatalogExpanded] = useState(false);
+    const [selectedQuizAnswer, setSelectedQuizAnswer] = useState<number | null>(null);
     const boardHostRef = useRef<HTMLElement>(null);
     useEffect(() => {
         writeProgress(progress);
@@ -45,7 +49,8 @@ export default function Lessons() {
     }, [mode]);
     const selectedLevel = progress.selectedLevel;
     const levelLessons = useMemo(() => getLevelLessons(selectedLevel), [selectedLevel]);
-    const visibleLessons = useMemo(() => filterLevelLessons(levelLessons, courseSearch, courseFilter, progress.completedLessonIds), [levelLessons, courseSearch, courseFilter, progress.completedLessonIds]);
+    const availableTopics = useMemo(() => [...new Set(levelLessons.map((lesson) => lesson.topic))], [levelLessons]);
+    const visibleLessons = useMemo(() => filterLevelLessons(levelLessons, courseSearch, courseFilter, progress.completedLessonIds, courseTopic), [levelLessons, courseSearch, courseFilter, courseTopic, progress.completedLessonIds]);
     const selectedLesson = useMemo(() => LESSON_LEVELS.find((lesson) => lesson.id === selectedLessonId) || levelLessons[0] || LESSON_LEVELS[0], [levelLessons, selectedLessonId]);
     const recommendedLesson = selectedLevel ? firstAvailableLesson(selectedLevel, progress.completedLessonIds) : null;
     const selectedStatus = getLessonStatus(selectedLesson, selectedLessonId, progress, recommendedLesson?.id ?? null);
@@ -65,17 +70,21 @@ export default function Lessons() {
     const targetSquare = selectedStep.targetSquare || currentExpectedMove?.slice(2, 4);
     const lessonDisplayFen = useMemo(() => (mode === "lesson-mode" ? createCleanLessonDiagramFen(boardFen, selectedLesson.id) : undefined), [boardFen, mode, selectedLesson.id]);
     const canContinueFromTask = !currentExpectedMove || moveState === "success" || revealed;
-    const primaryLessonDisabled = (selectedStep.kind === "practice" || selectedStep.kind === "task") && !canContinueFromTask;
+    const quizSolved = selectedStep.quiz && selectedQuizAnswer === selectedStep.quiz.correctIndex;
+    const primaryLessonDisabled = (selectedStep.kind === "practice" || selectedStep.kind === "task") && !canContinueFromTask || Boolean(selectedStep.quiz && !quizSolved && !revealed);
     const isPracticeStep = selectedStep.kind === "practice" || selectedStep.kind === "task";
     const practiceTargetSquares = targetSquare && isPracticeStep && (hintLevel >= (selectedStep.targetRevealHint ?? 0) || revealed)
         ? [targetSquare as Square]
         : [];
     const boardInteractive = mode === "lesson-mode" && isPracticeStep && !revealed && moveState !== "success";
+    const showPracticeMarkers = !isPracticeStep || hintLevel >= (selectedStep.targetRevealHint ?? 0) || revealed || moveState === "success";
     useEffect(() => {
         setBoardFen(selectedStep.fen || selectedLesson.fen);
         setLastMove(null);
         setRevealed(false);
         setMoveState("idle");
+        setBoardError("");
+        setSelectedQuizAnswer(null);
     }, [selectedLesson.fen, selectedLesson.id, selectedStep.fen, selectedStep.id]);
     const updateProgress = (updater: (current: LessonProgressState) => LessonProgressState) => {
         setProgress((current) => updater(current));
@@ -95,6 +104,8 @@ export default function Lessons() {
         setStepIndex(0);
         setCourseSearch("");
         setCourseFilter("all");
+        setCourseTopic("all");
+        setCatalogExpanded(false);
         setMode("course-map");
     };
     const startLesson = (lesson: LessonRecord = selectedLesson) => {
@@ -108,12 +119,16 @@ export default function Lessons() {
         setBoardFen(lesson.steps[nextStepIndex]?.fen || lesson.fen);
         setLastMove(null);
         setMoveState("idle");
+        setBoardError("");
         setRevealed(false);
+        setSelectedQuizAnswer(null);
+        setCatalogExpanded(false);
         setMode("lesson-mode");
         updateProgress((current) => ({
             ...current,
             currentLessonId: lesson.id,
             currentStepByLesson: { ...current.currentStepByLesson, [lesson.id]: nextStepIndex },
+            hintLevelByLesson: { ...current.hintLevelByLesson, [lesson.id]: 0 },
             lastFeedback: lesson.steps[nextStepIndex]?.action || lesson.goal,
         }));
     };
@@ -130,6 +145,8 @@ export default function Lessons() {
         setLastMove(null);
         setRevealed(false);
         setMoveState("idle");
+        setBoardError("");
+        setSelectedQuizAnswer(null);
         updateProgress((current) => ({
             ...current,
             currentStepByLesson: { ...current.currentStepByLesson, [selectedLesson.id]: next },
@@ -146,6 +163,8 @@ export default function Lessons() {
         setLastMove(null);
         setRevealed(false);
         setMoveState("idle");
+        setBoardError("");
+        setSelectedQuizAnswer(null);
         updateProgress((current) => ({
             ...current,
             currentStepByLesson: { ...current.currentStepByLesson, [selectedLesson.id]: previous },
@@ -168,6 +187,7 @@ export default function Lessons() {
             return;
         setRevealed(true);
         setMoveState("success");
+        if (selectedStep.quiz) setSelectedQuizAnswer(selectedStep.quiz.correctIndex);
         if (isPracticeStep && currentExpectedMove) {
             setLastMove(currentExpectedMove);
             try {
@@ -211,6 +231,7 @@ export default function Lessons() {
         setMode("completion");
     };
     const continueAfterCompletion = () => {
+        setCatalogExpanded(true);
         if (nextLesson) {
             setSelectedLessonId(nextLesson.id);
             setMode("course-map");
@@ -226,6 +247,8 @@ export default function Lessons() {
         setStepIndex(0);
         setBoardFen(lesson.steps[0]?.fen || lesson.fen);
         setMoveState("idle");
+        setBoardError("");
+        setSelectedQuizAnswer(null);
         setMode("lesson-mode");
         setFeedback("Повторення розпочато з першого кроку.");
     };
@@ -241,10 +264,11 @@ export default function Lessons() {
                 setFeedback("Неможливий хід. Оберіть інше поле.");
                 return false;
             }
-            const played = `${from}${to}${promotion === "q" ? "" : promotion}`;
+            const played = `${from}${to}${move.promotion || ""}`;
             if (isPracticeStep && currentExpectedMove) {
                 if (normalizeMove(played) === normalizeMove(currentExpectedMove)) {
                     setMoveState("success");
+                    setBoardError("");
                     setBoardFen(game.fen());
                     setLastMove(played);
                     setFeedback(selectedStep.successText || "Це правильний хід.");
@@ -252,12 +276,14 @@ export default function Lessons() {
                 }
                 else {
                     setMoveState("wrong");
+                    const error = selectedStep.mistakeFeedback?.[played] || selectedStep.errorText || "Спробуй ще раз. Подивись на підказку справа.";
+                    setBoardError(error);
                     setBoardFen(selectedStep.fen || selectedLesson.fen);
                     setLastMove(null);
                     updateProgress((current) => ({
                         ...current,
                         hintLevelByLesson: { ...current.hintLevelByLesson, [selectedLesson.id]: Math.max(1, hintLevel) },
-                        lastFeedback: selectedStep.errorText || "Спробуй ще раз. Подивись на підказку справа.",
+                        lastFeedback: error,
                     }));
                     return false;
                 }
@@ -274,6 +300,12 @@ export default function Lessons() {
             return false;
         }
     };
+    const answerQuiz = (answer: number) => {
+        if (mode !== "lesson-mode" || !selectedStep.quiz || revealed) return;
+        setSelectedQuizAnswer(answer);
+        const correct = answer === selectedStep.quiz.correctIndex;
+        setFeedback(correct ? selectedStep.quiz.feedback : "Спробуй іншу відповідь. Згадай ідею ходу на дошці.");
+    };
     const currentCoachText = mode === "level-selection"
         ? "Спочатку оберіть рівень."
         : mode === "course-map"
@@ -283,7 +315,7 @@ export default function Lessons() {
                 : moveState === "success"
                     ? selectedStep.successText || "Готово! Основну ідею засвоєно."
                     : moveState === "wrong"
-                        ? "Скористайтеся підказкою та спробуйте ще раз."
+                        ? boardError
                         : selectedStep.text;
     const previewStep = mode === "course-map" ? selectedLesson.steps[0] : selectedStep;
     const previewFen = mode === "course-map" ? previewStep.fen || selectedLesson.fen : boardFen;
@@ -333,7 +365,9 @@ export default function Lessons() {
                     </section>
                 ) : (
                     <div className="lessons-workspace">
-                        <aside className="lessons-catalog" aria-label="Каталог уроків">
+                        {mode === "lesson-mode" ? <button type="button" className="lessons-mobile-catalog-toggle" aria-controls="lessons-catalog" aria-expanded={catalogExpanded}
+                            onClick={() => setCatalogExpanded((open) => !open)}><List size={18} aria-hidden="true" /> {catalogExpanded ? "Згорнути каталог уроків" : "Показати каталог уроків"}</button> : null}
+                        <aside id="lessons-catalog" className={cn("lessons-catalog", mode === "lesson-mode" && !catalogExpanded && "is-mobile-collapsed")} aria-label="Каталог уроків">
                             <div className="lessons-level-switch" aria-label="Рівень курсу">
                                 {LEVEL_ORDER.map((level) => (
                                     <button key={level} type="button" onClick={() => selectLevel(level)} aria-pressed={selectedLevel === level}>
@@ -351,6 +385,11 @@ export default function Lessons() {
                                     <button key={filter} type="button" onClick={() => setCourseFilter(filter)} aria-pressed={courseFilter === filter}>
                                         {label}
                                     </button>
+                                ))}
+                            </div>
+                            <div className="lessons-topics" role="group" aria-label="Теми уроків">
+                                {(["all", ...availableTopics] as const).map((topic) => (
+                                    <button key={topic} type="button" onClick={() => setCourseTopic(topic)} aria-pressed={courseTopic === topic}>{topic === "all" ? "Усі теми" : topic}</button>
                                 ))}
                             </div>
                             <p className="lessons-result-count" aria-live="polite">Показано {visibleLessons.length} із {levelLessons.length} уроків</p>
@@ -371,6 +410,7 @@ export default function Lessons() {
                                                 <span className="lessons-card-copy">
                                                     <strong>{lesson.title}</strong>
                                                     <span>{lesson.shortDescription}</span>
+                                                    <small className="lessons-card-topic">{lesson.topic}</small>
                                                     {status === "completed" ? <small>Пройдено</small> : action === "continue" ? <small>Продовжити</small> : null}
                                                 </span>
                                             </button>
@@ -401,17 +441,18 @@ export default function Lessons() {
                                     </div>
                                 ) : null}
                             </div>
+                            {mode === "lesson-mode" ? <p className="lessons-mobile-context">{selectedStep.quiz?.question || selectedStep.text}</p> : null}
                             <section ref={boardHostRef} className="lessons-board-host" aria-label={`Шахівниця уроку ${selectedLesson.title}`}>
                                 <ChessBoard key={`${selectedLesson.id}-${mode === "lesson-mode" ? selectedStep.id : "preview"}`}
                                     initialFen={previewFen} displayFen={displayFen} size={boardSize}
                                     onMove={handleBoardMove} interactive={boardInteractive} showLegalMoves={boardInteractive} showLastMove
-                                    annotationSquares={mode === "lesson-mode" && selectedStep.demoSquares ? selectedStep.demoSquares as Square[] : []}
+                                    annotationSquares={mode === "lesson-mode" && showPracticeMarkers && selectedStep.demoSquares ? selectedStep.demoSquares as Square[] : []}
                                     targetSquares={mode === "lesson-mode" ? practiceTargetSquares : []}
                                     startSquares={mode === "lesson-mode" && selectedStep.startSquare ? [selectedStep.startSquare as Square] : []}
                                     blockedSquares={mode === "lesson-mode" && selectedStep.blockedSquares ? selectedStep.blockedSquares as Square[] : []}
                                     captureSquares={mode === "lesson-mode" && selectedStep.captureSquares ? selectedStep.captureSquares as Square[] : []}
                                     dangerSquares={mode === "lesson-mode" && selectedStep.dangerSquares ? selectedStep.dangerSquares as Square[] : []}
-                                    customArrows={mode === "lesson-mode" && selectedStep.arrows ? selectedStep.arrows as [Square, Square][] : []}
+                                    customArrows={mode === "lesson-mode" && showPracticeMarkers && selectedStep.arrows ? selectedStep.arrows as [Square, Square][] : []}
                                     enableMoveSounds highlightSquares={targetSquare && mode === "lesson-mode" && moveState === "success"
                                         ? { squares: [targetSquare as Square], type: "correct" } : undefined}
                                     lastMoveSquares={lastMove && mode === "lesson-mode" ? [lastMove.slice(0, 2), lastMove.slice(2, 4)] as Square[] : []}
@@ -430,7 +471,7 @@ export default function Lessons() {
                                         : selectedStep.kind === "complete" ? "Завершити" : "Продовжити"}
                                 {mode === "lesson-mode" && selectedStep.kind === "complete" ? <CheckCircle2 size={19} aria-hidden="true" /> : <ArrowRight size={19} aria-hidden="true" />}
                             </PrimaryButton>
-                            {mode === "lesson-mode" && primaryLessonDisabled ? <p className="lessons-continue-note">Зробіть хід на шахівниці або перегляньте розв’язок, щоб продовжити.</p> : null}
+                            {mode === "lesson-mode" && primaryLessonDisabled ? <p className="lessons-continue-note">{selectedStep.quiz ? "Оберіть правильну відповідь або перегляньте пояснення, щоб продовжити." : "Зробіть хід на шахівниці або перегляньте розв’язок, щоб продовжити."}</p> : null}
                         </main>
 
                         <aside className="lessons-guide" aria-label="Пояснення та кроки уроку">
@@ -457,6 +498,18 @@ export default function Lessons() {
                                         <h2>{selectedStep.title}</h2>
                                         <p>{selectedStep.text}</p>
                                         <p className="lessons-step-goal">{selectedStep.goal}</p>
+                                        {selectedStep.quiz ? (
+                                            <div className="lessons-quiz" role="group" aria-label="Перевірка знань">
+                                                <strong>{selectedStep.quiz.question}</strong>
+                                                {selectedStep.quiz.options.map((answer, index) => (
+                                                    <button type="button" key={answer} onClick={() => answerQuiz(index)} disabled={Boolean(quizSolved || revealed)}
+                                                        className={cn(selectedQuizAnswer === index && (index === selectedStep.quiz?.correctIndex ? "is-correct" : "is-wrong"))}>
+                                                        {answer}
+                                                    </button>
+                                                ))}
+                                                {selectedQuizAnswer !== null ? <p role="status" aria-live="polite">{quizSolved || revealed ? selectedStep.quiz.feedback : "Ще не так. Перевір пояснення й спробуй знову."}</p> : null}
+                                            </div>
+                                        ) : null}
                                         {moveState !== "idle" || revealed ? <p className="lessons-feedback" role="status" aria-live="polite">{currentCoachText}</p> : null}
                                         {hintLevel > 0 ? <p className="lessons-hint" role="status"><strong>Підказка {hintLevel}:</strong> {selectedStep.hints[hintLevel - 1]}</p> : null}
                                         {revealed ? <p className="lessons-reveal" role="status"><strong>Розв’язок:</strong> {selectedStep.reveal}</p> : null}
