@@ -1,7 +1,7 @@
 import { createDefaultLessonProgress, LEGACY_LESSON_PROGRESS_STORAGE_KEY, LESSON_LEVELS, LESSON_PROGRESS_STORAGE_KEY, type LessonLevel, type LessonProgressState, type LessonRecord } from "@/data/lesson-levels";
 import { cn } from "@/lib/utils";
 import { Trophy } from "lucide-react";
-export type LessonWorkspaceMode = "level-selection" | "course-map" | "lesson-mode" | "completion";
+export type LessonWorkspaceMode = "overview" | "level-selection" | "course-map" | "lesson-mode" | "completion";
 export type LessonStatus = "completed" | "locked" | "recommended" | "selected" | "skipped" | "open";
 export type MoveState = "idle" | "success" | "wrong";
 export type LessonAction = "start" | "continue" | "repeat";
