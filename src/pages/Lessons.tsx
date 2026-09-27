@@ -67,6 +67,9 @@ export default function Lessons() {
     const canContinueFromTask = !currentExpectedMove || moveState === "success" || revealed;
     const primaryLessonDisabled = (selectedStep.kind === "practice" || selectedStep.kind === "task") && !canContinueFromTask;
     const isPracticeStep = selectedStep.kind === "practice" || selectedStep.kind === "task";
+    const practiceTargetSquares = targetSquare && isPracticeStep && (hintLevel >= (selectedStep.targetRevealHint ?? 0) || revealed)
+        ? [targetSquare as Square]
+        : [];
     const boardInteractive = mode === "lesson-mode" && isPracticeStep && !revealed && moveState !== "success";
     useEffect(() => {
         setBoardFen(selectedStep.fen || selectedLesson.fen);
@@ -397,7 +400,7 @@ export default function Lessons() {
                   </span>
                 </div>
                 <div className="relative flex justify-center">
-                  <ChessBoard key={`${selectedLesson.id}-${selectedStep.id}`} initialFen={boardFen} displayFen={lessonDisplayFen} size={boardSize} onMove={handleBoardMove} interactive={boardInteractive} showLegalMoves={boardInteractive} showLastMove annotationSquares={selectedStep.demoSquares ? (selectedStep.demoSquares as Square[]) : []} targetSquares={targetSquare && isPracticeStep ? ([targetSquare] as Square[]) : []} startSquares={selectedStep.startSquare ? ([selectedStep.startSquare] as Square[]) : []} blockedSquares={selectedStep.blockedSquares ? (selectedStep.blockedSquares as Square[]) : []} captureSquares={selectedStep.captureSquares ? (selectedStep.captureSquares as Square[]) : []} dangerSquares={selectedStep.dangerSquares ? (selectedStep.dangerSquares as Square[]) : []} customArrows={selectedStep.arrows ? (selectedStep.arrows as [
+                  <ChessBoard key={`${selectedLesson.id}-${selectedStep.id}`} initialFen={boardFen} displayFen={lessonDisplayFen} size={boardSize} onMove={handleBoardMove} interactive={boardInteractive} showLegalMoves={boardInteractive} showLastMove annotationSquares={selectedStep.demoSquares ? (selectedStep.demoSquares as Square[]) : []} targetSquares={practiceTargetSquares} startSquares={selectedStep.startSquare ? ([selectedStep.startSquare] as Square[]) : []} blockedSquares={selectedStep.blockedSquares ? (selectedStep.blockedSquares as Square[]) : []} captureSquares={selectedStep.captureSquares ? (selectedStep.captureSquares as Square[]) : []} dangerSquares={selectedStep.dangerSquares ? (selectedStep.dangerSquares as Square[]) : []} customArrows={selectedStep.arrows ? (selectedStep.arrows as [
             Square,
             Square
         ][]) : []} enableMoveSounds highlightSquares={targetSquare && moveState !== "idle"

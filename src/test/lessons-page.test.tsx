@@ -6,9 +6,10 @@ import { LESSON_LEVELS, LESSON_PROGRESS_STORAGE_KEY, createDefaultLessonProgress
 import { filterLevelLessons, firstAvailableLesson, getLessonAction, getLessonEntryStep, readProgress, sanitizeProgress } from "@/features/lessons/model";
 
 vi.mock("@/components/ChessBoard", () => ({
-  default: ({ onMove, interactive }: { onMove: (from: string, to: string) => boolean; interactive: boolean }) => (
+  default: ({ onMove, interactive, targetSquares = [] }: { onMove: (from: string, to: string) => boolean; interactive: boolean; targetSquares?: string[] }) => (
     <div data-testid="lesson-board">
       <button type="button" disabled={!interactive} onClick={() => onMove("e2", "e3")}>Хід e2–e3</button>
+      <span data-testid="lesson-targets">{targetSquares.join(",")}</span>
     </div>
   ),
 }));
@@ -16,9 +17,9 @@ vi.mock("@/components/ChessBoard", () => ({
 afterEach(() => { cleanup(); localStorage.clear(); });
 
 describe("Lessons course and player flow", () => {
-  it("keeps the first ten lessons readable in Ukrainian and their practice moves legal", () => {
+  it("keeps the first eleven lessons readable in Ukrainian and their practice moves legal", () => {
     const ukrainian = /[А-Яа-яІіЇїЄєҐґ]/;
-    for (const lesson of LESSON_LEVELS.slice(0, 10)) {
+    for (const lesson of LESSON_LEVELS.slice(0, 11)) {
       expect(lesson.steps).toHaveLength(5);
       for (const step of lesson.steps) {
         const copy = [step.title, step.text, step.goal, step.action, ...step.hints, step.reveal, step.errorText, step.successText].filter(Boolean);
@@ -92,6 +93,37 @@ describe("Lessons course and player flow", () => {
 
     const explainedMate = new Chess(lesson.steps[3].fen);
     expect(explainedMate.isCheckmate()).toBe(true);
+  });
+
+  it("fixes lesson eleven with a real mate in one and reveals its target progressively", () => {
+    const lesson = LESSON_LEVELS[10];
+    const practice = lesson.steps.find((step) => step.expectedMove === "e1e8");
+    const position = new Chess(practice?.fen ?? lesson.fen);
+    const move = position.move({ from: "e1", to: "e8" });
+
+    expect(lesson.title).toBe("Мат в 1 хід");
+    expect(practice?.targetRevealHint).toBe(2);
+    expect(move?.san).toBe("Re8#");
+    expect(position.isCheckmate()).toBe(true);
+
+    const progress = {
+      ...createDefaultLessonProgress(),
+      selectedLevel: "beginner" as const,
+      completedLessonIds: Array.from({ length: 10 }, (_, index) => index + 1),
+      currentLessonId: 11,
+    };
+    localStorage.setItem(LESSON_PROGRESS_STORAGE_KEY, JSON.stringify(progress));
+    render(<Lessons />);
+    fireEvent.click(screen.getByRole("button", { name: /Почати урок 11:/ }));
+    fireEvent.click(screen.getByRole("button", { name: /Продовжити/ }));
+    fireEvent.click(screen.getByRole("button", { name: /Продовжити/ }));
+
+    expect(screen.getByText("Крок 3 із 5")).toBeInTheDocument();
+    expect(screen.getByTestId("lesson-targets")).toBeEmptyDOMElement();
+    fireEvent.click(screen.getByRole("button", { name: "Підказка" }));
+    expect(screen.getByTestId("lesson-targets")).toBeEmptyDOMElement();
+    fireEvent.click(screen.getByRole("button", { name: "Підказка" }));
+    expect(screen.getByTestId("lesson-targets")).toHaveTextContent("e8");
   });
 
   it("keeps an explicit unselected level and recommends the next incomplete lesson", () => {
