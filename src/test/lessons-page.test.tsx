@@ -6,13 +6,17 @@ import { LESSON_LEVELS, LESSON_PROGRESS_STORAGE_KEY, createDefaultLessonProgress
 import { filterLevelLessons, firstAvailableLesson, getLessonAction, getLessonEntryStep, readProgress, sanitizeProgress } from "@/features/lessons/model";
 
 vi.mock("@/components/ChessBoard", () => ({
-  default: ({ onMove, interactive, targetSquares = [], highlightSquares, size }: { onMove: (from: string, to: string) => boolean; interactive: boolean; targetSquares?: string[]; highlightSquares?: { squares: string[] }; size: number }) => size < 100 ? <div data-testid="lesson-preview" /> : (
+  default: ({ onMove, interactive, targetSquares = [], highlightSquares, customArrows = [], size }: { onMove: (from: string, to: string, promotion?: string) => boolean; interactive: boolean; targetSquares?: string[]; highlightSquares?: { squares: string[] }; customArrows?: [string, string][]; size: number }) => size < 100 ? <div data-testid="lesson-preview" /> : (
     <div data-testid="lesson-board">
       <button type="button" disabled={!interactive} onClick={() => onMove("e2", "e3")}>Хід e2–e3</button>
       <button type="button" disabled={!interactive} onClick={() => onMove("f1", "b5")}>Хід f1–b5</button>
       <button type="button" disabled={!interactive} onClick={() => onMove("f1", "c4")}>Хід f1–c4</button>
+      <button type="button" disabled={!interactive} onClick={() => onMove("e1", "f1")}>Хід e1–f1</button>
+      <button type="button" disabled={!interactive} onClick={() => onMove("e1", "g1")}>Хід e1–g1</button>
+      <button type="button" disabled={!interactive} onClick={() => onMove("g7", "g8", "q")}>Хід g7–g8=Ф</button>
       <span data-testid="lesson-targets">{targetSquares.join(",")}</span>
       <span data-testid="lesson-highlights">{highlightSquares?.squares.join(",")}</span>
+      <span data-testid="lesson-arrows">{customArrows.map(([from, to]) => `${from}-${to}`).join(",")}</span>
     </div>
   ),
 }));
@@ -20,6 +24,85 @@ vi.mock("@/components/ChessBoard", () => ({
 afterEach(() => { cleanup(); localStorage.clear(); });
 
 describe("Lessons course and player flow", () => {
+  it("gives all 55 lessons unique authored practice after lesson thirteen, with legal moves and knowledge checks", () => {
+    expect(LESSON_LEVELS).toHaveLength(55);
+    const questions = new Set<string>();
+    const moves = new Set<string>();
+    for (const lesson of LESSON_LEVELS.slice(13)) {
+      expect(lesson.steps).toHaveLength(5);
+      const task = lesson.steps.find((step) => step.kind === "task");
+      const check = lesson.steps.find((step) => step.quiz);
+      expect(task?.expectedMove).toBeDefined();
+      expect(check?.quiz).toBeDefined();
+      expect(task?.targetRevealHint).toBe(2);
+      expect(lesson.shortDescription).not.toMatch(/^Практичний урок|^Глибокий урок|^Простий візуальний урок/);
+      const game = new Chess(task?.fen);
+      const move = task!.expectedMove!;
+      const played = game.move({ from: move.slice(0, 2), to: move.slice(2, 4), promotion: move[4] || "q" });
+      expect(played).not.toBeNull();
+      expect(task?.targetSquare).toBe(move.slice(2, 4));
+      expect(check?.quiz?.options[check.quiz.correctIndex]).toBeTruthy();
+      questions.add(check!.quiz!.question);
+      moves.add(`${task?.fen}:${move}`);
+    }
+    expect(questions.size).toBe(42);
+    expect(moves.size).toBe(42);
+    expect(LESSON_LEVELS[13].steps[2].expectedMove).toBe("e1g1");
+    expect(LESSON_LEVELS[52].steps[2].expectedMove).toBe("g7g8q");
+    for (const id of [24, 54]) {
+      const task = LESSON_LEVELS[id - 1].steps[2];
+      const game = new Chess(task.fen);
+      game.move({ from: task.expectedMove!.slice(0, 2), to: task.expectedMove!.slice(2, 4) });
+      expect(game.isCheckmate()).toBe(true);
+    }
+  });
+
+  it("explains a wrong move, hides the task target, and requires the knowledge check after lesson fourteen", () => {
+    localStorage.setItem(LESSON_PROGRESS_STORAGE_KEY, JSON.stringify({
+      ...createDefaultLessonProgress(), selectedLevel: "beginner", currentLessonId: 14,
+      completedLessonIds: Array.from({ length: 13 }, (_, index) => index + 1),
+    }));
+    render(<Lessons />);
+    fireEvent.click(screen.getByRole("button", { name: /Почати урок 14:/ }));
+    expect(screen.getByRole("button", { name: "Показати каталог уроків" })).toHaveAttribute("aria-expanded", "false");
+    fireEvent.click(screen.getByRole("button", { name: "Показати каталог уроків" }));
+    expect(screen.getByRole("complementary", { name: "Каталог уроків" })).not.toHaveClass("is-mobile-collapsed");
+    fireEvent.click(screen.getByRole("button", { name: "Згорнути каталог уроків" }));
+    fireEvent.click(screen.getByRole("button", { name: "Продовжити" }));
+    fireEvent.click(screen.getByRole("button", { name: "Продовжити" }));
+    expect(screen.getByTestId("lesson-targets")).toBeEmptyDOMElement();
+    expect(screen.getByTestId("lesson-arrows")).toBeEmptyDOMElement();
+    fireEvent.click(screen.getByRole("button", { name: "Хід e1–f1" }));
+    expect(screen.getByText(/Хід королем на f1 не вводить туру в гру/)).toBeInTheDocument();
+    expect(screen.getByTestId("lesson-targets")).toBeEmptyDOMElement();
+    fireEvent.click(screen.getByRole("button", { name: "Підказка" }));
+    expect(screen.getByTestId("lesson-arrows")).toHaveTextContent("e1-g1");
+    fireEvent.click(screen.getByRole("button", { name: "Хід e1–g1" }));
+    fireEvent.click(screen.getByRole("button", { name: "Продовжити" }));
+    expect(screen.getByRole("group", { name: "Перевірка знань" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Продовжити" })).toBeDisabled();
+    fireEvent.click(screen.getByRole("button", { name: "Король і тура поміняються місцями" }));
+    expect(screen.getByRole("button", { name: "Продовжити" })).toBeDisabled();
+    fireEvent.click(screen.getByRole("button", { name: "Король опиниться на g1, тура — на f1" }));
+    expect(screen.getByRole("button", { name: "Продовжити" })).toBeEnabled();
+    fireEvent.click(screen.getByRole("button", { name: "Продовжити" }));
+    fireEvent.click(screen.getByRole("button", { name: "Завершити" }));
+    expect(screen.getByText(/Урок «Безпечний король» пройдено/)).toBeInTheDocument();
+    expect(readProgress().completedLessonIds).toContain(14);
+  });
+
+  it("recognizes promotion as the expected move in the new lesson", () => {
+    localStorage.setItem(LESSON_PROGRESS_STORAGE_KEY, JSON.stringify({
+      ...createDefaultLessonProgress(), selectedLevel: "master", currentLessonId: 53,
+      completedLessonIds: Array.from({ length: 17 }, (_, index) => 36 + index),
+    }));
+    render(<Lessons />);
+    fireEvent.click(screen.getByRole("button", { name: /Почати урок 53:/ }));
+    fireEvent.click(screen.getByRole("button", { name: "Продовжити" }));
+    fireEvent.click(screen.getByRole("button", { name: "Продовжити" }));
+    fireEvent.click(screen.getByRole("button", { name: "Хід g7–g8=Ф" }));
+    expect(screen.getByRole("button", { name: "Продовжити" })).toBeEnabled();
+  });
   it("keeps the first thirteen lessons readable in Ukrainian and their practice moves legal", () => {
     const ukrainian = /[А-Яа-яІіЇїЄєҐґ]/;
     for (const lesson of LESSON_LEVELS.slice(0, 13)) {
@@ -232,16 +315,17 @@ describe("Lessons course and player flow", () => {
 
   it("filters only matching and genuinely available lessons", () => {
     const lessons = LESSON_LEVELS.filter((lesson) => lesson.level === "beginner");
-    expect(filterLevelLessons(lessons, "пішак", "all", []).map((lesson) => lesson.id)).toEqual([1]);
+    expect(filterLevelLessons(lessons, "Як ходить тура", "all", []).map((lesson) => lesson.id)).toEqual([2]);
     expect(filterLevelLessons(lessons, "", "available", [1]).map((lesson) => lesson.id)).toEqual([2]);
     expect(filterLevelLessons(lessons, "", "completed", [1]).map((lesson) => lesson.id)).toEqual([1]);
+    expect(filterLevelLessons(lessons, "", "all", [], "Дебют").map((lesson) => lesson.id)).toEqual([12, 13, 14, 15]);
   });
 
   it("searches the course and waits for the learner after a correct move", () => {
     render(<Lessons />);
     fireEvent.click(screen.getByRole("button", { name: /Початківець/ }));
     const search = screen.getByRole("textbox", { name: "Пошук уроків" });
-    fireEvent.change(search, { target: { value: "тура" } });
+    fireEvent.change(search, { target: { value: "Як ходить тура" } });
     expect(screen.getByText("Показано 1 із 15 уроків")).toBeInTheDocument();
     fireEvent.change(search, { target: { value: "" } });
     fireEvent.click(screen.getByRole("button", { name: /Почати урок 1:/ }));
@@ -275,7 +359,7 @@ describe("Lessons course and player flow", () => {
     expect(within(guide).getByRole("button", { name: "Показати розв’язок" })).toBeEnabled();
 
     fireEvent.click(within(catalog).getByRole("button", { name: "Досвідчений" }));
-    expect(within(catalog).getAllByTestId("lesson-preview")).toHaveLength(15);
+    expect(within(catalog).getAllByTestId("lesson-preview")).toHaveLength(20);
     fireEvent.click(within(catalog).getByRole("button", { name: /Почати урок 36:/ }));
     expect(within(workspace).getByText("Крок 1 із 5")).toBeInTheDocument();
     expect(within(guide).getByRole("list").children).toHaveLength(5);
