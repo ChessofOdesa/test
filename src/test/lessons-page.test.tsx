@@ -32,12 +32,34 @@ describe("Lessons course and player flow", () => {
     expect(within(home).getByRole("heading", { name: "Як ходить пішак" })).toBeInTheDocument();
     expect(within(within(home).getByRole("region", { name: "Уроки вашого рівня" })).getAllByRole("button", { name: /^(Почати|Продовжити|Повторити) урок \d+:/ })).toHaveLength(6);
     expect(within(home).getByText("0 / 55")).toBeInTheDocument();
+    const recommendedLevel = within(home).getByRole("button", { name: "Рекомендований рівень Початківець, доступний, 0 із 15 уроків пройдено" });
+    expect(recommendedLevel).toHaveClass("is-current");
+    expect(recommendedLevel).toHaveAttribute("aria-current", "true");
     expect(screen.queryByTestId("lesson-board")).not.toBeInTheDocument();
     expect(readProgress().selectedLevel).toBeNull();
 
     fireEvent.click(within(home).getByRole("button", { name: "Почати урок" }));
     expect(screen.getByTestId("lesson-board")).toBeInTheDocument();
     expect(readProgress().selectedLevel).toBe("beginner");
+  });
+
+  it("shows honest available and completed states on course level cards", () => {
+    localStorage.setItem(LESSON_PROGRESS_STORAGE_KEY, JSON.stringify({
+      ...createDefaultLessonProgress(), selectedLevel: "amateur", currentLessonId: 16,
+      completedLessonIds: Array.from({ length: 15 }, (_, index) => index + 1),
+    }));
+    render(<Lessons />);
+
+    const path = screen.getByRole("region", { name: "Ваш навчальний шлях" });
+    const beginner = within(path).getByRole("button", { name: "Обрати рівень Початківець, завершено, 15 із 15 уроків пройдено" });
+    const amateur = within(path).getByRole("button", { name: "Поточний рівень Аматор, доступний, 0 із 20 уроків пройдено" });
+    const master = within(path).getByRole("button", { name: "Обрати рівень Досвідчений, доступний, 0 із 20 уроків пройдено" });
+    expect(beginner.querySelector(".lessons-home-level-icon")).toHaveClass("is-complete");
+    expect(amateur.querySelector(".lessons-home-level-icon")).toHaveClass("is-available");
+    expect(master.querySelector(".lessons-home-level-icon")).toHaveClass("is-available");
+    expect(amateur).toHaveClass("is-current");
+    expect(amateur).toHaveAttribute("aria-current", "true");
+    expect(path.querySelectorAll(".lucide-lock-keyhole")).toHaveLength(0);
   });
 
   it("opens the recommended beginner catalog from All lessons on a fresh visit", () => {
