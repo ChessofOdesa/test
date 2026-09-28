@@ -131,8 +131,14 @@ export function LessonsHome({ progress, headingRef, onOpenCatalog, onOpenLevels,
             {LEVEL_ORDER.map((item, index) => {
               const group = getLevelLessons(item);
               const done = group.filter(lesson => completed.has(lesson.id)).length;
-              return <button type="button" key={item} onClick={() => onChooseLevel(item)} aria-label={`Обрати рівень ${LESSON_LEVEL_META[item].title}`}>
-                <span className={`lessons-home-level-icon ${done === group.length ? "is-complete" : ""}`}>{done === group.length ? <Check size={14} aria-hidden="true" /> : <LockKeyhole size={14} aria-hidden="true" />}</span>
+              const isComplete = done === group.length;
+              const isCurrent = item === level;
+              const actionCopy = isCurrent
+                ? progress.selectedLevel ? "Поточний рівень" : "Рекомендований рівень"
+                : "Обрати рівень";
+              return <button type="button" key={item} className={isCurrent ? "is-current" : undefined} aria-current={isCurrent ? "true" : undefined}
+                onClick={() => onChooseLevel(item)} aria-label={`${actionCopy} ${LESSON_LEVEL_META[item].title}, ${isComplete ? "завершено" : "доступний"}, ${done} із ${group.length} уроків пройдено`}>
+                <span className={`lessons-home-level-icon ${isComplete ? "is-complete" : "is-available"}`}>{isComplete ? <Check size={14} aria-hidden="true" /> : <BookOpen size={14} aria-hidden="true" />}</span>
                 <span className="lessons-home-level-number">{index + 1}</span>
                 <span className="lessons-home-level-arrow"><ChevronRight size={21} aria-hidden="true" /></span>
                 <strong>{LESSON_LEVEL_META[item].title}</strong>
