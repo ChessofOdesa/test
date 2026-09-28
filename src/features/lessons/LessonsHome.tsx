@@ -186,8 +186,8 @@ export function LessonsHome({ progress, headingRef, onOpenCatalog, onOpenLevels,
           <span role="listitem"><Zap size={22} aria-hidden="true" /><strong>{progress.xp}</strong><small>XP</small></span>
           <span role="listitem"><Flame size={22} aria-hidden="true" /><strong>{progress.streakDates.length}</strong><small>{ukrainianCountLabel(progress.streakDates.length, ["день занять", "дні занять", "днів занять"])}</small></span>
         </div>
-        <div className="lessons-home-meter"><div><strong>Весь курс</strong><span>{totalDone} / {LESSON_LEVELS.length} · {totalPercent}%</span></div><Progress value={totalPercent} aria-label="Прогрес усього курсу" /></div>
-        {level ? <div className="lessons-home-meter"><div><strong>{LESSON_LEVEL_META[level].title}</strong><span>{levelDone} / {lessons.length} · {levelPercent}%</span></div><Progress value={levelPercent} aria-label="Прогрес вибраного рівня" /></div> : null}
+        <div className="lessons-home-meter"><div className="lessons-home-meter-heading"><strong>Весь курс</strong><span>{totalDone} / {LESSON_LEVELS.length} · {totalPercent}%</span></div><Progress value={totalPercent} aria-label="Прогрес усього курсу" /></div>
+        {level ? <div className="lessons-home-meter"><div className="lessons-home-meter-heading"><strong>{LESSON_LEVEL_META[level].title}</strong><span>{levelDone} / {lessons.length} · {levelPercent}%</span></div><Progress value={levelPercent} aria-label="Прогрес вибраного рівня" /></div> : null}
         <button type="button" onClick={onOpenCatalog}><Trophy size={20} aria-hidden="true" /> Відкрити каталог <ArrowRight size={20} aria-hidden="true" /></button>
       </aside>
     </div>
