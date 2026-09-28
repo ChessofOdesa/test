@@ -109,6 +109,11 @@ describe("Lessons course and player flow", () => {
     expect(within(within(home).getByRole("region", { name: "Уроки вашого рівня" })).getAllByRole("button", { name: /^(Почати|Продовжити|Повторити) урок \d+:/ })).toHaveLength(6);
     expect(within(home).getByText("3 / 55")).toBeInTheDocument();
     expect(within(home).getByText("66")).toBeInTheDocument();
+    const summary = within(home).getByRole("complementary", { name: "Прогрес навчання" });
+    const meterHeadings = summary.querySelectorAll(".lessons-home-meter-heading");
+    expect(meterHeadings).toHaveLength(2);
+    expect(meterHeadings[0]).toHaveTextContent("Весь курс3 / 55 · 5%");
+    expect(meterHeadings[1]).toHaveTextContent("Досвідчений0 / 20 · 0%");
     expect(within(home).getByRole("button", { name: /Почати урок 36:/ })).toBeEnabled();
     expect(within(home).getByRole("button", { name: /Почати урок 37:/ })).toBeDisabled();
     expect(screen.queryByTestId("lesson-board")).not.toBeInTheDocument();
